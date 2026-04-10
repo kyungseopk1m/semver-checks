@@ -37,16 +37,24 @@
   "sideEffects": false,
   "keywords": [
     "semver",
+    "semantic-versioning",
     "typescript",
     "breaking-change",
+    "breaking-changes",
     "api-diff",
     "api-surface",
+    "api-compatibility",
     "semver-check",
+    "semver-checks",
     "type-checking",
+    "static-analysis",
     "cli",
     "version-bump",
+    "major-minor-patch",
+    "release",
     "npm",
-    "library"
+    "library",
+    "cargo-semver-checks"
   ],
   "repository": {
     "type": "git",
