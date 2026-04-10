@@ -36,10 +36,16 @@ export interface ApiInterfaceProperty {
   isReadonly: boolean;
 }
 
+export interface ApiInterfaceMethod {
+  name: string;
+  signatures: ApiFunctionSignature[];
+}
+
 export interface ApiInterfaceSymbol {
   kind: 'interface';
   name: string;
   properties: ApiInterfaceProperty[];
+  methods: ApiInterfaceMethod[];
   typeParameters: ApiTypeParameter[];
 }
 
@@ -50,10 +56,15 @@ export interface ApiTypeAliasSymbol {
   typeParameters: ApiTypeParameter[];
 }
 
+export interface ApiEnumMember {
+  name: string;
+  value?: string | number;
+}
+
 export interface ApiEnumSymbol {
   kind: 'enum';
   name: string;
-  members: string[];
+  members: ApiEnumMember[];
 }
 
 export interface ApiClassSymbol {

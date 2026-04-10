@@ -10,8 +10,10 @@ import type {
   ApiTypeParameter,
   ApiInterfaceSymbol,
   ApiInterfaceProperty,
+  ApiInterfaceMethod,
   ApiTypeAliasSymbol,
   ApiEnumSymbol,
+  ApiEnumMember,
   ApiClassSymbol,
   ApiVariableSymbol,
   SerializedType,
@@ -80,8 +82,10 @@ function collectExports(project: Project, entryFile: SourceFile): Record<string,
     try {
       const symbol = convertDeclaration(name, decl, checker);
       if (symbol) result[name] = symbol;
-    } catch {
-      // Skip symbols that can't be analyzed
+    } catch (err) {
+      if (process.env['SEMVER_CHECKS_VERBOSE']) {
+        process.stderr.write(`[semver-checks] warning: could not analyze '${name}': ${err}\n`);
+      }
     }
   }
 
@@ -113,7 +117,7 @@ function convertDeclaration(name: string, node: Node, checker: ReturnType<Projec
     const type = node.getType();
     // If variable holds a function type, treat as function
     if (type.getCallSignatures().length > 0) {
-      return convertFunctionType(name, type);
+      return convertFunctionType(name, type, node);
     }
     return convertVariable(name, node);
   }
@@ -121,14 +125,18 @@ function convertDeclaration(name: string, node: Node, checker: ReturnType<Projec
   return null;
 }
 
-function serializeType(type: Type): SerializedType {
-  return { text: type.getText() };
+// EDGE-4: Pass contextNode to getText() so types are resolved relative to the
+// declaration's file, not an absolute tmp path. This prevents false positives
+// when comparing git-ref snapshots (in /tmp) vs local paths.
+function serializeType(type: Type, contextNode: Node): SerializedType {
+  return { text: type.getText(contextNode) };
 }
 
-function convertTypeParams(node: { getTypeParameters?(): any[] }): ApiTypeParameter[] {
-  const params = node.getTypeParameters?.() ?? [];
+function convertTypeParams(node: Node): ApiTypeParameter[] {
+  const params = (node as any).getTypeParameters?.() ?? [];
   return params.map((tp: any) => ({
     name: tp.getName(),
+    // tp.getConstraint() returns a TypeNode here (AST node), getText() is literal source
     constraint: tp.getConstraint() ? { text: tp.getConstraint().getText() } : undefined,
     hasDefault: tp.getDefault() != null,
   }));
@@ -139,60 +147,93 @@ function convertFunction(name: string, node: Node): ApiFunctionSymbol {
   return { kind: 'function', name, signatures };
 }
 
-function convertFunctionType(name: string, type: Type): ApiFunctionSymbol {
+// EDGE-2: isRest fixed — check actual ParameterDeclaration instead of hardcoding false
+// EDGE-3: typeParameters fixed — extract from Signature instead of hardcoding []
+// EDGE-4: getText(contextNode) for path-independent type serialization
+function convertFunctionType(name: string, type: Type, contextNode: Node): ApiFunctionSymbol {
   const signatures = type.getCallSignatures().map((sig) => ({
     parameters: sig.getParameters().map((p) => {
-      const paramType = p.getTypeAtLocation(p.getValueDeclaration()!);
+      const valueDecl = p.getValueDeclaration();
+      const paramType = valueDecl ? p.getTypeAtLocation(valueDecl) : p.getDeclaredType();
+      // ParameterDeclaration has isRestParameter(); use duck-typing since ts-morph
+      // does not export a stable Node.isParameterDeclaration guard in all versions
+      const isRest = !!(valueDecl as any)?.isRestParameter?.();
       return {
         name: p.getName(),
-        type: { text: paramType.getText() },
+        type: { text: paramType.getText(contextNode) },
         isOptional: p.isOptional(),
-        isRest: false,
+        isRest,
       };
     }),
-    returnType: { text: sig.getReturnType().getText() },
-    typeParameters: [],
+    returnType: { text: sig.getReturnType().getText(contextNode) },
+    // EDGE-3: extract type parameters from the call signature
+    typeParameters: sig.getTypeParameters().map((tp) => ({
+      name: tp.getSymbol()?.getName() ?? '?',
+      constraint: tp.getConstraint() ? { text: tp.getConstraint()!.getText(contextNode) } : undefined,
+      hasDefault: tp.getDefault() != null,
+    })),
   }));
   return { kind: 'function', name, signatures };
 }
 
 function convertFunctionSignatures(node: Node): ApiFunctionSignature[] {
-  if (!Node.isFunctionDeclaration(node) && !Node.isMethodDeclaration(node) && !Node.isConstructorDeclaration(node)) {
+  if (
+    !Node.isFunctionDeclaration(node) &&
+    !Node.isMethodDeclaration(node) &&
+    !Node.isMethodSignature(node) &&
+    !Node.isConstructorDeclaration(node)
+  ) {
     return [];
   }
 
+  // EDGE-4: use node as context for getText() to avoid absolute path leakage
   const params: ApiParameter[] = node.getParameters().map((p) => ({
     name: p.getName(),
-    type: { text: p.getType().getText() },
+    type: { text: p.getType().getText(node) },
     isOptional: p.isOptional(),
     isRest: p.isRestParameter(),
   }));
 
   const returnType: SerializedType = Node.isConstructorDeclaration(node)
     ? { text: 'void' }
-    : { text: (node as any).getReturnType?.().getText() ?? 'unknown' };
+    : { text: (node as any).getReturnType?.().getText(node) ?? 'unknown' };
 
   return [{
     parameters: params,
     returnType,
-    typeParameters: convertTypeParams(node as any),
+    typeParameters: convertTypeParams(node),
   }];
 }
 
 function convertInterface(name: string, node: Node): ApiInterfaceSymbol {
-  if (!Node.isInterfaceDeclaration(node)) return { kind: 'interface', name, properties: [], typeParameters: [] };
+  if (!Node.isInterfaceDeclaration(node)) return { kind: 'interface', name, properties: [], methods: [], typeParameters: [] };
 
+  // EDGE-4: use node as context for getText()
   const properties: ApiInterfaceProperty[] = node.getProperties().map((p) => ({
     name: p.getName(),
-    type: { text: p.getType().getText() },
+    type: { text: p.getType().getText(node) },
     isOptional: p.hasQuestionToken(),
     isReadonly: p.isReadonly(),
   }));
+
+  // Group methods by name to merge overload signatures (getMethods() returns one node per overload)
+  const methodMap = new Map<string, ApiInterfaceMethod>();
+  for (const m of node.getMethods()) {
+    const methodName = m.getName();
+    const existing = methodMap.get(methodName);
+    if (existing) {
+      existing.signatures.push(...convertFunctionSignatures(m));
+    } else {
+      methodMap.set(methodName, { name: methodName, signatures: convertFunctionSignatures(m) });
+    }
+  }
+  const methods: ApiInterfaceMethod[] = [...methodMap.values()];
 
   return {
     kind: 'interface',
     name,
     properties,
+    methods,
     typeParameters: convertTypeParams(node),
   };
 }
@@ -203,18 +244,22 @@ function convertTypeAlias(name: string, node: Node): ApiTypeAliasSymbol {
   return {
     kind: 'type-alias',
     name,
-    type: { text: node.getType().getText() },
+    // EDGE-4: use node as context for getText()
+    type: { text: node.getType().getText(node) },
     typeParameters: convertTypeParams(node),
   };
 }
 
 function convertEnum(name: string, node: Node): ApiEnumSymbol {
   if (!Node.isEnumDeclaration(node)) return { kind: 'enum', name, members: [] };
-  return {
-    kind: 'enum',
-    name,
-    members: node.getMembers().map((m) => m.getName()),
-  };
+  const members: ApiEnumMember[] = node.getMembers().map((m) => {
+    const rawValue = m.getValue();
+    return {
+      name: m.getName(),
+      value: rawValue !== undefined ? rawValue : undefined,
+    };
+  });
+  return { kind: 'enum', name, members };
 }
 
 function convertClass(name: string, node: Node): ApiClassSymbol {
@@ -222,19 +267,34 @@ function convertClass(name: string, node: Node): ApiClassSymbol {
 
   const ctors = node.getConstructors().map((c) => convertFunctionSignatures(c)[0] ?? { parameters: [], returnType: { text: 'void' }, typeParameters: [] });
 
-  const methods = node.getMethods()
-    .filter((m) => !m.hasModifier(SyntaxKind.PrivateKeyword) && !m.hasModifier(SyntaxKind.ProtectedKeyword))
-    .map((m) => ({
-      name: m.getName(),
-      signatures: convertFunctionSignatures(m),
-      isStatic: m.isStatic(),
-    }));
+  // Group methods by name to merge overload signatures (getMethods() returns one node per overload)
+  const classMethodMap = new Map<string, { name: string; signatures: ApiFunctionSignature[]; isStatic: boolean }>();
+  for (const m of node.getMethods()) {
+    if (
+      m.hasModifier(SyntaxKind.PrivateKeyword) ||
+      m.hasModifier(SyntaxKind.ProtectedKeyword) ||
+      m.getName().startsWith('#')
+    ) continue;
+    const methodName = m.getName();
+    const existing = classMethodMap.get(methodName);
+    if (existing) {
+      existing.signatures.push(...convertFunctionSignatures(m));
+    } else {
+      classMethodMap.set(methodName, { name: methodName, signatures: convertFunctionSignatures(m), isStatic: m.isStatic() });
+    }
+  }
+  const methods = [...classMethodMap.values()];
 
   const properties = node.getProperties()
-    .filter((p) => !p.hasModifier(SyntaxKind.PrivateKeyword) && !p.hasModifier(SyntaxKind.ProtectedKeyword))
+    .filter((p) =>
+      !p.hasModifier(SyntaxKind.PrivateKeyword) &&
+      !p.hasModifier(SyntaxKind.ProtectedKeyword) &&
+      !p.getName().startsWith('#'),
+    )
     .map((p) => ({
       name: p.getName(),
-      type: { text: p.getType().getText() },
+      // EDGE-4: use node as context for getText()
+      type: { text: p.getType().getText(node) },
       isOptional: p.hasQuestionToken(),
       isReadonly: p.isReadonly(),
       isStatic: p.isStatic(),
@@ -254,6 +314,7 @@ function convertVariable(name: string, node: Node): ApiVariableSymbol {
   return {
     kind: 'variable',
     name,
-    type: { text: node.getType().getText() },
+    // EDGE-4: use node as context for getText()
+    type: { text: node.getType().getText(node) },
   };
 }

@@ -4,8 +4,8 @@ import { resolvePath } from './resolve/path-resolver.js';
 import { resolveGitRef, cleanupTmpDir } from './resolve/git-resolver.js';
 import type { CompareOptions, SemverReport } from './types.js';
 
-export type { CompareOptions, SemverReport, ApiChange, SemverBump, SourceRef } from './types.js';
-export type { ApiSnapshot } from './extract/api-snapshot.js';
+export type { CompareOptions, SemverReport, ApiChange, SemverBump, ChangeKind, SourceRef } from './types.js';
+export type { ApiSnapshot, ApiEnumMember, ApiInterfaceMethod } from './extract/api-snapshot.js';
 export { extract } from './extract/extractor.js';
 export { diff } from './compare/differ.js';
 

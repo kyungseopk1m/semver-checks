@@ -17,7 +17,7 @@ Existing tools like `semantic-release` and `changesets` depend on developers wri
 - Commit messages don't always match actual code impact
 - No way to verify recommendations against actual API surface
 
-semver-checks **analyzes your TypeScript public API directly** using [ts-morph](https://github.com/dsherret/ts-morph), extracts what changed, and recommends the correct SemVer bump based on 23 breaking/non-breaking change rules.
+semver-checks **analyzes your TypeScript public API directly** using [ts-morph](https://github.com/dsherret/ts-morph), extracts what changed, and recommends the correct SemVer bump based on 39 breaking/non-breaking change rules.
 
 ## Quick Start
 
@@ -123,12 +123,25 @@ interface ApiChange {
 | `required-property-added` | A required property was added to an interface |
 | `property-type-changed` | An interface property type changed |
 | `enum-member-removed` | An enum member was removed |
+| `enum-member-value-changed` | An enum member's value changed |
 | `class-method-removed` | A public class method was removed |
+| `class-method-signature-changed` | A public class method's signature changed |
 | `class-property-removed` | A public class property was removed |
+| `class-property-type-changed` | A public class property's type changed |
 | `generic-param-required` | A required generic parameter was added |
+| `generic-param-removed` | A generic parameter was removed |
+| `overload-removed` | A function overload was removed |
 | `class-constructor-changed` | A class constructor signature changed |
 | `type-alias-changed` | A type alias definition changed |
 | `variable-type-changed` | An exported variable's type changed |
+| `interface-method-removed` | An interface method was removed |
+| `interface-method-signature-changed` | An interface method's signature changed |
+| `interface-property-became-required` | An interface property changed from optional to required |
+| `class-method-became-static` | A class method changed from instance to static |
+| `class-method-became-instance` | A class method changed from static to instance |
+| `class-property-became-static` | A class property changed from instance to static |
+| `class-property-became-instance` | A class property changed from static to instance |
+| `class-property-became-required` | A class property changed from optional to required |
 
 ### New Features (MINOR)
 
@@ -142,6 +155,9 @@ interface ApiChange {
 | `generic-param-with-default` | A generic parameter with a default was added |
 | `class-method-added` | A public class method was added |
 | `class-property-added` | A public class property was added |
+| `interface-method-added` | An interface method was added |
+| `interface-property-became-optional` | An interface property changed from required to optional |
+| `class-property-became-optional` | A class property changed from required to optional |
 
 ## CLI Options
 
@@ -179,7 +195,7 @@ semver-checks snapshot [path] [options]
 
 | Tool | Input | Detection | Recommendation |
 |------|-------|-----------|---|
-| **semver-checks** | TypeScript AST analysis | 23 breaking/non-breaking rules | Automatic (major/minor/patch) |
+| **semver-checks** | TypeScript AST analysis | 39 breaking/non-breaking rules | Automatic (major/minor/patch) |
 | semantic-release | Commit message parsing | Keyword-based (feat/fix/BREAKING) | Based on message format |
 | changesets | Manual YAML declarations | Developer-declared | Manual per change |
 | npm-check-updates | package.json comparison | Version range only | Dependency updates only |
@@ -224,7 +240,7 @@ For release workflows, use `--strict` to fail the job if breaking changes are de
 1. **Extract**: Parse old and new source code using ts-morph
 2. **Snapshot**: Build an API surface representation for each version
 3. **Diff**: Compare symbols, types, and signatures
-4. **Classify**: Apply 23 rules to identify breaking/non-breaking changes
+4. **Classify**: Apply 39 rules to identify breaking/non-breaking changes
 5. **Report**: Return structured change list and recommended bump
 
 ## Example Output
@@ -274,12 +290,13 @@ Run tests in watch mode:
 npm run test:watch
 ```
 
-The package includes 29 tests covering:
+The package includes 48 tests covering:
 - Export additions/removals
-- Function parameter changes
-- Interface property changes
-- Enum member changes
-- Class method/property changes
+- Function parameter changes (add, remove, type, overload)
+- Interface property and method changes
+- Enum member changes (add, remove, value)
+- Class method/property/constructor changes
+- Generic parameter changes
 - Git reference resolution
 - JSON and text output formatting
 

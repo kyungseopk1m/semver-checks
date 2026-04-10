@@ -125,7 +125,41 @@ describe('interface property changes', () => {
   });
 });
 
+describe('interface method changes', () => {
+  it('detects interface method removed as MAJOR', () => {
+    const report = compareFixture('interface-method-removed');
+    const change = report.changes.find((c) => c.kind === 'interface-method-removed');
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('major');
+    expect(report.recommended).toBe('major');
+  });
+
+  it('detects interface method added as MINOR', () => {
+    const report = compareFixture('interface-method-added');
+    const change = report.changes.find((c) => c.kind === 'interface-method-added');
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('minor');
+    expect(report.recommended).toBe('minor');
+  });
+
+  it('detects interface method signature changed as MAJOR', () => {
+    const report = compareFixture('interface-method-changed');
+    const change = report.changes.find((c) => c.kind === 'interface-method-signature-changed');
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('major');
+    expect(report.recommended).toBe('major');
+  });
+});
+
 describe('enum changes', () => {
+  it('detects enum member value changed as MAJOR', () => {
+    const report = compareFixture('enum-member-value-changed');
+    const change = report.changes.find((c) => c.kind === 'enum-member-value-changed');
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('major');
+    expect(report.recommended).toBe('major');
+  });
+
   it('detects enum member removed as MAJOR', () => {
     const report = compareFixture('enum-member-removed');
     const change = report.changes.find((c) => c.kind === 'enum-member-removed');
@@ -144,6 +178,22 @@ describe('enum changes', () => {
 });
 
 describe('class changes', () => {
+  it('detects class method signature changed as MAJOR', () => {
+    const report = compareFixture('class-method-signature-changed');
+    const change = report.changes.find((c) => c.kind === 'class-method-signature-changed');
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('major');
+    expect(report.recommended).toBe('major');
+  });
+
+  it('detects class property type changed as MAJOR', () => {
+    const report = compareFixture('class-property-type-changed');
+    const change = report.changes.find((c) => c.kind === 'class-property-type-changed');
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('major');
+    expect(report.recommended).toBe('major');
+  });
+
   it('detects class method removed as MAJOR', () => {
     const report = compareFixture('class-method-removed');
     const change = report.changes.find((c) => c.kind === 'class-method-removed');
@@ -168,6 +218,13 @@ describe('class changes', () => {
     expect(report.recommended).toBe('major');
   });
 
+  it('detects class constructor optional→required param as MAJOR', () => {
+    const report = compareFixture('class-constructor-optional-to-required');
+    expect(report.changes.some((c) => c.kind === 'class-constructor-changed')).toBe(true);
+    expect(report.changes.some((c) => c.kind === 'required-param-added')).toBe(true);
+    expect(report.recommended).toBe('major');
+  });
+
   it('detects class method added as MINOR', () => {
     const report = compareFixture('class-method-added');
     const change = report.changes.find((c) => c.kind === 'class-method-added');
@@ -186,6 +243,14 @@ describe('class changes', () => {
 });
 
 describe('generic parameter changes', () => {
+  it('detects generic param removed as MAJOR', () => {
+    const report = compareFixture('generic-param-removed');
+    const change = report.changes.find((c) => c.kind === 'generic-param-removed');
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('major');
+    expect(report.recommended).toBe('major');
+  });
+
   it('detects required generic param added as MAJOR', () => {
     const report = compareFixture('generic-param-required');
     const change = report.changes.find((c) => c.kind === 'generic-param-required');
@@ -210,6 +275,101 @@ describe('overload changes', () => {
     expect(change).toBeDefined();
     expect(change?.severity).toBe('minor');
     expect(report.recommended).toBe('minor');
+  });
+
+  it('detects overload removed as MAJOR', () => {
+    const report = compareFixture('overload-removed');
+    const change = report.changes.find((c) => c.kind === 'overload-removed');
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('major');
+    expect(report.recommended).toBe('major');
+  });
+
+  it('detects overload signature changed as MAJOR', () => {
+    const report = compareFixture('overload-signature-changed');
+    const change = report.changes.find((c) => c.kind === 'required-param-added' || c.kind === 'param-removed');
+    expect(change).toBeDefined();
+    expect(report.recommended).toBe('major');
+  });
+});
+
+describe('function-type variable edge cases', () => {
+  it('detects rest param type changed as MAJOR (not misclassified as required-param-added)', () => {
+    const report = compareFixture('function-type-rest-changed');
+    // isRest=true means it should NOT be required-param-added; type change is MAJOR
+    expect(report.changes.some((c) => c.kind === 'param-type-changed')).toBe(true);
+    expect(report.changes.some((c) => c.kind === 'required-param-added')).toBe(false);
+    expect(report.recommended).toBe('major');
+  });
+
+  it('detects generic removed from function-type variable as MAJOR', () => {
+    const report = compareFixture('function-type-generic-changed');
+    // return type changed (T → unknown) triggers major
+    expect(report.recommended).toBe('major');
+  });
+});
+
+describe('interface property optionality changes', () => {
+  it('detects optional-to-required property as MAJOR', () => {
+    const report = compareFixture('interface-property-optional-to-required');
+    const change = report.changes.find((c) => c.kind === 'interface-property-became-required');
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('major');
+    expect(report.recommended).toBe('major');
+  });
+});
+
+describe('enum value implicit/explicit changes', () => {
+  it('detects explicit-to-implicit enum value change as MAJOR', () => {
+    const report = compareFixture('enum-member-value-explicit-to-implicit');
+    const change = report.changes.find((c) => c.kind === 'enum-member-value-changed');
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('major');
+    expect(report.recommended).toBe('major');
+  });
+});
+
+describe('class static/optional changes', () => {
+  it('detects method instance-to-static as MAJOR', () => {
+    const report = compareFixture('class-method-static-changed');
+    const change = report.changes.find((c) => c.kind === 'class-method-became-static');
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('major');
+    expect(report.recommended).toBe('major');
+  });
+
+  it('detects property instance-to-static as MAJOR', () => {
+    const report = compareFixture('class-property-static-changed');
+    const change = report.changes.find((c) => c.kind === 'class-property-became-static');
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('major');
+    expect(report.recommended).toBe('major');
+  });
+
+  it('detects class property optional-to-required as MAJOR', () => {
+    const report = compareFixture('class-property-optional-to-required');
+    const change = report.changes.find((c) => c.kind === 'class-property-became-required');
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('major');
+    expect(report.recommended).toBe('major');
+  });
+});
+
+describe('constructor overload changes', () => {
+  it('detects constructor overload signature changed as MAJOR', () => {
+    const report = compareFixture('class-constructor-overload-changed');
+    const change = report.changes.find((c) => c.kind === 'class-constructor-changed' || c.kind === 'required-param-added');
+    expect(change).toBeDefined();
+    expect(report.recommended).toBe('major');
+  });
+});
+
+describe('interface method overload extraction', () => {
+  it('detects interface method overload removed as MAJOR', () => {
+    const report = compareFixture('interface-method-overload-removed');
+    const change = report.changes.find((c) => c.kind === 'overload-removed' || c.kind === 'param-removed');
+    expect(change).toBeDefined();
+    expect(report.recommended).toBe('major');
   });
 });
 

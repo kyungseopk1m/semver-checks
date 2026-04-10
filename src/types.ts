@@ -17,6 +17,19 @@ export type ChangeKind =
   | 'class-constructor-changed'
   | 'type-alias-changed'
   | 'variable-type-changed'
+  | 'generic-param-removed'
+  | 'overload-removed'
+  | 'class-method-signature-changed'
+  | 'class-property-type-changed'
+  | 'interface-method-removed'
+  | 'interface-method-signature-changed'
+  | 'enum-member-value-changed'
+  | 'interface-property-became-required'
+  | 'class-property-became-static'
+  | 'class-property-became-instance'
+  | 'class-property-became-required'
+  | 'class-method-became-static'
+  | 'class-method-became-instance'
   // MINOR
   | 'export-added'
   | 'optional-param-added'
@@ -25,7 +38,10 @@ export type ChangeKind =
   | 'overload-added'
   | 'generic-param-with-default'
   | 'class-method-added'
-  | 'class-property-added';
+  | 'class-property-added'
+  | 'interface-method-added'
+  | 'interface-property-became-optional'
+  | 'class-property-became-optional';
 
 export interface ApiChange {
   kind: ChangeKind;

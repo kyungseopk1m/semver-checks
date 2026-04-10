@@ -28,6 +28,10 @@ export function resolveGitRef(ref: string, cwd?: string): string {
 }
 
 export function cleanupTmpDir(tmpDir: string): void {
+  const expectedPrefix = path.join(os.tmpdir(), 'semver-checks-');
+  if (!tmpDir.startsWith(expectedPrefix)) {
+    throw new Error(`Refusing to delete directory outside of tmp: '${tmpDir}'`);
+  }
   try {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   } catch {}
