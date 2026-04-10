@@ -1,0 +1,77 @@
+{
+  "name": "semver-checks",
+  "version": "0.1.0",
+  "description": "Detect breaking changes in your TypeScript library's public API. Like cargo-semver-checks, but for TypeScript.",
+  "main": "dist/cjs/index.js",
+  "module": "dist/mjs/index.js",
+  "types": "dist/mjs/index.d.ts",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/mjs/index.d.ts",
+        "default": "./dist/mjs/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/index.d.ts",
+        "default": "./dist/cjs/index.js"
+      }
+    }
+  },
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "build": "rm -fr dist/* && tsc -p tsconfig.json && tsc -p tsconfig-cjs.json && ./fixup.sh",
+    "attw": "attw --pack",
+    "publint": "publint --strict",
+    "check": "npm run attw && npm run publint",
+    "deploy": "npm run build && npm run check && npm publish --access=public"
+  },
+  "bin": {
+    "semver-checks": "bin/semver-checks.js"
+  },
+  "files": [
+    "dist",
+    "bin"
+  ],
+  "sideEffects": false,
+  "keywords": [
+    "semver",
+    "typescript",
+    "breaking-change",
+    "api-diff",
+    "api-surface",
+    "semver-check",
+    "type-checking",
+    "cli",
+    "version-bump",
+    "npm",
+    "library"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kyungseopk1m/semver-checks.git"
+  },
+  "bugs": {
+    "url": "https://github.com/kyungseopk1m/semver-checks/issues",
+    "email": "kks0919@kakao.com"
+  },
+  "homepage": "https://github.com/kyungseopk1m/semver-checks",
+  "author": "Kyungseop Kim <kks0919@kakao.com> (https://github.com/kyungseopk1m)",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "citty": "^0.1.6",
+    "picocolors": "^1.1.1",
+    "ts-morph": "^24.0.0"
+  },
+  "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.2",
+    "@types/node": "^22.13.10",
+    "publint": "^0.3.12",
+    "typescript": "^6.0.2",
+    "vitest": "^3.2.0"
+  }
+}
