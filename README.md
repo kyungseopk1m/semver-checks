@@ -285,7 +285,11 @@ The package includes 29 tests covering:
 
 ## Contributing
 
-Contributions are welcome. File issues or submit PRs on [GitHub](https://github.com/kyungseopk1m/semver-checks).
+Contributions are welcome! Please read our [Contributing Guide](.github/CONTRIBUTING.md) before submitting a pull request.
+
+This project follows the [Contributor Covenant Code of Conduct](.github/CODE_OF_CONDUCT.md).
+
+For security vulnerabilities, please see our [Security Policy](SECURITY.md).
 
 ## License
 
