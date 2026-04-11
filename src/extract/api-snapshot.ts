@@ -1,5 +1,3 @@
-import type { SymbolKind } from '../types.js';
-
 export interface SerializedType {
   text: string;
 }

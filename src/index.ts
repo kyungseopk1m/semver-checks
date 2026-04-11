@@ -51,9 +51,21 @@ export async function compare(options: CompareOptions): Promise<SemverReport> {
 async function ensureDeps(projectPath: string): Promise<void> {
   const fs = await import('fs');
   const path = await import('path');
+  const { execSync } = await import('child_process');
   const nodeModules = path.join(projectPath, 'node_modules');
   if (!fs.existsSync(nodeModules)) {
-    const { execSync } = await import('child_process');
     execSync('npm install --ignore-scripts', { cwd: projectPath, stdio: 'pipe' });
+  }
+  // P3: @types/node is a devDependency and won't be installed by default.
+  // Without it, Node.js built-in types (Buffer, NodeJS.Timeout, etc.) fall back to any.
+  const atTypesNode = path.join(projectPath, 'node_modules', '@types', 'node');
+  if (!fs.existsSync(atTypesNode)) {
+    try {
+      execSync('npm install --no-save --ignore-scripts @types/node', { cwd: projectPath, stdio: 'pipe' });
+    } catch {
+      if (process.env['SEMVER_CHECKS_VERBOSE']) {
+        process.stderr.write('[semver-checks] warning: could not install @types/node\n');
+      }
+    }
   }
 }

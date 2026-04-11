@@ -2,6 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.1] - 2026-04-11
+
+### Fixed
+
+- **import() type reference false positives**: Re-exported types (e.g., `export { User } from './types'`) could produce false positive diffs because ts-morph serialized their types as `import("/absolute/path/types").User`, with different absolute paths between old and new snapshots. A `normalizeTypeText()` function now strips these `import("...")` prefixes before comparison.
+- **Syntax errors silently ignored**: TypeScript errors in analyzed projects were silently recovered by ts-morph, potentially producing misleading snapshots. `extractFromPath()` now calls `getPreEmitDiagnostics()` and prints a warning to stderr listing up to 5 errors when TypeScript errors are found.
+- **Generic constraint changes not detected**: `classifyTypeParamChanges()` only checked type parameter count; it never compared constraint text. `<T extends { id: string }>` → `<T extends { id: string; version: number }>` is now detected as a MAJOR change.
+- **`@types/node` not installed in git archive temp dirs**: `ensureDeps()` now checks for `@types/node` after `npm install` and installs it with `--no-save` if missing, preventing Node.js built-in types (`Buffer`, `NodeJS.Timeout`, etc.) from falling back to `any`.
+
+### New `ChangeKind` values
+
+| Kind | Severity | Description |
+|------|----------|---|
+| `generic-constraint-changed` | MAJOR | A generic type parameter's constraint changed |
+
+### README
+
+- Added "Why semver-checks?" section with real-world breaking change scenarios
+- Added per-category before/after code examples for common rules
+- Added Known Limitations section
+- Added `SEMVER_CHECKS_VERBOSE=1` environment variable documentation
+- Added git ref cwd requirement note to CLI reference
+- Added snapshot CI caching workflow example
+- Updated rule count: 39 → 40, test count: 48 → 50
+
 ## [0.2.0] - 2026-04-11
 
 ### Fixed (false negatives)

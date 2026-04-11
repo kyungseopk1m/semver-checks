@@ -5,65 +5,104 @@
 
 # semver-checks
 
-Analyze TypeScript library changes and recommend SemVer bumps. Like [cargo-semver-checks](https://github.com/obi1kenobi/cargo-semver-checks) for Rust, but for TypeScript.
-
-Instead of relying on commit messages or manual declarations, **semver-checks inspects actual code and type changes** to recommend whether you need a major, minor, or patch version bump.
-
-## Why?
-
-Existing tools like `semantic-release` and `changesets` depend on developers writing correct commit messages. Real-world experience shows this breaks down:
-
-- Developers forget the conventional commit format
-- Commit messages don't always match actual code impact
-- No way to verify recommendations against actual API surface
-
-semver-checks **analyzes your TypeScript public API directly** using [ts-morph](https://github.com/dsherret/ts-morph), extracts what changed, and recommends the correct SemVer bump based on 39 breaking/non-breaking change rules.
-
-## Quick Start
-
-### Installation
-
-```bash
-npm install --save-dev semver-checks
-```
-
-### CLI Usage
-
-Compare two git references:
+Lint your TypeScript library's public API for semver violations.
 
 ```bash
 npx semver-checks compare v1.0.0 HEAD
 ```
 
-Compare local directories:
+- [Why semver-checks?](#why-semver-checks)
+- [Quick Start](#quick-start)
+- [Programmatic API](#programmatic-api)
+- [Change Rules](#change-rules)
+- [CLI Reference](#cli-reference)
+- [CI Integration](#ci-integration)
+- [Comparison with Other Tools](#comparison-with-other-tools)
+- [How It Works](#how-it-works)
+- [FAQ](#faq)
 
-```bash
-npx semver-checks compare ./v1.0.0-src ./src
+## Why semver-checks?
+
+Tools like `semantic-release` and `changesets` rely on developers writing correct commit messages. In practice, commit messages don't always reflect actual API impact — a "small refactor" that removes a required export gets published as a patch, and downstream consumers' builds break.
+
+semver-checks **analyzes your TypeScript public API directly** using [ts-morph](https://github.com/dsherret/ts-morph) and recommends the correct SemVer bump based on what actually changed in the type signatures — not what the commit message says.
+
+```typescript
+// v1.0.0
+export interface Config { host: string; port: number; }
+
+// Developer writes: "fix: add missing timeout config"
+// Published as patch — but this is a MAJOR change:
+export interface Config { host: string; port: number; timeout: number; }
+//                                                    ^^^^^^^^^^^^^^^^ required-property-added
 ```
 
-Output formatted as JSON:
+```typescript
+// v1.0.0
+export function findUser(id: string): User | null;
+
+// Developer writes: "refactor: simplify findUser return"
+// Published as minor — but consumers checking `result === null` silently break at runtime:
+export function findUser(id: string): User;
+//                                    ^^^^ return-type-changed (MAJOR)
+```
+
+semver-checks is complementary to your existing release workflow. Use it as a **verification step** before publishing — it tells you whether your intended bump is safe, or whether you're about to ship a breaking change by accident.
+
+## Quick Start
+
+```bash
+npm install --save-dev semver-checks
+```
+
+Compare a git tag to the current working tree:
+
+```bash
+npx semver-checks compare v1.0.0 HEAD
+```
+
+Compare two local directories:
+
+```bash
+npx semver-checks compare ./old ./new
+```
+
+Output as JSON:
 
 ```bash
 npx semver-checks compare v1.0.0 HEAD --format json
 ```
 
-Strict mode for CI (exit code 1 if breaking changes found):
+Fail in CI if breaking changes are detected (`exit 1`):
 
 ```bash
 npx semver-checks compare v1.0.0 HEAD --strict
 ```
 
-View API surface snapshot:
+Inspect the API surface of the current or a past version:
 
 ```bash
 npx semver-checks snapshot
 npx semver-checks snapshot --ref v1.0.0
 ```
 
+### Example output
+
+```
+BREAKING CHANGES (2):
+  required-property-added: Required property 'timeout' was added to 'Config'
+  return-type-changed: Return type of 'findUser' changed from 'User | null' to 'User'
+
+FEATURES (1):
+  export-added: Export 'createConfig' was added
+
+Recommendation: MAJOR (breaking changes detected)
+```
+
 ## Programmatic API
 
 ```typescript
-import { compare } from 'semver-checks';
+import { compare, extract } from 'semver-checks';
 
 const report = await compare({
   oldSource: { type: 'git', ref: 'v1.0.0' },
@@ -72,10 +111,8 @@ const report = await compare({
 
 console.log(report.recommended); // 'major' | 'minor' | 'patch'
 console.log(report.changes);     // ApiChange[]
-console.log(report.summary);     // { major: 3, minor: 1, patch: 0 }
+console.log(report.summary);     // { major: 2, minor: 1, patch: 0 }
 ```
-
-### Types
 
 ```typescript
 interface CompareOptions {
@@ -91,11 +128,7 @@ type SourceRef =
 interface SemverReport {
   recommended: 'major' | 'minor' | 'patch';
   changes: ApiChange[];
-  summary: {
-    major: number;  // Count of breaking changes
-    minor: number;  // Count of new features
-    patch: number;  // Count of safe additions
-  };
+  summary: { major: number; minor: number; patch: number };
 }
 
 interface ApiChange {
@@ -108,103 +141,107 @@ interface ApiChange {
 }
 ```
 
-## Supported Change Rules
+You can also extract a snapshot independently:
 
-### Breaking Changes (MAJOR)
+```typescript
+import { extract } from 'semver-checks';
+
+const snapshot = await extract({ projectPath: '.' });
+console.log(Object.keys(snapshot.symbols)); // all exported symbol names
+```
+
+## Change Rules
+
+### Breaking changes (MAJOR)
 
 | Rule | Description |
 |------|---|
 | `export-removed` | A public export was removed |
 | `required-param-added` | A required parameter was added to a function |
-| `param-removed` | A parameter was removed from a function |
+| `param-removed` | A parameter was removed |
+| `param-type-changed` | A parameter's type changed |
 | `return-type-changed` | A function's return type changed |
-| `param-type-changed` | A parameter type changed |
 | `property-removed` | An interface property was removed |
 | `required-property-added` | A required property was added to an interface |
-| `property-type-changed` | An interface property type changed |
-| `enum-member-removed` | An enum member was removed |
-| `enum-member-value-changed` | An enum member's value changed |
-| `class-method-removed` | A public class method was removed |
-| `class-method-signature-changed` | A public class method's signature changed |
-| `class-property-removed` | A public class property was removed |
-| `class-property-type-changed` | A public class property's type changed |
-| `generic-param-required` | A required generic parameter was added |
-| `generic-param-removed` | A generic parameter was removed |
-| `overload-removed` | A function overload was removed |
-| `class-constructor-changed` | A class constructor signature changed |
-| `type-alias-changed` | A type alias definition changed |
-| `variable-type-changed` | An exported variable's type changed |
+| `property-type-changed` | An interface property's type changed |
+| `interface-property-became-required` | An optional interface property became required |
 | `interface-method-removed` | An interface method was removed |
 | `interface-method-signature-changed` | An interface method's signature changed |
-| `interface-property-became-required` | An interface property changed from optional to required |
+| `enum-member-removed` | An enum member was removed |
+| `enum-member-value-changed` | An enum member's value changed |
+| `class-constructor-changed` | A class constructor's signature changed |
+| `class-method-removed` | A public class method was removed |
+| `class-method-signature-changed` | A public class method's signature changed |
 | `class-method-became-static` | A class method changed from instance to static |
 | `class-method-became-instance` | A class method changed from static to instance |
+| `class-property-removed` | A public class property was removed |
+| `class-property-type-changed` | A public class property's type changed |
 | `class-property-became-static` | A class property changed from instance to static |
 | `class-property-became-instance` | A class property changed from static to instance |
-| `class-property-became-required` | A class property changed from optional to required |
+| `class-property-became-required` | An optional class property became required |
+| `generic-param-required` | A required generic parameter was added |
+| `generic-param-removed` | A generic parameter was removed |
+| `generic-constraint-changed` | A generic parameter's constraint changed |
+| `overload-removed` | A function overload was removed |
+| `type-alias-changed` | A type alias definition changed |
+| `variable-type-changed` | An exported variable's type changed |
 
-### New Features (MINOR)
+### New features (MINOR)
 
 | Rule | Description |
 |------|---|
-| `export-added` | A new export was added |
-| `optional-param-added` | An optional parameter was added to a function |
+| `export-added` | A new public export was added |
+| `optional-param-added` | An optional parameter was added |
 | `optional-property-added` | An optional property was added to an interface |
+| `interface-method-added` | An interface method was added |
+| `interface-property-became-optional` | A required interface property became optional |
 | `enum-member-added` | An enum member was added |
 | `overload-added` | A function overload was added |
 | `generic-param-with-default` | A generic parameter with a default was added |
 | `class-method-added` | A public class method was added |
 | `class-property-added` | A public class property was added |
-| `interface-method-added` | An interface method was added |
-| `interface-property-became-optional` | An interface property changed from required to optional |
-| `class-property-became-optional` | A class property changed from required to optional |
+| `class-property-became-optional` | A required class property became optional |
 
-## CLI Options
+## CLI Reference
 
 ### compare
 
-```bash
+```
 semver-checks compare <old> [new] [options]
 ```
 
 | Option | Short | Description | Default |
 |--------|-------|---|---|
-| `--entry <path>` | `-e` | Entry file (e.g., `src/index.ts`) | Auto-detect |
-| `--format <type>` | `-f` | Output format: `text` or `json` | `text` |
-| `--strict` | `-s` | Exit code 1 if breaking changes found | `false` |
+| `--entry <path>` | `-e` | Entry file path (e.g., `src/index.ts`) | Auto-detect |
+| `--format <type>` | `-f` | `text` or `json` | `text` |
+| `--strict` | `-s` | Exit 1 if breaking changes are found | `false` |
 
 **Arguments:**
-- `<old>`: Git reference (tag, branch, commit) or local path to old version
-- `[new]`: Git reference or path to new version; defaults to current directory (`.`)
+- `<old>`: git ref (tag, branch, commit SHA) or local directory path to the old version
+- `[new]`: git ref or path to the new version; defaults to `.` (current directory)
+
+> When using git refs, the command must run inside a git repository. The ref is resolved
+> against the working directory's repo.
 
 ### snapshot
 
-```bash
+```
 semver-checks snapshot [path] [options]
 ```
 
 | Option | Short | Description |
 |--------|-------|---|
-| `--ref <ref>` | `-r` | Git reference instead of path |
-| `--entry <path>` | `-e` | Entry file |
+| `--ref <ref>` | `-r` | Use a git ref instead of a local path |
+| `--entry <path>` | `-e` | Entry file path |
 
 **Arguments:**
-- `[path]`: Project path; defaults to current directory (`.`)
+- `[path]`: project path; defaults to `.` (current directory)
 
-## Comparison with Other Tools
+### Environment variables
 
-| Tool | Input | Detection | Recommendation |
-|------|-------|-----------|---|
-| **semver-checks** | TypeScript AST analysis | 39 breaking/non-breaking rules | Automatic (major/minor/patch) |
-| semantic-release | Commit message parsing | Keyword-based (feat/fix/BREAKING) | Based on message format |
-| changesets | Manual YAML declarations | Developer-declared | Manual per change |
-| npm-check-updates | package.json comparison | Version range only | Dependency updates only |
-
-semver-checks is **strict and automated**: it analyzes actual code changes, not commit messages or manual declarations. This makes it perfect for:
-
-- **CI/CD gates**: Block releases with breaking changes
-- **API design reviews**: Catch unintended breaking changes before merging
-- **Version verification**: Confirm the recommended bump matches your changes
+| Variable | Description |
+|----------|---|
+| `SEMVER_CHECKS_VERBOSE=1` | Print warnings for skipped symbols, type resolution failures, and dependency install issues |
 
 ## CI Integration
 
@@ -223,7 +260,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Required to access git tags
+          fetch-depth: 0  # Required to access git history
 
       - uses: actions/setup-node@v4
         with:
@@ -233,85 +270,103 @@ jobs:
         run: npx semver-checks compare v$(node -p "require('./package.json').version") HEAD --strict
 ```
 
-For release workflows, use `--strict` to fail the job if breaking changes are detected without a major version bump.
+### With snapshot caching
+
+To avoid re-extracting the baseline on every run, cache the snapshot file:
+
+```yaml
+- name: Restore baseline snapshot
+  id: cache
+  uses: actions/cache@v4
+  with:
+    path: .semver-baseline.json
+    key: semver-${{ github.event.pull_request.base.sha }}
+
+- name: Generate baseline snapshot
+  if: steps.cache.outputs.cache-hit != 'true'
+  run: npx semver-checks snapshot --ref ${{ github.event.pull_request.base.sha }} > .semver-baseline.json
+```
+
+## Comparison with Other Tools
+
+| | semver-checks | semantic-release | changesets | npm-check-updates |
+|---|---|---|---|---|
+| Input | TypeScript AST | Commit messages | Manual YAML | package.json |
+| Detection | 40 typed rules | Keyword matching | Developer-declared | Version range only |
+| Recommendation | Automatic | Based on message format | Manual per change | Dependency updates only |
+
+semver-checks is **not** a replacement for release tooling — it's a verification layer. Use it alongside `semantic-release` or `changesets` to ensure the declared bump actually matches the code changes.
 
 ## How It Works
 
-1. **Extract**: Parse old and new source code using ts-morph
-2. **Snapshot**: Build an API surface representation for each version
-3. **Diff**: Compare symbols, types, and signatures
-4. **Classify**: Apply 39 rules to identify breaking/non-breaking changes
-5. **Report**: Return structured change list and recommended bump
+1. **Extract**: Parse old and new TypeScript source files using ts-morph, building a typed API snapshot (functions, interfaces, enums, classes, type aliases, variables)
+2. **Diff**: Compare the two snapshots symbol by symbol — detect additions, removals, and signature changes
+3. **Classify**: Apply the 40 classification rules to each diff, assigning `major`, `minor`, or `patch` severity
+4. **Report**: Return a structured `SemverReport` with the recommended bump and per-change details
 
-## Example Output
+For git ref comparisons, the ref is extracted to a temporary directory via `git archive`, dependencies are installed, and the directory is cleaned up after extraction.
 
-```
-BREAKING CHANGES (1):
-  export-removed: Export 'oldFunction' was removed
-  └─ src/index.ts
+## FAQ
 
-FEATURES (2):
-  export-added: Export 'newFunction' was added
-  export-added: Export 'Helper' was added
-  └─ src/index.ts
+### Will semver-checks catch every semver violation?
 
-Recommendation: MAJOR (breaking changes detected)
-```
+No. The tool catches API surface changes that are mechanically detectable from TypeScript's static type system: removed exports, signature changes, type changes, optionality changes, and so on. It does not detect behavioral changes, documentation changes, or changes hidden behind conditional compilation.
+
+### Does it have false positives?
+
+Occasionally. Types are compared as serialized text, not semantically — `string | number` and `number | string` are treated as different types. In practice this is rare for typical library APIs.
+
+### Does it support default exports?
+
+Not currently. Only named exports are analyzed.
+
+### Can I use it without a tsconfig.json?
+
+No. `tsconfig.json` must exist at the project root (or at the path inferred from the `exports` field in `package.json`).
+
+### What happens if the analyzed project has TypeScript errors?
+
+semver-checks will print a warning to stderr listing up to 5 errors and continue. Results may be incomplete if type errors affect the API surface. Set `SEMVER_CHECKS_VERBOSE=1` for full diagnostics.
+
+### How is the entry point determined?
+
+semver-checks looks for the entry file in this order:
+1. The `--entry` flag if provided
+2. The `types` field under `exports['.']` in `package.json`
+3. The top-level `types` or `typings` field in `package.json`
+4. `src/index.ts`, then `index.ts` as fallbacks
+
+### Does it work with monorepos?
+
+Yes. Point `--entry` at the package's specific entry file, or run the CLI from the package's subdirectory.
 
 ## Requirements
 
 - Node.js ≥ 18.0.0
-- TypeScript source files with exported public API
-- `tsconfig.json` in project root (or specified path)
+- `tsconfig.json` present in the analyzed project
+- TypeScript source files (`.ts`/`.tsx`) — not compiled `.d.ts` files
 
-### Dual Module Support
+### Dual module support
 
-semver-checks exports both CommonJS and ES modules:
+semver-checks ships both CommonJS and ES module builds:
 
 ```javascript
-// ES module
+// ESM
 import { compare } from 'semver-checks';
 
-// CommonJS
+// CJS
 const { compare } = require('semver-checks');
 ```
 
-## Testing
-
-Run the test suite:
-
-```bash
-npm test
-```
-
-Run tests in watch mode:
-
-```bash
-npm run test:watch
-```
-
-The package includes 48 tests covering:
-- Export additions/removals
-- Function parameter changes (add, remove, type, overload)
-- Interface property and method changes
-- Enum member changes (add, remove, value)
-- Class method/property/constructor changes
-- Generic parameter changes
-- Git reference resolution
-- JSON and text output formatting
-
 ## Contributing
 
-Contributions are welcome! Please read our [Contributing Guide](.github/CONTRIBUTING.md) before submitting a pull request.
+Contributions are welcome. Please read [CONTRIBUTING.md](.github/CONTRIBUTING.md) before submitting a pull request.
 
-This project follows the [Contributor Covenant Code of Conduct](.github/CODE_OF_CONDUCT.md).
-
-For security vulnerabilities, please see our [Security Policy](SECURITY.md).
 
 ## License
 
-MIT License. See [LICENSE](LICENSE) file.
+MIT. See [LICENSE](LICENSE).
 
 ## Author
 
-Kyungseop Kim - [@kyungseopk1m](https://github.com/kyungseopk1m)
+Kyungseop Kim — [@kyungseopk1m](https://github.com/kyungseopk1m)

@@ -6,7 +6,8 @@ As a pre-1.0 project, only the latest release is actively supported with securit
 
 | Version | Supported |
 | ------- | --------- |
-| 0.1.x   | ✅        |
+| 0.2.x   | ✅        |
+| 0.1.x   | ❌        |
 
 ## Reporting a Vulnerability
 

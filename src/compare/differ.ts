@@ -1,14 +1,8 @@
 import type { ApiSnapshot } from '../extract/api-snapshot.js';
-import type { ApiChange, SemverBump } from '../types.js';
+import type { SemverReport, SemverBump } from '../types.js';
 import { classifyChanges } from '../classify/classifier.js';
 
-export interface DiffResult {
-  changes: ApiChange[];
-  recommended: SemverBump;
-  summary: { major: number; minor: number; patch: number };
-}
-
-export function diff(oldSnap: ApiSnapshot, newSnap: ApiSnapshot): DiffResult {
+export function diff(oldSnap: ApiSnapshot, newSnap: ApiSnapshot): SemverReport {
   const changes = classifyChanges(oldSnap, newSnap);
 
   const summary = { major: 0, minor: 0, patch: 0 };

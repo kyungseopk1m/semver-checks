@@ -47,8 +47,9 @@ const compareCommand = defineCommand({
   async run({ args }) {
     const oldRef = args.old;
     const newRef = args.new ?? '.';
-    const isOldPath = oldRef.startsWith('.') || oldRef.startsWith('/');
-    const isNewPath = newRef.startsWith('.') || newRef.startsWith('/');
+    const isPath = (ref: string) => ref.startsWith('.') || ref.startsWith('/') || ref.startsWith('~');
+    const isOldPath = isPath(oldRef);
+    const isNewPath = isPath(newRef);
 
     try {
       const report = await compare({

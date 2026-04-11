@@ -108,6 +108,23 @@ function classifyTypeParamChanges(symbolPath: string, oldTPs: ApiTypeParameter[]
       });
     }
   }
+  // Compare constraints of existing type parameters
+  const commonCount = Math.min(oldTPs.length, newTPs.length);
+  for (let i = 0; i < commonCount; i++) {
+    const oldConstraint = oldTPs[i].constraint?.text ?? null;
+    const newConstraint = newTPs[i].constraint?.text ?? null;
+    if (oldConstraint !== newConstraint) {
+      changes.push({
+        kind: 'generic-constraint-changed',
+        severity: 'major',
+        symbolPath,
+        message: `Generic constraint on '${oldTPs[i].name}' changed in '${symbolPath}'`,
+        oldValue: oldConstraint ?? '(none)',
+        newValue: newConstraint ?? '(none)',
+      });
+    }
+  }
+
   return changes;
 }
 

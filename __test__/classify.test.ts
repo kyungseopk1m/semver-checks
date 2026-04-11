@@ -373,6 +373,24 @@ describe('interface method overload extraction', () => {
   });
 });
 
+describe('import type normalization', () => {
+  it('does not false-positive on re-exported types from another file', () => {
+    const report = compareFixture('import-type-reexport');
+    expect(report.changes).toHaveLength(0);
+    expect(report.recommended).toBe('patch');
+  });
+});
+
+describe('generic constraint changes', () => {
+  it('detects generic constraint changed as MAJOR', () => {
+    const report = compareFixture('generic-constraint-changed');
+    const change = report.changes.find((c) => c.kind === 'generic-constraint-changed');
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('major');
+    expect(report.recommended).toBe('major');
+  });
+});
+
 describe('type alias and variable changes', () => {
   it('detects type alias changed as MAJOR', () => {
     const report = compareFixture('type-alias-changed');

@@ -18,6 +18,7 @@ export type ChangeKind =
   | 'type-alias-changed'
   | 'variable-type-changed'
   | 'generic-param-removed'
+  | 'generic-constraint-changed'
   | 'overload-removed'
   | 'class-method-signature-changed'
   | 'class-property-type-changed'
@@ -61,14 +62,6 @@ export interface SemverReport {
     patch: number;
   };
 }
-
-export type SymbolKind =
-  | 'function'
-  | 'interface'
-  | 'type-alias'
-  | 'enum'
-  | 'class'
-  | 'variable';
 
 export interface CompareOptions {
   oldSource: SourceRef;
