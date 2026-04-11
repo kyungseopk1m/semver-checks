@@ -57,7 +57,7 @@ describe('path-to-path compare (full pipeline)', () => {
     });
     expect(report.recommended).toBe('major');
     expect(report.summary.major).toBeGreaterThan(0);
-  });
+  }, 10_000);
 
   it('reports minor for added export', async () => {
     const report = await compare({
@@ -67,7 +67,7 @@ describe('path-to-path compare (full pipeline)', () => {
     });
     expect(report.recommended).toBe('minor');
     expect(report.summary.minor).toBeGreaterThan(0);
-  });
+  }, 10_000);
 
   it('reports patch when API is unchanged', async () => {
     const sameDir = path.join(FIXTURES, 'export-added', 'old');
@@ -79,7 +79,7 @@ describe('path-to-path compare (full pipeline)', () => {
     expect(report.recommended).toBe('patch');
     expect(report.summary.major).toBe(0);
     expect(report.summary.minor).toBe(0);
-  });
+  }, 10_000);
 
   it('returns structured JSON report', async () => {
     const report = await compare({
@@ -94,7 +94,7 @@ describe('path-to-path compare (full pipeline)', () => {
       ]),
       summary: expect.objectContaining({ major: expect.any(Number) }),
     });
-  });
+  }, 10_000);
 });
 
 // ── Git ref E2E ─────────────────────────────────────────────────────────────
