@@ -317,6 +317,22 @@ describe('interface property optionality changes', () => {
     expect(change?.severity).toBe('major');
     expect(report.recommended).toBe('major');
   });
+
+  it('detects mutable-to-readonly property as MAJOR', () => {
+    const report = compareFixture('interface-property-readonly-added');
+    const change = report.changes.find((c) => c.kind === 'interface-property-became-readonly');
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('major');
+    expect(report.recommended).toBe('major');
+  });
+
+  it('detects readonly-to-mutable property as MINOR', () => {
+    const report = compareFixture('interface-property-readonly-removed');
+    const change = report.changes.find((c) => c.kind === 'interface-property-became-mutable');
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('minor');
+    expect(report.recommended).toBe('minor');
+  });
 });
 
 describe('enum value implicit/explicit changes', () => {
@@ -353,6 +369,22 @@ describe('class static/optional changes', () => {
     expect(change?.severity).toBe('major');
     expect(report.recommended).toBe('major');
   });
+
+  it('detects class property mutable-to-readonly as MAJOR', () => {
+    const report = compareFixture('class-property-readonly-added');
+    const change = report.changes.find((c) => c.kind === 'class-property-became-readonly');
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('major');
+    expect(report.recommended).toBe('major');
+  });
+
+  it('detects class property readonly-to-mutable as MINOR', () => {
+    const report = compareFixture('class-property-readonly-removed');
+    const change = report.changes.find((c) => c.kind === 'class-property-became-mutable');
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('minor');
+    expect(report.recommended).toBe('minor');
+  });
 });
 
 describe('constructor overload changes', () => {
@@ -369,6 +401,14 @@ describe('interface method overload extraction', () => {
     const report = compareFixture('interface-method-overload-removed');
     const change = report.changes.find((c) => c.kind === 'overload-removed' || c.kind === 'param-removed');
     expect(change).toBeDefined();
+    expect(report.recommended).toBe('major');
+  });
+
+  it('detects interface method generic param added as MAJOR', () => {
+    const report = compareFixture('interface-method-generic-param-added');
+    const change = report.changes.find((c) => c.kind === 'generic-param-required');
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('major');
     expect(report.recommended).toBe('major');
   });
 });
@@ -389,6 +429,14 @@ describe('generic constraint changes', () => {
     expect(change?.severity).toBe('major');
     expect(report.recommended).toBe('major');
   });
+
+  it('detects class method generic constraint changed as MAJOR', () => {
+    const report = compareFixture('class-method-generic-constraint-changed');
+    const change = report.changes.find((c) => c.kind === 'generic-constraint-changed');
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('major');
+    expect(report.recommended).toBe('major');
+  });
 });
 
 describe('type alias and variable changes', () => {
@@ -403,6 +451,20 @@ describe('type alias and variable changes', () => {
   it('detects variable type changed as MAJOR', () => {
     const report = compareFixture('variable-type-changed');
     const change = report.changes.find((c) => c.kind === 'variable-type-changed');
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('major');
+    expect(report.recommended).toBe('major');
+  });
+
+  it('does not flag equivalent union member reordering', () => {
+    const report = compareFixture('type-alias-union-reordered');
+    expect(report.changes).toHaveLength(0);
+    expect(report.recommended).toBe('patch');
+  });
+
+  it('still detects grouped type alias changes when parentheses matter', () => {
+    const report = compareFixture('type-alias-grouping-changed');
+    const change = report.changes.find((c) => c.kind === 'type-alias-changed');
     expect(change).toBeDefined();
     expect(change?.severity).toBe('major');
     expect(report.recommended).toBe('major');

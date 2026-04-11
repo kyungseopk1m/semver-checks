@@ -320,6 +320,22 @@ function classifyInterfaceChanges(name: string, oldIf: ApiInterfaceSymbol, newIf
         message: `Property '${propName}' became optional in interface '${name}'`,
       });
     }
+    if (!oldProp.isReadonly && newProp.isReadonly) {
+      changes.push({
+        kind: 'interface-property-became-readonly',
+        severity: 'major',
+        symbolPath: `${name}.${propName}`,
+        message: `Property '${propName}' became readonly in interface '${name}'`,
+      });
+    }
+    if (oldProp.isReadonly && !newProp.isReadonly) {
+      changes.push({
+        kind: 'interface-property-became-mutable',
+        severity: 'minor',
+        symbolPath: `${name}.${propName}`,
+        message: `Property '${propName}' became mutable in interface '${name}'`,
+      });
+    }
   }
 
   // Methods
@@ -378,6 +394,7 @@ function classifyInterfaceChanges(name: string, oldIf: ApiInterfaceSymbol, newIf
       const newSig = newMethod.signatures[i];
       if (!oldSig || !newSig) continue;
       allSigChanges.push(...compareFunctionSignature(`${name}.${methodName}`, oldSig, newSig));
+      allSigChanges.push(...classifyTypeParamChanges(`${name}.${methodName}`, oldSig.typeParameters, newSig.typeParameters));
     }
     if (allSigChanges.length > 0) {
       changes.push({
@@ -559,6 +576,7 @@ function classifyClassChanges(name: string, oldCls: ApiClassSymbol, newCls: ApiC
       const newSig = newMethod.signatures[i];
       if (!oldSig || !newSig) continue;
       allSigChanges.push(...compareFunctionSignature(`${name}.${methodName}`, oldSig, newSig));
+      allSigChanges.push(...classifyTypeParamChanges(`${name}.${methodName}`, oldSig.typeParameters, newSig.typeParameters));
     }
     if (allSigChanges.length > 0) {
       changes.push({
@@ -641,6 +659,22 @@ function classifyClassChanges(name: string, oldCls: ApiClassSymbol, newCls: ApiC
         severity: 'minor',
         symbolPath: `${name}.${propName}`,
         message: `Property '${propName}' became optional in class '${name}'`,
+      });
+    }
+    if (!oldProp.isReadonly && newProp.isReadonly) {
+      changes.push({
+        kind: 'class-property-became-readonly',
+        severity: 'major',
+        symbolPath: `${name}.${propName}`,
+        message: `Property '${propName}' became readonly in class '${name}'`,
+      });
+    }
+    if (oldProp.isReadonly && !newProp.isReadonly) {
+      changes.push({
+        kind: 'class-property-became-mutable',
+        severity: 'minor',
+        symbolPath: `${name}.${propName}`,
+        message: `Property '${propName}' became mutable in class '${name}'`,
       });
     }
   }

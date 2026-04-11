@@ -144,7 +144,136 @@ function convertDeclaration(name: string, node: Node): ApiSymbol | null {
 // another file. Two snapshots extracted from different directories produce
 // different absolute paths inside import("..."), causing false positive diffs.
 function normalizeTypeText(text: string): string {
-  return text.replace(/import\("[^"]*"\)\./g, '');
+  return canonicalizeTypeText(
+    text
+      .replace(/import\("[^"]*"\)\./g, '')
+      .replace(/\s+/g, ' ')
+      .trim(),
+  );
+}
+
+function canonicalizeTypeText(text: string): string {
+  const trimmed = stripOuterParens(text);
+
+  const unionParts = splitTopLevel(trimmed, '|');
+  if (unionParts.length > 1 && canNormalizeBinaryParts(unionParts)) {
+    return unionParts
+      .map((part) => canonicalizeTypeText(part))
+      .sort()
+      .join(' | ');
+  }
+
+  const intersectionParts = splitTopLevel(trimmed, '&');
+  if (intersectionParts.length > 1 && canNormalizeBinaryParts(intersectionParts)) {
+    return intersectionParts
+      .map((part) => canonicalizeTypeText(part))
+      .sort()
+      .join(' & ');
+  }
+
+  return trimmed;
+}
+
+function canNormalizeBinaryParts(parts: string[]): boolean {
+  return parts.every((part) => isAtomicTypePart(stripOuterParens(part)));
+}
+
+function isAtomicTypePart(text: string): boolean {
+  return splitTopLevel(text, '|').length === 1 && splitTopLevel(text, '&').length === 1;
+}
+
+function stripOuterParens(text: string): string {
+  let current = text.trim();
+
+  while (current.startsWith('(') && current.endsWith(')') && hasWrappingParens(current)) {
+    current = current.slice(1, -1).trim();
+  }
+
+  return current;
+}
+
+function hasWrappingParens(text: string): boolean {
+  let depth = 0;
+  let inString: '"' | '\'' | '`' | null = null;
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    const prev = i > 0 ? text[i - 1] : '';
+
+    if (inString) {
+      if (ch === inString && prev !== '\\') inString = null;
+      continue;
+    }
+
+    if (ch === '"' || ch === '\'' || ch === '`') {
+      inString = ch;
+      continue;
+    }
+
+    if (ch === '(') depth++;
+    if (ch === ')') depth--;
+    if (depth === 0 && i < text.length - 1) return false;
+  }
+
+  return depth === 0;
+}
+
+function splitTopLevel(text: string, delimiter: '|' | '&'): string[] {
+  const parts: string[] = [];
+  let depthParen = 0;
+  let depthBrace = 0;
+  let depthBracket = 0;
+  let depthAngle = 0;
+  let inString: '"' | '\'' | '`' | null = null;
+  let current = '';
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    const prev = i > 0 ? text[i - 1] : '';
+
+    if (inString) {
+      current += ch;
+      if (ch === inString && prev !== '\\') {
+        inString = null;
+      }
+      continue;
+    }
+
+    if (ch === '"' || ch === '\'' || ch === '`') {
+      inString = ch;
+      current += ch;
+      continue;
+    }
+
+    if (ch === '(') depthParen++;
+    else if (ch === ')') depthParen--;
+    else if (ch === '{') depthBrace++;
+    else if (ch === '}') depthBrace--;
+    else if (ch === '[') depthBracket++;
+    else if (ch === ']') depthBracket--;
+    else if (ch === '<') depthAngle++;
+    else if (ch === '>') depthAngle = Math.max(0, depthAngle - 1);
+
+    if (
+      ch === delimiter &&
+      depthParen === 0 &&
+      depthBrace === 0 &&
+      depthBracket === 0 &&
+      depthAngle === 0
+    ) {
+      parts.push(current.trim());
+      current = '';
+      continue;
+    }
+
+    current += ch;
+  }
+
+  if (current.length > 0) {
+    parts.push(current.trim());
+  }
+
+  return parts;
 }
 
 // EDGE-4: Pass contextNode to getText() so types are resolved relative to the

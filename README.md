@@ -67,6 +67,18 @@ Compare two local directories:
 npx semver-checks compare ./old ./new
 ```
 
+Existing relative paths without a `./` prefix are also treated as local directories:
+
+```bash
+npx semver-checks compare packages/core packages/core-next
+```
+
+If a git ref collides with an existing path name, force ref interpretation explicitly:
+
+```bash
+npx semver-checks compare main HEAD --old-as ref
+```
+
 Output as JSON:
 
 ```bash
@@ -119,6 +131,7 @@ interface CompareOptions {
   oldSource: SourceRef;
   newSource: SourceRef;
   entry?: string; // Optional: specify entry point (e.g., 'src/index.ts')
+  installDeps?: boolean; // Optional: install deps before analyzing local path sources
 }
 
 type SourceRef =
@@ -165,6 +178,7 @@ console.log(Object.keys(snapshot.symbols)); // all exported symbol names
 | `required-property-added` | A required property was added to an interface |
 | `property-type-changed` | An interface property's type changed |
 | `interface-property-became-required` | An optional interface property became required |
+| `interface-property-became-readonly` | An interface property changed from mutable to readonly |
 | `interface-method-removed` | An interface method was removed |
 | `interface-method-signature-changed` | An interface method's signature changed |
 | `enum-member-removed` | An enum member was removed |
@@ -179,6 +193,7 @@ console.log(Object.keys(snapshot.symbols)); // all exported symbol names
 | `class-property-became-static` | A class property changed from instance to static |
 | `class-property-became-instance` | A class property changed from static to instance |
 | `class-property-became-required` | An optional class property became required |
+| `class-property-became-readonly` | A public class property changed from mutable to readonly |
 | `generic-param-required` | A required generic parameter was added |
 | `generic-param-removed` | A generic parameter was removed |
 | `generic-constraint-changed` | A generic parameter's constraint changed |
@@ -195,12 +210,14 @@ console.log(Object.keys(snapshot.symbols)); // all exported symbol names
 | `optional-property-added` | An optional property was added to an interface |
 | `interface-method-added` | An interface method was added |
 | `interface-property-became-optional` | A required interface property became optional |
+| `interface-property-became-mutable` | An interface property changed from readonly to mutable |
 | `enum-member-added` | An enum member was added |
 | `overload-added` | A function overload was added |
 | `generic-param-with-default` | A generic parameter with a default was added |
 | `class-method-added` | A public class method was added |
 | `class-property-added` | A public class property was added |
 | `class-property-became-optional` | A required class property became optional |
+| `class-property-became-mutable` | A public class property changed from readonly to mutable |
 
 ## CLI Reference
 
@@ -215,10 +232,17 @@ semver-checks compare <old> [new] [options]
 | `--entry <path>` | `-e` | Entry file path (e.g., `src/index.ts`) | Auto-detect |
 | `--format <type>` | `-f` | `text` or `json` | `text` |
 | `--strict` | `-s` | Exit 1 if breaking changes are found | `false` |
+| `--install-deps` |  | Install dependencies before analyzing local path inputs | `false` |
+| `--old-as <kind>` |  | Force `<old>` to be interpreted as `path` or `ref` | Auto-detect |
+| `--new-as <kind>` |  | Force `[new]` to be interpreted as `path` or `ref` | Auto-detect |
 
 **Arguments:**
 - `<old>`: git ref (tag, branch, commit SHA) or local directory path to the old version
 - `[new]`: git ref or path to the new version; defaults to `.` (current directory)
+
+> If an argument matches an existing filesystem path, semver-checks treats it as a path source even without a `./` prefix.
+> Git refs are only used when no matching path exists.
+> Use `--old-as ref` or `--new-as ref` when a git ref name collides with a real path.
 
 > When using git refs, the command must run inside a git repository. The ref is resolved
 > against the working directory's repo.
@@ -233,6 +257,7 @@ semver-checks snapshot [path] [options]
 |--------|-------|---|
 | `--ref <ref>` | `-r` | Use a git ref instead of a local path |
 | `--entry <path>` | `-e` | Entry file path |
+| `--install-deps` |  | Install dependencies before analyzing a local path |
 
 **Arguments:**
 - `[path]`: project path; defaults to `.` (current directory)
@@ -292,7 +317,7 @@ To avoid re-extracting the baseline on every run, cache the snapshot file:
 | | semver-checks | semantic-release | changesets | npm-check-updates |
 |---|---|---|---|---|
 | Input | TypeScript AST | Commit messages | Manual YAML | package.json |
-| Detection | 40 typed rules | Keyword matching | Developer-declared | Version range only |
+| Detection | 44 typed rules | Keyword matching | Developer-declared | Version range only |
 | Recommendation | Automatic | Based on message format | Manual per change | Dependency updates only |
 
 semver-checks is **not** a replacement for release tooling — it's a verification layer. Use it alongside `semantic-release` or `changesets` to ensure the declared bump actually matches the code changes.
@@ -301,10 +326,10 @@ semver-checks is **not** a replacement for release tooling — it's a verificati
 
 1. **Extract**: Parse old and new TypeScript source files using ts-morph, building a typed API snapshot (functions, interfaces, enums, classes, type aliases, variables)
 2. **Diff**: Compare the two snapshots symbol by symbol — detect additions, removals, and signature changes
-3. **Classify**: Apply the 40 classification rules to each diff, assigning `major`, `minor`, or `patch` severity
+3. **Classify**: Apply the 44 classification rules to each diff, assigning `major`, `minor`, or `patch` severity
 4. **Report**: Return a structured `SemverReport` with the recommended bump and per-change details
 
-For git ref comparisons, the ref is extracted to a temporary directory via `git archive`, dependencies are installed, and the directory is cleaned up after extraction.
+For git ref comparisons, the ref is extracted to a temporary directory via `git archive`, dependencies are installed there if needed, and the directory is cleaned up after extraction. Local path comparisons do not install dependencies unless you opt in with `--install-deps` or `installDeps: true`.
 
 ## FAQ
 
@@ -314,7 +339,7 @@ No. The tool catches API surface changes that are mechanically detectable from T
 
 ### Does it have false positives?
 
-Occasionally. Types are compared as serialized text, not semantically — `string | number` and `number | string` are treated as different types. In practice this is rare for typical library APIs.
+Occasionally. Types are still compared mostly as normalized serialized text rather than full semantic assignability. Safe top-level union and intersection member reordering is normalized, so `string | number` and `number | string` no longer differ, but grouped expressions keep their original structure and deeper semantically equivalent rewrites can still produce diffs.
 
 ### Does it support default exports?
 

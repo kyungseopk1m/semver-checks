@@ -2,6 +2,41 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.0] - 2026-04-12
+
+### Fixed
+
+- **`readonly` property changes were invisible**: interface and class property snapshots already captured `isReadonly`, but the classifier ignored it. Mutable -> readonly now emits `interface-property-became-readonly` / `class-property-became-readonly` as MAJOR. Readonly -> mutable now emits `interface-property-became-mutable` / `class-property-became-mutable` as MINOR.
+- **Interface/class method generic changes were missed**: method signature comparison only checked parameters and return types. Method-level type parameter additions, removals, and constraint changes are now classified through the same `classifyTypeParamChanges()` path used by top-level functions.
+- **Bare relative path inputs were misclassified as git refs**: `semver-checks compare packages/core packages/next` would previously try `git archive` unless the path started with `./`, `/`, or `~`. CLI source resolution now checks filesystem existence first, so existing paths are treated as local sources without requiring a prefix.
+- **Path-vs-ref name collisions now have an escape hatch**: when a git ref has the same name as an existing path, `--old-as ref` / `--new-as ref` can force git interpretation.
+- **Local path comparisons mutated analyzed projects**: `compare()` always ran `npm install`, which could create `node_modules` or `package-lock.json` inside user directories. Dependency installation now happens automatically only for temporary git-ref snapshots. Local paths remain untouched unless `--install-deps` / `installDeps: true` is explicitly set.
+- **Equivalent union/intersection type reordering caused false positives**: serialized type text is now normalized so safe top-level union/intersection members are compared in a stable order. This removes diffs like `string | number` -> `number | string` without collapsing grouped expressions such as `A & (B | C)`.
+- **`~` path inputs were not expanded correctly**: path resolution now expands the home directory before resolving and existence checks.
+- **TypeScript config warning in self-analysis**: the repo's old `moduleResolution: "node"` plus `ignoreDeprecations: "6.0"` combination produced noisy self-analysis warnings on TypeScript 6. The invalid override was removed and the project build config now uses `moduleResolution: "bundler"` instead.
+
+### New `ChangeKind` values
+
+| Kind | Severity | Description |
+|------|----------|---|
+| `interface-property-became-readonly` | MAJOR | An interface property changed from mutable to readonly |
+| `class-property-became-readonly` | MAJOR | A class property changed from mutable to readonly |
+| `interface-property-became-mutable` | MINOR | An interface property changed from readonly to mutable |
+| `class-property-became-mutable` | MINOR | A class property changed from readonly to mutable |
+
+### Tests
+
+- 12 new tests added
+- Total: 50 -> **62 tests**
+
+### README
+
+- Added `--install-deps` / `installDeps` documentation
+- Documented bare relative path detection and local-path non-mutation behavior
+- Added `--old-as` / `--new-as` docs for ref/path collisions
+- Updated rule count: 40 -> 44
+- Updated false-positive notes to reflect union/intersection normalization
+
 ## [0.2.1] - 2026-04-11
 
 ### Fixed

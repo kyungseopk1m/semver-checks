@@ -40,6 +40,17 @@ function makeTmpRepo(oldSrc: string, newSrc: string): string {
   return dir;
 }
 
+function makePathProject(source: string): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'semver-checks-path-'));
+  tmpDirs.push(dir);
+  fs.writeFileSync(
+    path.join(dir, 'tsconfig.json'),
+    JSON.stringify({ compilerOptions: { strict: true, module: 'ESNext', target: 'ES2020', moduleResolution: 'bundler' }, include: ['index.ts'] }),
+  );
+  fs.writeFileSync(path.join(dir, 'index.ts'), source);
+  return dir;
+}
+
 afterAll(() => {
   for (const dir of tmpDirs) {
     try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
@@ -94,6 +105,22 @@ describe('path-to-path compare (full pipeline)', () => {
       ]),
       summary: expect.objectContaining({ major: expect.any(Number) }),
     });
+  }, 10_000);
+
+  it('does not install dependencies into local path sources by default', async () => {
+    const oldDir = makePathProject('export const version = "1.0.0";\n');
+    const newDir = makePathProject('export const version = "1.0.1";\n');
+
+    await compare({
+      oldSource: { type: 'path', path: oldDir },
+      newSource: { type: 'path', path: newDir },
+      entry: 'index.ts',
+    });
+
+    expect(fs.existsSync(path.join(oldDir, 'node_modules'))).toBe(false);
+    expect(fs.existsSync(path.join(newDir, 'node_modules'))).toBe(false);
+    expect(fs.existsSync(path.join(oldDir, 'package-lock.json'))).toBe(false);
+    expect(fs.existsSync(path.join(newDir, 'package-lock.json'))).toBe(false);
   }, 10_000);
 });
 

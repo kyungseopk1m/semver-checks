@@ -6,6 +6,8 @@ import { jsonReport } from './report/json-reporter.js';
 import { extract } from './extract/extractor.js';
 import { resolvePath } from './resolve/path-resolver.js';
 import { resolveGitRef, cleanupTmpDir } from './resolve/git-resolver.js';
+import { resolveSourceInput, type SourceInputKind } from './resolve/source-ref.js';
+import { ensureProjectDeps } from './resolve/dependency-installer.js';
 
 const _require = createRequire(import.meta.url);
 const pkg = _require('../../package.json') as { version: string };
@@ -43,19 +45,30 @@ const compareCommand = defineCommand({
       alias: 's',
       default: false,
     },
+    installDeps: {
+      type: 'boolean',
+      description: 'Install dependencies before analysis for local path inputs',
+      default: false,
+    },
+    oldAs: {
+      type: 'string',
+      description: 'Force the old input to be treated as path or ref',
+    },
+    newAs: {
+      type: 'string',
+      description: 'Force the new input to be treated as path or ref',
+    },
   },
   async run({ args }) {
     const oldRef = args.old;
     const newRef = args.new ?? '.';
-    const isPath = (ref: string) => ref.startsWith('.') || ref.startsWith('/') || ref.startsWith('~');
-    const isOldPath = isPath(oldRef);
-    const isNewPath = isPath(newRef);
 
     try {
       const report = await compare({
-        oldSource: isOldPath ? { type: 'path', path: oldRef } : { type: 'git', ref: oldRef },
-        newSource: isNewPath ? { type: 'path', path: newRef } : { type: 'git', ref: newRef },
+        oldSource: resolveSourceInput(oldRef, parseSourceInputKind(args.oldAs, '--old-as')),
+        newSource: resolveSourceInput(newRef, parseSourceInputKind(args.newAs, '--new-as')),
         entry: args.entry,
+        installDeps: args.installDeps,
       });
 
       if (args.format === 'json') {
@@ -73,6 +86,13 @@ const compareCommand = defineCommand({
     }
   },
 });
+
+function parseSourceInputKind(input: string | undefined, flagName: string): SourceInputKind | undefined {
+  if (!input) return undefined;
+  if (input === 'path') return 'path';
+  if (input === 'ref' || input === 'git') return 'git';
+  throw new Error(`${flagName} must be one of: path, ref (or git)`);
+}
 
 const snapshotCommand = defineCommand({
   meta: {
@@ -95,17 +115,27 @@ const snapshotCommand = defineCommand({
       description: 'Git ref (instead of path)',
       alias: 'r',
     },
+    installDeps: {
+      type: 'boolean',
+      description: 'Install dependencies before analysis for local path inputs',
+      default: false,
+    },
   },
   async run({ args }) {
     let projectPath: string;
     let tmpDir: string | null = null;
+    const shouldInstallDeps = !!args.installDeps;
 
     try {
       if (args.ref) {
         tmpDir = resolveGitRef(args.ref);
         projectPath = tmpDir;
+        await ensureProjectDeps(projectPath);
       } else {
         projectPath = resolvePath(args.path ?? '.');
+        if (shouldInstallDeps) {
+          await ensureProjectDeps(projectPath);
+        }
       }
 
       const snapshot = await extract({ projectPath, entry: args.entry });

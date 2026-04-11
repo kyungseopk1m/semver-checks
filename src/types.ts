@@ -26,9 +26,11 @@ export type ChangeKind =
   | 'interface-method-signature-changed'
   | 'enum-member-value-changed'
   | 'interface-property-became-required'
+  | 'interface-property-became-readonly'
   | 'class-property-became-static'
   | 'class-property-became-instance'
   | 'class-property-became-required'
+  | 'class-property-became-readonly'
   | 'class-method-became-static'
   | 'class-method-became-instance'
   // MINOR
@@ -42,7 +44,9 @@ export type ChangeKind =
   | 'class-property-added'
   | 'interface-method-added'
   | 'interface-property-became-optional'
-  | 'class-property-became-optional';
+  | 'interface-property-became-mutable'
+  | 'class-property-became-optional'
+  | 'class-property-became-mutable';
 
 export interface ApiChange {
   kind: ChangeKind;
@@ -67,6 +71,7 @@ export interface CompareOptions {
   oldSource: SourceRef;
   newSource: SourceRef;
   entry?: string;
+  installDeps?: boolean;
 }
 
 export type SourceRef =
