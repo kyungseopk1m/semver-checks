@@ -5,5 +5,5 @@
     "outDir": "dist/cjs",
     "target": "ES2022"
   },
-  "exclude": ["node_modules", "dist", "src/cli.ts"]
+  "exclude": ["node_modules", "dist", "src/cli.ts", "src/mcp.ts", "src/package-info.ts"]
 }

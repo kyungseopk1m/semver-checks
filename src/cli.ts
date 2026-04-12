@@ -1,5 +1,4 @@
 import { defineCommand, runMain } from 'citty';
-import { createRequire } from 'module';
 import { compare } from './index.js';
 import { textReport } from './report/text-reporter.js';
 import { jsonReport } from './report/json-reporter.js';
@@ -8,9 +7,7 @@ import { resolvePath } from './resolve/path-resolver.js';
 import { resolveGitRef, cleanupTmpDir } from './resolve/git-resolver.js';
 import { resolveSourceInput, type SourceInputKind } from './resolve/source-ref.js';
 import { ensureProjectDeps } from './resolve/dependency-installer.js';
-
-const _require = createRequire(import.meta.url);
-const pkg = _require('../../package.json') as { version: string };
+import { getPackageVersion } from './package-info.js';
 
 const compareCommand = defineCommand({
   meta: {
@@ -153,7 +150,7 @@ const main = defineCommand({
   meta: {
     name: 'semver-checks',
     description: 'Detect breaking changes in your TypeScript library\'s public API',
-    version: pkg.version,
+    version: getPackageVersion(),
   },
   subCommands: {
     compare: compareCommand,
@@ -161,4 +158,13 @@ const main = defineCommand({
   },
 });
 
-runMain(main);
+if (process.argv.includes('--mcp')) {
+  import('./mcp.js')
+    .then((m) => m.startMcpServer())
+    .catch((err: any) => {
+      console.error(`Error: ${err.message}`);
+      process.exit(2);
+    });
+} else {
+  runMain(main);
+}

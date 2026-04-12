@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+## [0.3.1] - 2026-04-12
+
+### Added
+
+- **MCP server support**: semver-checks now runs as a [Model Context Protocol](https://modelcontextprotocol.io) server via `semver-checks --mcp`. AI agents (Claude Code, Codex, Cursor, etc.) can call it as a tool without any custom integration.
+  - `semver_compare` — compare two versions and get a SemVer recommendation
+  - `semver_snapshot` — extract the public API surface as a JSON snapshot
+  - `semver_diff` — diff two previously extracted snapshots
+- Setup: `claude mcp add semver-checks -- npx -y semver-checks --mcp`
+
+### Changed
+
+- **MCP argument validation is now strict**: invalid string/boolean/enum inputs now return explicit tool errors instead of silently falling back to default behavior.
+- **Publish flow now runs tests automatically** via `prepublishOnly`, so `npm publish` cannot skip `vitest`, build, or `publint`.
+- **`attw` now runs in explicit release/CI steps instead of inside `prepublishOnly`**. This avoids an `ENOENT semver-checks-0.3.1.tgz` failure caused by nested `npm pack` during the `npm publish` lifecycle, while keeping package-type validation in `npm run check`, `npm run deploy`, and the GitHub publish workflow.
+- README MCP setup now documents the non-interactive `npx -y` form and clarifies that relative paths/git refs are resolved from the server process working directory.
+
+### Tests
+
+- 15 MCP server tests cover tool listing, compare/snapshot/diff flows, runtime validation errors, unknown tools, and stdio transport
+- Total: 62 -> **78 tests**
+
 ## [0.3.0] - 2026-04-12
 
 ### Fixed
@@ -148,3 +172,12 @@ Initial release.
 - Git ref comparison via `git archive`
 - Dual CJS/ESM package with full type declarations
 - npm provenance support
+
+---
+
+[Unreleased]: https://github.com/kyungseopk1m/semver-checks/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/kyungseopk1m/semver-checks/compare/v0.3.0...v0.3.1
+[0.3.0]: https://github.com/kyungseopk1m/semver-checks/compare/v0.2.1...v0.3.0
+[0.2.1]: https://github.com/kyungseopk1m/semver-checks/compare/v0.2.0...v0.2.1
+[0.2.0]: https://github.com/kyungseopk1m/semver-checks/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/kyungseopk1m/semver-checks/releases/tag/v0.1.0

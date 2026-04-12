@@ -22,17 +22,21 @@ npm run check     # attw + publint quality checks
 
 ```
 src/
-  extract/    # ts-morph API surface extraction
-  classify/   # change classification rules (23 rules)
-  compare/    # diff engine
-  resolve/    # git ref / path resolution
-  report/     # text and JSON output formatters
-  cli.ts      # CLI entry point
-  index.ts    # programmatic API entry point
-  types.ts    # shared TypeScript types
+  extract/        # ts-morph API surface extraction
+  classify/       # change classification rules (44 rules)
+  compare/        # diff engine
+  resolve/        # git ref / path resolution
+  report/         # text and JSON output formatters
+  cli.ts          # CLI entry point
+  mcp.ts          # MCP server (Model Context Protocol)
+  index.ts        # programmatic API entry point
+  package-info.ts # package.json version reader
+  types.ts        # shared TypeScript types
 
 __test__/
   classify.test.ts       # unit tests for classification rules
+  mcp.test.ts            # MCP server integration tests
+  source-ref.test.ts     # source input resolution tests
   fixtures/              # TypeScript fixture pairs for each rule
   e2e/compare.e2e.ts     # end-to-end compare tests
 ```
@@ -86,8 +90,12 @@ Add a classifier function that detects the new kind by comparing old and new AST
 
 ```
 __test__/fixtures/your-new-rule/
-  old.ts    # TypeScript source before the change
-  new.ts    # TypeScript source after the change
+  old/
+    index.ts
+    tsconfig.json
+  new/
+    index.ts
+    tsconfig.json
 ```
 
 **4. Add a test case in `__test__/classify.test.ts`**
@@ -95,7 +103,9 @@ __test__/fixtures/your-new-rule/
 ```typescript
 it('detects your-new-rule', async () => {
   const result = await classifyFromFixture('your-new-rule');
-  expect(result).toContain({ kind: 'your-new-rule', level: 'major' });
+  expect(result).toContainEqual(
+    expect.objectContaining({ kind: 'your-new-rule', severity: 'major' }),
+  );
 });
 ```
 

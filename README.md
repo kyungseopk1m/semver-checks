@@ -16,6 +16,7 @@ npx semver-checks compare v1.0.0 HEAD
 - [Programmatic API](#programmatic-api)
 - [Change Rules](#change-rules)
 - [CLI Reference](#cli-reference)
+- [MCP Server](#mcp-server)
 - [CI Integration](#ci-integration)
 - [Comparison with Other Tools](#comparison-with-other-tools)
 - [How It Works](#how-it-works)
@@ -233,8 +234,8 @@ semver-checks compare <old> [new] [options]
 | `--format <type>` | `-f` | `text` or `json` | `text` |
 | `--strict` | `-s` | Exit 1 if breaking changes are found | `false` |
 | `--install-deps` |  | Install dependencies before analyzing local path inputs | `false` |
-| `--old-as <kind>` |  | Force `<old>` to be interpreted as `path` or `ref` | Auto-detect |
-| `--new-as <kind>` |  | Force `[new]` to be interpreted as `path` or `ref` | Auto-detect |
+| `--old-as <kind>` |  | Force `<old>` to be interpreted as `path`, `ref`, or `git` | Auto-detect |
+| `--new-as <kind>` |  | Force `[new]` to be interpreted as `path`, `ref`, or `git` | Auto-detect |
 
 **Arguments:**
 - `<old>`: git ref (tag, branch, commit SHA) or local directory path to the old version
@@ -262,11 +263,95 @@ semver-checks snapshot [path] [options]
 **Arguments:**
 - `[path]`: project path; defaults to `.` (current directory)
 
+### Global options
+
+| Option | Description |
+|--------|-------------|
+| `--mcp` | Start semver-checks as an MCP server over stdio |
+
 ### Environment variables
 
 | Variable | Description |
 |----------|---|
 | `SEMVER_CHECKS_VERBOSE=1` | Print warnings for skipped symbols, type resolution failures, and dependency install issues |
+
+## MCP Server
+
+semver-checks ships as a [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server, letting AI agents (Claude Code, Codex, Cursor, etc.) call it as a tool directly.
+
+### Setup
+
+```bash
+# Claude Code
+claude mcp add semver-checks -- npx -y semver-checks --mcp
+```
+
+Use `npx -y` for global-on-demand installs so the MCP server does not block on an interactive "install this package?" prompt.
+
+Or add it to your `.claude/settings.json`:
+
+```json
+{
+  "mcpServers": {
+    "semver-checks": {
+      "command": "npx",
+      "args": ["-y", "semver-checks", "--mcp"]
+    }
+  }
+}
+```
+
+For a locally installed version:
+
+```json
+{
+  "mcpServers": {
+    "semver-checks": {
+      "command": "/path/to/node_modules/.bin/semver-checks",
+      "args": ["--mcp"]
+    }
+  }
+}
+```
+
+Relative paths and git refs are resolved from the MCP server process's current working directory. For reliable results, launch the server from the repository you want to inspect, or pass absolute filesystem paths for local sources.
+
+### Available Tools
+
+| Tool | Description |
+|------|-------------|
+| `semver_compare` | Compare two versions and get a SemVer recommendation + change list |
+| `semver_snapshot` | Extract the public API surface of a project as a JSON snapshot |
+| `semver_diff` | Diff two previously extracted snapshots |
+
+#### `semver_compare`
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `old` | string | Yes | Filesystem path or git ref (tag, branch, SHA) |
+| `new` | string | | Filesystem path or git ref. Defaults to `.` |
+| `entry` | string | | Entry file (e.g. `src/index.ts`). Auto-detected if omitted |
+| `oldAs` | `"path"` \| `"git"` | | Force interpretation of `old` |
+| `newAs` | `"path"` \| `"git"` | | Force interpretation of `new` |
+| `installDeps` | boolean | | Install dependencies before analysis |
+
+`oldAs` and `newAs` accept only `"path"` or `"git"` in MCP mode.
+
+#### `semver_snapshot`
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `path` | string | | Filesystem path or git ref. Defaults to `.` |
+| `entry` | string | | Entry file |
+| `asGitRef` | boolean | | Treat `path` as a git ref |
+| `installDeps` | boolean | | Install dependencies before analysis |
+
+#### `semver_diff`
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `oldSnapshot` | object | Yes | Snapshot JSON from `semver_snapshot` |
+| `newSnapshot` | object | Yes | Snapshot JSON from `semver_snapshot` |
 
 ## CI Integration
 
