@@ -379,8 +379,13 @@ function convertInterface(name: string, node: Node): ApiInterfaceSymbol {
     const existing = methodMap.get(methodName);
     if (existing) {
       existing.signatures.push(...convertFunctionSignatures(m));
+      existing.isOptional = existing.isOptional && m.hasQuestionToken();
     } else {
-      methodMap.set(methodName, { name: methodName, signatures: convertFunctionSignatures(m) });
+      methodMap.set(methodName, {
+        name: methodName,
+        signatures: convertFunctionSignatures(m),
+        isOptional: m.hasQuestionToken(),
+      });
     }
   }
   const methods: ApiInterfaceMethod[] = [...methodMap.values()];
@@ -432,11 +437,16 @@ function convertClass(name: string, node: Node): ApiClassSymbol {
       m.getName().startsWith('#')
     ) continue;
     const methodName = m.getName();
-    const existing = classMethodMap.get(methodName);
+    const methodKey = `${m.isStatic() ? 'static' : 'instance'}:${methodName}`;
+    const existing = classMethodMap.get(methodKey);
     if (existing) {
       existing.signatures.push(...convertFunctionSignatures(m));
     } else {
-      classMethodMap.set(methodName, { name: methodName, signatures: convertFunctionSignatures(m), isStatic: m.isStatic() });
+      classMethodMap.set(methodKey, {
+        name: methodName,
+        signatures: convertFunctionSignatures(m),
+        isStatic: m.isStatic(),
+      });
     }
   }
   const methods = [...classMethodMap.values()];

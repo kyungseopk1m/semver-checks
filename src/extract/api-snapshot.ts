@@ -37,6 +37,7 @@ export interface ApiInterfaceProperty {
 export interface ApiInterfaceMethod {
   name: string;
   signatures: ApiFunctionSignature[];
+  isOptional: boolean;
 }
 
 export interface ApiInterfaceSymbol {

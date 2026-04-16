@@ -134,8 +134,16 @@ describe('interface method changes', () => {
     expect(report.recommended).toBe('major');
   });
 
-  it('detects interface method added as MINOR', () => {
+  it('detects required interface method added as MAJOR', () => {
     const report = compareFixture('interface-method-added');
+    const change = report.changes.find((c) => c.kind === 'required-interface-method-added');
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('major');
+    expect(report.recommended).toBe('major');
+  });
+
+  it('detects optional interface method added as MINOR', () => {
+    const report = compareFixture('interface-method-optional-added');
     const change = report.changes.find((c) => c.kind === 'interface-method-added');
     expect(change).toBeDefined();
     expect(change?.severity).toBe('minor');
@@ -233,8 +241,16 @@ describe('class changes', () => {
     expect(report.recommended).toBe('minor');
   });
 
-  it('detects class property added as MINOR', () => {
+  it('detects required class property added as MAJOR', () => {
     const report = compareFixture('class-property-added');
+    const change = report.changes.find((c) => c.kind === 'required-class-property-added');
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('major');
+    expect(report.recommended).toBe('major');
+  });
+
+  it('detects optional class property added as MINOR', () => {
+    const report = compareFixture('class-property-optional-added');
     const change = report.changes.find((c) => c.kind === 'class-property-added');
     expect(change).toBeDefined();
     expect(change?.severity).toBe('minor');
@@ -305,6 +321,37 @@ describe('function-type variable edge cases', () => {
   it('detects generic removed from function-type variable as MAJOR', () => {
     const report = compareFixture('function-type-generic-changed');
     // return type changed (T → unknown) triggers major
+    expect(report.recommended).toBe('major');
+  });
+});
+
+describe('rest modifier changes', () => {
+  it('detects rest modifier removed as MAJOR', () => {
+    const report = compareFixture('rest-param-modifier-removed');
+    const change = report.changes.find((c) => c.kind === 'param-type-changed' && c.message.includes('rest modifier'));
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('major');
+    expect(report.changes.some((c) => c.kind === 'optional-param-added')).toBe(false);
+    expect(report.changes.some((c) => c.kind === 'required-param-added')).toBe(false);
+    expect(report.recommended).toBe('major');
+  });
+
+  it('detects rest modifier added as MAJOR', () => {
+    const report = compareFixture('rest-param-modifier-added');
+    const change = report.changes.find((c) => c.kind === 'param-type-changed' && c.message.includes('rest modifier'));
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('major');
+    expect(report.changes.some((c) => c.kind === 'optional-param-added')).toBe(false);
+    expect(report.changes.some((c) => c.kind === 'required-param-added')).toBe(false);
+    expect(report.recommended).toBe('major');
+  });
+
+  it('does not double-report rest+type changes as optionality changes', () => {
+    const report = compareFixture('rest-param-modifier-and-type-changed');
+    const paramTypeChanges = report.changes.filter((c) => c.kind === 'param-type-changed' && c.symbolPath === 'join.parts');
+    expect(paramTypeChanges).toHaveLength(1);
+    expect(report.changes.some((c) => c.kind === 'optional-param-added')).toBe(false);
+    expect(report.changes.some((c) => c.kind === 'required-param-added')).toBe(false);
     expect(report.recommended).toBe('major');
   });
 });
@@ -467,6 +514,26 @@ describe('type alias and variable changes', () => {
     const change = report.changes.find((c) => c.kind === 'type-alias-changed');
     expect(change).toBeDefined();
     expect(change?.severity).toBe('major');
+    expect(report.recommended).toBe('major');
+  });
+});
+
+describe('static and instance same-name coexistence', () => {
+  it('detects class method changes without collapsing static and instance methods', () => {
+    const report = compareFixture('class-method-static-instance-coexistence');
+    expect(report.changes.some((c) => c.kind === 'class-method-signature-changed')).toBe(true);
+    expect(report.changes.some((c) => c.kind === 'param-type-changed')).toBe(true);
+    expect(report.changes.some((c) => c.kind === 'class-method-added')).toBe(false);
+    expect(report.changes.some((c) => c.kind === 'class-method-removed')).toBe(false);
+    expect(report.recommended).toBe('major');
+  });
+
+  it('detects class property changes without collapsing static and instance properties', () => {
+    const report = compareFixture('class-property-static-instance-coexistence');
+    expect(report.changes.some((c) => c.kind === 'class-property-type-changed')).toBe(true);
+    expect(report.changes.some((c) => c.kind === 'class-property-added')).toBe(false);
+    expect(report.changes.some((c) => c.kind === 'required-class-property-added')).toBe(false);
+    expect(report.changes.some((c) => c.kind === 'class-property-removed')).toBe(false);
     expect(report.recommended).toBe('major');
   });
 });

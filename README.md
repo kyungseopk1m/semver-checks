@@ -181,6 +181,7 @@ console.log(Object.keys(snapshot.symbols)); // all exported symbol names
 | `interface-property-became-required` | An optional interface property became required |
 | `interface-property-became-readonly` | An interface property changed from mutable to readonly |
 | `interface-method-removed` | An interface method was removed |
+| `required-interface-method-added` | A required interface method was added |
 | `interface-method-signature-changed` | An interface method's signature changed |
 | `enum-member-removed` | An enum member was removed |
 | `enum-member-value-changed` | An enum member's value changed |
@@ -194,6 +195,7 @@ console.log(Object.keys(snapshot.symbols)); // all exported symbol names
 | `class-property-became-static` | A class property changed from instance to static |
 | `class-property-became-instance` | A class property changed from static to instance |
 | `class-property-became-required` | An optional class property became required |
+| `required-class-property-added` | A required class property was added |
 | `class-property-became-readonly` | A public class property changed from mutable to readonly |
 | `generic-param-required` | A required generic parameter was added |
 | `generic-param-removed` | A generic parameter was removed |
@@ -209,14 +211,14 @@ console.log(Object.keys(snapshot.symbols)); // all exported symbol names
 | `export-added` | A new public export was added |
 | `optional-param-added` | An optional parameter was added |
 | `optional-property-added` | An optional property was added to an interface |
-| `interface-method-added` | An interface method was added |
+| `interface-method-added` | An optional interface method was added |
 | `interface-property-became-optional` | A required interface property became optional |
 | `interface-property-became-mutable` | An interface property changed from readonly to mutable |
 | `enum-member-added` | An enum member was added |
 | `overload-added` | A function overload was added |
 | `generic-param-with-default` | A generic parameter with a default was added |
 | `class-method-added` | A public class method was added |
-| `class-property-added` | A public class property was added |
+| `class-property-added` | An optional public class property was added |
 | `class-property-became-optional` | A required class property became optional |
 | `class-property-became-mutable` | A public class property changed from readonly to mutable |
 
@@ -402,7 +404,7 @@ To avoid re-extracting the baseline on every run, cache the snapshot file:
 | | semver-checks | semantic-release | changesets | npm-check-updates |
 |---|---|---|---|---|
 | Input | TypeScript AST | Commit messages | Manual YAML | package.json |
-| Detection | 44 typed rules | Keyword matching | Developer-declared | Version range only |
+| Detection | 46 typed rules | Keyword matching | Developer-declared | Version range only |
 | Recommendation | Automatic | Based on message format | Manual per change | Dependency updates only |
 
 semver-checks is **not** a replacement for release tooling — it's a verification layer. Use it alongside `semantic-release` or `changesets` to ensure the declared bump actually matches the code changes.
@@ -411,7 +413,7 @@ semver-checks is **not** a replacement for release tooling — it's a verificati
 
 1. **Extract**: Parse old and new TypeScript source files using ts-morph, building a typed API snapshot (functions, interfaces, enums, classes, type aliases, variables)
 2. **Diff**: Compare the two snapshots symbol by symbol — detect additions, removals, and signature changes
-3. **Classify**: Apply the 44 classification rules to each diff, assigning `major`, `minor`, or `patch` severity
+3. **Classify**: Apply the 46 classification rules to each diff, assigning `major`, `minor`, or `patch` severity
 4. **Report**: Return a structured `SemverReport` with the recommended bump and per-change details
 
 For git ref comparisons, the ref is extracted to a temporary directory via `git archive`, dependencies are installed there if needed, and the directory is cleaned up after extraction. Local path comparisons do not install dependencies unless you opt in with `--install-deps` or `installDeps: true`.
