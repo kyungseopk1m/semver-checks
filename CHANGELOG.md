@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-04-16
+
+### Fixed
+
+- **Required interface method addition was classified as minor**: adding a non-optional method to an interface now emits `required-interface-method-added` as MAJOR instead of `interface-method-added` (MINOR).
+- **Required class property addition was classified as minor**: adding a non-optional property to a class now emits `required-class-property-added` as MAJOR instead of `class-property-added` (MINOR).
+- **Rest parameter modifier changes were undetected**: changing `...args: T[]` to `args: T[]` (or vice versa) now emits `param-type-changed` as MAJOR.
+- **Static and instance members with the same name were collapsed**: class method and property grouping now uses `static:name` / `instance:name` composite keys, preventing a static member from being matched against an instance member of the same name.
+- **Interface method overload merge used OR for optionality**: when merging overload declarations for the same method name, optionality was set if any overload had `?`. Now uses AND — if any overload is required, the merged method is treated as required (conservative).
+- **Simultaneous rest modifier and type change emitted duplicate `param-type-changed`**: when both `isRest` and the type text differed for the same parameter, two `param-type-changed` entries were emitted. The `isRest` check is now an `else if`, so the type change takes precedence and only one entry is emitted.
+
+### New `ChangeKind` values
+
+| Kind | Severity | Description |
+|------|----------|-------------|
+| `required-interface-method-added` | MAJOR | A required (non-optional) method was added to an interface |
+| `required-class-property-added` | MAJOR | A required (non-optional) property was added to a class |
+
+### Tests
+
+- 7 new fixture sets cover all new rules and edge cases
+- Total: 78 → **85 tests**
+
 ## [0.3.1] - 2026-04-12
 
 ### Added

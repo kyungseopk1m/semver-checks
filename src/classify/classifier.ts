@@ -178,7 +178,19 @@ function compareFunctionSignature(symbolPath: string, oldSig: ApiFunctionSignatu
         newValue: newP.type.text,
       });
     }
-    if (!oldP.isOptional && newP.isOptional) {
+    else if (oldP.isRest !== newP.isRest) {
+      changes.push({
+        kind: 'param-type-changed',
+        severity: 'major',
+        symbolPath: `${symbolPath}.${oldP.name}`,
+        message: `Parameter '${oldP.name}' rest modifier changed in '${symbolPath}'`,
+        oldValue: oldP.isRest ? `...${oldP.name}: ${oldP.type.text}` : `${oldP.name}: ${oldP.type.text}`,
+        newValue: newP.isRest ? `...${newP.name}: ${newP.type.text}` : `${newP.name}: ${newP.type.text}`,
+      });
+    }
+    // Rest params are represented as optional in extracted signatures.
+    // Do not double-report rest changes as optionality changes.
+    if (!oldP.isRest && !newP.isRest && !oldP.isOptional && newP.isOptional) {
       changes.push({
         kind: 'optional-param-added',
         severity: 'minor',
@@ -186,7 +198,7 @@ function compareFunctionSignature(symbolPath: string, oldSig: ApiFunctionSignatu
         message: `Parameter '${oldP.name}' became optional in '${symbolPath}'`,
       });
     }
-    if (oldP.isOptional && !newP.isOptional) {
+    if (!oldP.isRest && !newP.isRest && oldP.isOptional && !newP.isOptional) {
       changes.push({
         kind: 'required-param-added',
         severity: 'major',
@@ -355,11 +367,13 @@ function classifyInterfaceChanges(name: string, oldIf: ApiInterfaceSymbol, newIf
 
   for (const [methodName] of newMethods) {
     if (!oldMethods.has(methodName)) {
+      const newMethod = newMethods.get(methodName);
+      if (!newMethod) continue;
       changes.push({
-        kind: 'interface-method-added',
-        severity: 'minor',
+        kind: newMethod.isOptional ? 'interface-method-added' : 'required-interface-method-added',
+        severity: newMethod.isOptional ? 'minor' : 'major',
         symbolPath: `${name}.${methodName}`,
-        message: `Method '${methodName}' was added to interface '${name}'`,
+        message: `${newMethod.isOptional ? 'Optional' : 'Required'} method '${methodName}' was added to interface '${name}'`,
       });
     }
   }
@@ -409,6 +423,285 @@ function classifyInterfaceChanges(name: string, oldIf: ApiInterfaceSymbol, newIf
 
   // Generic param changes
   changes.push(...classifyTypeParamChanges(name, oldIf.typeParameters, newIf.typeParameters));
+
+  return changes;
+}
+
+type ApiClassMethod = ApiClassSymbol['methods'][number];
+type ApiClassProperty = ApiClassSymbol['properties'][number];
+
+function groupByName<T extends { name: string }>(items: T[]): Map<string, T[]> {
+  const groups = new Map<string, T[]>();
+  for (const item of items) {
+    const existing = groups.get(item.name);
+    if (existing) {
+      existing.push(item);
+    } else {
+      groups.set(item.name, [item]);
+    }
+  }
+  return groups;
+}
+
+function classMethodKey(method: ApiClassMethod): string {
+  return `${method.isStatic ? 'static' : 'instance'}:${method.name}`;
+}
+
+function classPropertyKey(property: ApiClassProperty): string {
+  return `${property.isStatic ? 'static' : 'instance'}:${property.name}`;
+}
+
+function classifySingleClassMethodChange(className: string, oldMethod: ApiClassMethod, newMethod: ApiClassMethod): ApiChange[] {
+  const changes: ApiChange[] = [];
+  const symbolPath = `${className}.${oldMethod.name}`;
+
+  if (newMethod.signatures.length < oldMethod.signatures.length) {
+    changes.push({
+      kind: 'overload-removed',
+      severity: 'major',
+      symbolPath,
+      message: `Overload was removed from class method '${oldMethod.name}' in '${className}'`,
+      oldValue: String(oldMethod.signatures.length),
+      newValue: String(newMethod.signatures.length),
+    });
+  }
+  if (newMethod.signatures.length > oldMethod.signatures.length) {
+    changes.push({
+      kind: 'overload-added',
+      severity: 'minor',
+      symbolPath,
+      message: `Overload was added to class method '${oldMethod.name}' in '${className}'`,
+      oldValue: String(oldMethod.signatures.length),
+      newValue: String(newMethod.signatures.length),
+    });
+  }
+  // isStatic checks only fire in the 1:1 name-only shortcut path (classifyClassMethodGroupChanges).
+  // In the key-matched path, both sides share the same static/instance key, so isStatic is always equal.
+  if (oldMethod.isStatic && !newMethod.isStatic) {
+    changes.push({
+      kind: 'class-method-became-instance',
+      severity: 'major',
+      symbolPath,
+      message: `Method '${oldMethod.name}' changed from static to instance in class '${className}'`,
+    });
+  }
+  if (!oldMethod.isStatic && newMethod.isStatic) {
+    changes.push({
+      kind: 'class-method-became-static',
+      severity: 'major',
+      symbolPath,
+      message: `Method '${oldMethod.name}' changed from instance to static in class '${className}'`,
+    });
+  }
+
+  const pairCount = Math.min(oldMethod.signatures.length, newMethod.signatures.length);
+  const allSigChanges: ApiChange[] = [];
+  for (let i = 0; i < pairCount; i++) {
+    const oldSig = oldMethod.signatures[i];
+    const newSig = newMethod.signatures[i];
+    if (!oldSig || !newSig) continue;
+    allSigChanges.push(...compareFunctionSignature(symbolPath, oldSig, newSig));
+    allSigChanges.push(...classifyTypeParamChanges(symbolPath, oldSig.typeParameters, newSig.typeParameters));
+  }
+  if (allSigChanges.length > 0) {
+    changes.push({
+      kind: 'class-method-signature-changed',
+      severity: 'major',
+      symbolPath,
+      message: `Method '${oldMethod.name}' signature changed in class '${className}'`,
+    });
+    changes.push(...allSigChanges);
+  }
+
+  return changes;
+}
+
+function classifySingleClassPropertyChange(className: string, oldProp: ApiClassProperty, newProp: ApiClassProperty): ApiChange[] {
+  const changes: ApiChange[] = [];
+  const symbolPath = `${className}.${oldProp.name}`;
+
+  if (oldProp.type.text !== newProp.type.text) {
+    changes.push({
+      kind: 'class-property-type-changed',
+      severity: 'major',
+      symbolPath,
+      message: `Property '${oldProp.name}' type changed in class '${className}'`,
+      oldValue: oldProp.type.text,
+      newValue: newProp.type.text,
+    });
+  }
+  // isStatic checks only fire in the 1:1 name-only shortcut path (classifyClassPropertyGroupChanges).
+  // In the key-matched path, both sides share the same static/instance key, so isStatic is always equal.
+  if (oldProp.isStatic && !newProp.isStatic) {
+    changes.push({
+      kind: 'class-property-became-instance',
+      severity: 'major',
+      symbolPath,
+      message: `Property '${oldProp.name}' changed from static to instance in class '${className}'`,
+    });
+  }
+  if (!oldProp.isStatic && newProp.isStatic) {
+    changes.push({
+      kind: 'class-property-became-static',
+      severity: 'major',
+      symbolPath,
+      message: `Property '${oldProp.name}' changed from instance to static in class '${className}'`,
+    });
+  }
+  if (oldProp.isOptional && !newProp.isOptional) {
+    changes.push({
+      kind: 'class-property-became-required',
+      severity: 'major',
+      symbolPath,
+      message: `Property '${oldProp.name}' became required in class '${className}'`,
+    });
+  }
+  if (!oldProp.isOptional && newProp.isOptional) {
+    changes.push({
+      kind: 'class-property-became-optional',
+      severity: 'minor',
+      symbolPath,
+      message: `Property '${oldProp.name}' became optional in class '${className}'`,
+    });
+  }
+  if (!oldProp.isReadonly && newProp.isReadonly) {
+    changes.push({
+      kind: 'class-property-became-readonly',
+      severity: 'major',
+      symbolPath,
+      message: `Property '${oldProp.name}' became readonly in class '${className}'`,
+    });
+  }
+  if (oldProp.isReadonly && !newProp.isReadonly) {
+    changes.push({
+      kind: 'class-property-became-mutable',
+      severity: 'minor',
+      symbolPath,
+      message: `Property '${oldProp.name}' became mutable in class '${className}'`,
+    });
+  }
+
+  return changes;
+}
+
+function classifyClassMethodGroupChanges(className: string, oldGroup: ApiClassMethod[], newGroup: ApiClassMethod[]): ApiChange[] {
+  const changes: ApiChange[] = [];
+
+  if (oldGroup.length === 0) {
+    for (const method of newGroup) {
+      changes.push({
+        kind: 'class-method-added',
+        severity: 'minor',
+        symbolPath: `${className}.${method.name}`,
+        message: `Method '${method.name}' was added to class '${className}'`,
+      });
+    }
+    return changes;
+  }
+
+  if (newGroup.length === 0) {
+    for (const method of oldGroup) {
+      changes.push({
+        kind: 'class-method-removed',
+        severity: 'major',
+        symbolPath: `${className}.${method.name}`,
+        message: `Method '${method.name}' was removed from class '${className}'`,
+      });
+    }
+    return changes;
+  }
+
+  if (oldGroup.length === 1 && newGroup.length === 1) {
+    return classifySingleClassMethodChange(className, oldGroup[0], newGroup[0]);
+  }
+
+  const oldByKey = new Map(oldGroup.map((method) => [classMethodKey(method), method]));
+  const newByKey = new Map(newGroup.map((method) => [classMethodKey(method), method]));
+
+  for (const [key, oldMethod] of oldByKey) {
+    const newMethod = newByKey.get(key);
+    if (!newMethod) {
+      changes.push({
+        kind: 'class-method-removed',
+        severity: 'major',
+        symbolPath: `${className}.${oldMethod.name}`,
+        message: `Method '${oldMethod.name}' was removed from class '${className}'`,
+      });
+      continue;
+    }
+    changes.push(...classifySingleClassMethodChange(className, oldMethod, newMethod));
+  }
+
+  for (const [key, newMethod] of newByKey) {
+    if (oldByKey.has(key)) continue;
+    changes.push({
+      kind: 'class-method-added',
+      severity: 'minor',
+      symbolPath: `${className}.${newMethod.name}`,
+      message: `Method '${newMethod.name}' was added to class '${className}'`,
+    });
+  }
+
+  return changes;
+}
+
+function classifyClassPropertyGroupChanges(className: string, oldGroup: ApiClassProperty[], newGroup: ApiClassProperty[]): ApiChange[] {
+  const changes: ApiChange[] = [];
+
+  if (oldGroup.length === 0) {
+    for (const property of newGroup) {
+      changes.push({
+        kind: property.isOptional ? 'class-property-added' : 'required-class-property-added',
+        severity: property.isOptional ? 'minor' : 'major',
+        symbolPath: `${className}.${property.name}`,
+        message: `${property.isOptional ? 'Optional' : 'Required'} property '${property.name}' was added to class '${className}'`,
+      });
+    }
+    return changes;
+  }
+
+  if (newGroup.length === 0) {
+    for (const property of oldGroup) {
+      changes.push({
+        kind: 'class-property-removed',
+        severity: 'major',
+        symbolPath: `${className}.${property.name}`,
+        message: `Property '${property.name}' was removed from class '${className}'`,
+      });
+    }
+    return changes;
+  }
+
+  if (oldGroup.length === 1 && newGroup.length === 1) {
+    return classifySingleClassPropertyChange(className, oldGroup[0], newGroup[0]);
+  }
+
+  const oldByKey = new Map(oldGroup.map((property) => [classPropertyKey(property), property]));
+  const newByKey = new Map(newGroup.map((property) => [classPropertyKey(property), property]));
+
+  for (const [key, oldProperty] of oldByKey) {
+    const newProperty = newByKey.get(key);
+    if (!newProperty) {
+      changes.push({
+        kind: 'class-property-removed',
+        severity: 'major',
+        symbolPath: `${className}.${oldProperty.name}`,
+        message: `Property '${oldProperty.name}' was removed from class '${className}'`,
+      });
+      continue;
+    }
+    changes.push(...classifySingleClassPropertyChange(className, oldProperty, newProperty));
+  }
+
+  for (const [key, newProperty] of newByKey) {
+    if (oldByKey.has(key)) continue;
+    changes.push({
+      kind: newProperty.isOptional ? 'class-property-added' : 'required-class-property-added',
+      severity: newProperty.isOptional ? 'minor' : 'major',
+      symbolPath: `${className}.${newProperty.name}`,
+      message: `${newProperty.isOptional ? 'Optional' : 'Required'} property '${newProperty.name}' was added to class '${className}'`,
+    });
+  }
 
   return changes;
 }
@@ -504,179 +797,31 @@ function classifyClassChanges(name: string, oldCls: ApiClassSymbol, newCls: ApiC
   }
 
   // Methods
-  const oldMethods = new Map(oldCls.methods.map((m) => [m.name, m]));
-  const newMethods = new Map(newCls.methods.map((m) => [m.name, m]));
-
-  for (const [methodName] of oldMethods) {
-    if (!newMethods.has(methodName)) {
-      changes.push({
-        kind: 'class-method-removed',
-        severity: 'major',
-        symbolPath: `${name}.${methodName}`,
-        message: `Method '${methodName}' was removed from class '${name}'`,
-      });
-    }
-  }
-
-  for (const [methodName] of newMethods) {
-    if (!oldMethods.has(methodName)) {
-      changes.push({
-        kind: 'class-method-added',
-        severity: 'minor',
-        symbolPath: `${name}.${methodName}`,
-        message: `Method '${methodName}' was added to class '${name}'`,
-      });
-    }
-  }
-
-  // Method overload count, signature and static changes
-  for (const [methodName, oldMethod] of oldMethods) {
-    const newMethod = newMethods.get(methodName);
-    if (!newMethod) continue;
-    if (newMethod.signatures.length < oldMethod.signatures.length) {
-      changes.push({
-        kind: 'overload-removed',
-        severity: 'major',
-        symbolPath: `${name}.${methodName}`,
-        message: `Overload was removed from class method '${methodName}' in '${name}'`,
-        oldValue: String(oldMethod.signatures.length),
-        newValue: String(newMethod.signatures.length),
-      });
-    }
-    if (newMethod.signatures.length > oldMethod.signatures.length) {
-      changes.push({
-        kind: 'overload-added',
-        severity: 'minor',
-        symbolPath: `${name}.${methodName}`,
-        message: `Overload was added to class method '${methodName}' in '${name}'`,
-        oldValue: String(oldMethod.signatures.length),
-        newValue: String(newMethod.signatures.length),
-      });
-    }
-    if (oldMethod.isStatic && !newMethod.isStatic) {
-      changes.push({
-        kind: 'class-method-became-instance',
-        severity: 'major',
-        symbolPath: `${name}.${methodName}`,
-        message: `Method '${methodName}' changed from static to instance in class '${name}'`,
-      });
-    }
-    if (!oldMethod.isStatic && newMethod.isStatic) {
-      changes.push({
-        kind: 'class-method-became-static',
-        severity: 'major',
-        symbolPath: `${name}.${methodName}`,
-        message: `Method '${methodName}' changed from instance to static in class '${name}'`,
-      });
-    }
-    const pairCount = Math.min(oldMethod.signatures.length, newMethod.signatures.length);
-    const allSigChanges: ApiChange[] = [];
-    for (let i = 0; i < pairCount; i++) {
-      const oldSig = oldMethod.signatures[i];
-      const newSig = newMethod.signatures[i];
-      if (!oldSig || !newSig) continue;
-      allSigChanges.push(...compareFunctionSignature(`${name}.${methodName}`, oldSig, newSig));
-      allSigChanges.push(...classifyTypeParamChanges(`${name}.${methodName}`, oldSig.typeParameters, newSig.typeParameters));
-    }
-    if (allSigChanges.length > 0) {
-      changes.push({
-        kind: 'class-method-signature-changed',
-        severity: 'major',
-        symbolPath: `${name}.${methodName}`,
-        message: `Method '${methodName}' signature changed in class '${name}'`,
-      });
-      changes.push(...allSigChanges);
-    }
+  const oldMethodGroups = groupByName(oldCls.methods);
+  const newMethodGroups = groupByName(newCls.methods);
+  const methodNames = new Set([...oldMethodGroups.keys(), ...newMethodGroups.keys()]);
+  for (const methodName of methodNames) {
+    changes.push(
+      ...classifyClassMethodGroupChanges(
+        name,
+        oldMethodGroups.get(methodName) ?? [],
+        newMethodGroups.get(methodName) ?? [],
+      ),
+    );
   }
 
   // Properties
-  const oldProps = new Map(oldCls.properties.map((p) => [p.name, p]));
-  const newProps = new Map(newCls.properties.map((p) => [p.name, p]));
-
-  for (const [propName] of oldProps) {
-    if (!newProps.has(propName)) {
-      changes.push({
-        kind: 'class-property-removed',
-        severity: 'major',
-        symbolPath: `${name}.${propName}`,
-        message: `Property '${propName}' was removed from class '${name}'`,
-      });
-    }
-  }
-
-  for (const [propName] of newProps) {
-    if (!oldProps.has(propName)) {
-      changes.push({
-        kind: 'class-property-added',
-        severity: 'minor',
-        symbolPath: `${name}.${propName}`,
-        message: `Property '${propName}' was added to class '${name}'`,
-      });
-    }
-  }
-
-  // Property type, static, and optional changes
-  for (const [propName, oldProp] of oldProps) {
-    const newProp = newProps.get(propName);
-    if (!newProp) continue;
-    if (oldProp.type.text !== newProp.type.text) {
-      changes.push({
-        kind: 'class-property-type-changed',
-        severity: 'major',
-        symbolPath: `${name}.${propName}`,
-        message: `Property '${propName}' type changed in class '${name}'`,
-        oldValue: oldProp.type.text,
-        newValue: newProp.type.text,
-      });
-    }
-    if (oldProp.isStatic && !newProp.isStatic) {
-      changes.push({
-        kind: 'class-property-became-instance',
-        severity: 'major',
-        symbolPath: `${name}.${propName}`,
-        message: `Property '${propName}' changed from static to instance in class '${name}'`,
-      });
-    }
-    if (!oldProp.isStatic && newProp.isStatic) {
-      changes.push({
-        kind: 'class-property-became-static',
-        severity: 'major',
-        symbolPath: `${name}.${propName}`,
-        message: `Property '${propName}' changed from instance to static in class '${name}'`,
-      });
-    }
-    if (oldProp.isOptional && !newProp.isOptional) {
-      changes.push({
-        kind: 'class-property-became-required',
-        severity: 'major',
-        symbolPath: `${name}.${propName}`,
-        message: `Property '${propName}' became required in class '${name}'`,
-      });
-    }
-    if (!oldProp.isOptional && newProp.isOptional) {
-      changes.push({
-        kind: 'class-property-became-optional',
-        severity: 'minor',
-        symbolPath: `${name}.${propName}`,
-        message: `Property '${propName}' became optional in class '${name}'`,
-      });
-    }
-    if (!oldProp.isReadonly && newProp.isReadonly) {
-      changes.push({
-        kind: 'class-property-became-readonly',
-        severity: 'major',
-        symbolPath: `${name}.${propName}`,
-        message: `Property '${propName}' became readonly in class '${name}'`,
-      });
-    }
-    if (oldProp.isReadonly && !newProp.isReadonly) {
-      changes.push({
-        kind: 'class-property-became-mutable',
-        severity: 'minor',
-        symbolPath: `${name}.${propName}`,
-        message: `Property '${propName}' became mutable in class '${name}'`,
-      });
-    }
+  const oldPropertyGroups = groupByName(oldCls.properties);
+  const newPropertyGroups = groupByName(newCls.properties);
+  const propertyNames = new Set([...oldPropertyGroups.keys(), ...newPropertyGroups.keys()]);
+  for (const propertyName of propertyNames) {
+    changes.push(
+      ...classifyClassPropertyGroupChanges(
+        name,
+        oldPropertyGroups.get(propertyName) ?? [],
+        newPropertyGroups.get(propertyName) ?? [],
+      ),
+    );
   }
 
   // Generic param changes
