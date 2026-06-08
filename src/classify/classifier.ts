@@ -1,43 +1,53 @@
-import type { ApiSnapshot, ApiSymbol, ApiFunctionSymbol, ApiInterfaceSymbol, ApiEnumSymbol, ApiClassSymbol, ApiTypeAliasSymbol, ApiVariableSymbol, ApiTypeParameter, ApiFunctionSignature } from '../extract/api-snapshot.js';
+import type { ApiSnapshot, ApiSymbol, ApiFunctionSymbol, ApiInterfaceSymbol, ApiEnumSymbol, ApiClassSymbol, ApiTypeAliasSymbol, ApiVariableSymbol, ApiNamespaceSymbol, ApiTypeParameter, ApiFunctionSignature } from '../extract/api-snapshot.js';
 import type { ApiChange } from '../types.js';
+import { compareTypeText } from './variance.js';
 
 export function classifyChanges(oldSnap: ApiSnapshot, newSnap: ApiSnapshot): ApiChange[] {
+  return classifySymbolMap(oldSnap.symbols, newSnap.symbols, '');
+}
+
+// Compares two maps of exported symbols. `prefix` namespaces the symbol paths so
+// the same logic can be reused for namespace bodies (prefix `Foo.`) recursively.
+function classifySymbolMap(
+  oldSymbols: Record<string, ApiSymbol>,
+  newSymbols: Record<string, ApiSymbol>,
+  prefix: string,
+): ApiChange[] {
   const changes: ApiChange[] = [];
 
   // Removed exports
-  for (const name of Object.keys(oldSnap.symbols)) {
-    if (!newSnap.symbols[name]) {
+  for (const name of Object.keys(oldSymbols)) {
+    if (!newSymbols[name]) {
       changes.push({
         kind: 'export-removed',
         severity: 'major',
-        symbolPath: name,
-        message: `Export '${name}' was removed`,
-        oldValue: oldSnap.symbols[name].kind,
+        symbolPath: prefix + name,
+        message: `Export '${prefix + name}' was removed`,
+        oldValue: oldSymbols[name].kind,
       });
     }
   }
 
   // Added exports
-  for (const name of Object.keys(newSnap.symbols)) {
-    if (!oldSnap.symbols[name]) {
+  for (const name of Object.keys(newSymbols)) {
+    if (!oldSymbols[name]) {
       changes.push({
         kind: 'export-added',
         severity: 'minor',
-        symbolPath: name,
-        message: `Export '${name}' was added`,
-        newValue: newSnap.symbols[name].kind,
+        symbolPath: prefix + name,
+        message: `Export '${prefix + name}' was added`,
+        newValue: newSymbols[name].kind,
       });
     }
   }
 
   // Changed exports
-  for (const name of Object.keys(oldSnap.symbols)) {
-    const oldSym = oldSnap.symbols[name];
-    const newSym = newSnap.symbols[name];
+  for (const name of Object.keys(oldSymbols)) {
+    const oldSym = oldSymbols[name];
+    const newSym = newSymbols[name];
     if (!newSym) continue;
 
-    const symbolChanges = classifySymbolChanges(name, oldSym, newSym);
-    changes.push(...symbolChanges);
+    changes.push(...classifySymbolChanges(prefix + name, oldSym, newSym));
   }
 
   return changes;
@@ -68,6 +78,12 @@ function classifySymbolChanges(name: string, oldSym: ApiSymbol, newSym: ApiSymbo
       return classifyTypeAliasChanges(name, oldSym as ApiTypeAliasSymbol, newSym as ApiTypeAliasSymbol);
     case 'variable':
       return classifyVariableChanges(name, oldSym as ApiVariableSymbol, newSym as ApiVariableSymbol);
+    case 'namespace':
+      return classifySymbolMap(
+        (oldSym as ApiNamespaceSymbol).symbols,
+        (newSym as ApiNamespaceSymbol).symbols,
+        `${name}.`,
+      );
     default:
       return [];
   }
@@ -168,17 +184,11 @@ function compareFunctionSignature(symbolPath: string, oldSig: ApiFunctionSignatu
   for (let i = 0; i < minLen; i++) {
     const oldP = oldParams[i];
     const newP = newParams[i];
-    if (oldP.type.text !== newP.type.text) {
-      changes.push({
-        kind: 'param-type-changed',
-        severity: 'major',
-        symbolPath: `${symbolPath}.${oldP.name}`,
-        message: `Parameter '${oldP.name}' type changed in '${symbolPath}'`,
-        oldValue: oldP.type.text,
-        newValue: newP.type.text,
-      });
-    }
-    else if (oldP.isRest !== newP.isRest) {
+    // A rest <-> non-rest change rewrites the call-site arity contract (e.g.
+    // `f("a", "b")` vs `f(["a", "b"])`), so it is always breaking and takes
+    // priority over — and subsumes — any concurrent type change. Only when the
+    // rest modifier is unchanged do we apply variance analysis to the type.
+    if (oldP.isRest !== newP.isRest) {
       changes.push({
         kind: 'param-type-changed',
         severity: 'major',
@@ -187,6 +197,34 @@ function compareFunctionSignature(symbolPath: string, oldSig: ApiFunctionSignatu
         oldValue: oldP.isRest ? `...${oldP.name}: ${oldP.type.text}` : `${oldP.name}: ${oldP.type.text}`,
         newValue: newP.isRest ? `...${newP.name}: ${newP.type.text}` : `${newP.name}: ${newP.type.text}`,
       });
+    } else if (oldP.type.text !== newP.type.text) {
+      // Parameters are contravariant: existing callers keep passing the *old*
+      // type, so a change is non-breaking only if the old type is still assignable
+      // to the new one (widening). Equivalent texts (e.g. `readonly T[]` vs
+      // `ReadonlyArray<T>`) are no-ops. Undecidable relations stay conservatively major.
+      const relation = compareTypeText(oldP.type.text, newP.type.text);
+      const equivalent = relation !== null && relation.oldToNew && relation.newToOld;
+      if (!equivalent) {
+        if (relation !== null && relation.oldToNew) {
+          changes.push({
+            kind: 'param-type-widened',
+            severity: 'minor',
+            symbolPath: `${symbolPath}.${oldP.name}`,
+            message: `Parameter '${oldP.name}' type widened in '${symbolPath}'`,
+            oldValue: oldP.type.text,
+            newValue: newP.type.text,
+          });
+        } else {
+          changes.push({
+            kind: 'param-type-changed',
+            severity: 'major',
+            symbolPath: `${symbolPath}.${oldP.name}`,
+            message: `Parameter '${oldP.name}' type changed in '${symbolPath}'`,
+            oldValue: oldP.type.text,
+            newValue: newP.type.text,
+          });
+        }
+      }
     }
     // Rest params are represented as optional in extracted signatures.
     // Do not double-report rest changes as optionality changes.
@@ -208,15 +246,33 @@ function compareFunctionSignature(symbolPath: string, oldSig: ApiFunctionSignatu
     }
   }
 
+  // Return types are covariant: consumers expect the *old* type, so a change is
+  // non-breaking only if the new type is still assignable to the old one
+  // (narrowing). Equivalent texts are no-ops; undecidable relations stay major.
   if (oldSig.returnType.text !== newSig.returnType.text) {
-    changes.push({
-      kind: 'return-type-changed',
-      severity: 'major',
-      symbolPath,
-      message: `Return type of '${symbolPath}' changed`,
-      oldValue: oldSig.returnType.text,
-      newValue: newSig.returnType.text,
-    });
+    const relation = compareTypeText(oldSig.returnType.text, newSig.returnType.text);
+    const equivalent = relation !== null && relation.oldToNew && relation.newToOld;
+    if (!equivalent) {
+      if (relation !== null && relation.newToOld) {
+        changes.push({
+          kind: 'return-type-narrowed',
+          severity: 'minor',
+          symbolPath,
+          message: `Return type of '${symbolPath}' narrowed`,
+          oldValue: oldSig.returnType.text,
+          newValue: newSig.returnType.text,
+        });
+      } else {
+        changes.push({
+          kind: 'return-type-changed',
+          severity: 'major',
+          symbolPath,
+          message: `Return type of '${symbolPath}' changed`,
+          oldValue: oldSig.returnType.text,
+          newValue: newSig.returnType.text,
+        });
+      }
+    }
   }
 
   return changes;
@@ -413,7 +469,9 @@ function classifyInterfaceChanges(name: string, oldIf: ApiInterfaceSymbol, newIf
     if (allSigChanges.length > 0) {
       changes.push({
         kind: 'interface-method-signature-changed',
-        severity: 'major',
+        // Wrapper severity mirrors its sub-changes: a method whose only change is
+        // a safe param widening / return narrowing must not be forced to major.
+        severity: allSigChanges.some((c) => c.severity === 'major') ? 'major' : 'minor',
         symbolPath: `${name}.${methodName}`,
         message: `Method '${methodName}' signature changed in interface '${name}'`,
       });
@@ -506,7 +564,9 @@ function classifySingleClassMethodChange(className: string, oldMethod: ApiClassM
   if (allSigChanges.length > 0) {
     changes.push({
       kind: 'class-method-signature-changed',
-      severity: 'major',
+      // Wrapper severity mirrors its sub-changes: a method whose only change is
+      // a safe param widening / return narrowing must not be forced to major.
+      severity: allSigChanges.some((c) => c.severity === 'major') ? 'major' : 'minor',
       symbolPath,
       message: `Method '${oldMethod.name}' signature changed in class '${className}'`,
     });
@@ -786,7 +846,9 @@ function classifyClassChanges(name: string, oldCls: ApiClassSymbol, newCls: ApiC
       const newCtorParams = newCtors[i].parameters.map((p) => `${p.name}: ${p.type.text}`).join(', ');
       changes.push({
         kind: 'class-constructor-changed',
-        severity: 'major',
+        // Wrapper severity mirrors its sub-changes: a constructor whose only
+        // change is a safe param widening must not be forced to major.
+        severity: ctorSubChanges.some((c) => c.severity === 'major') ? 'major' : 'minor',
         symbolPath: `${name}.constructor`,
         message: `Constructor of class '${name}' changed`,
         oldValue: oldCtorParams,
@@ -834,14 +896,21 @@ function classifyTypeAliasChanges(name: string, oldTA: ApiTypeAliasSymbol, newTA
   const changes: ApiChange[] = [];
 
   if (oldTA.type.text !== newTA.type.text) {
-    changes.push({
-      kind: 'type-alias-changed',
-      severity: 'major',
-      symbolPath: name,
-      message: `Type alias '${name}' changed`,
-      oldValue: oldTA.type.text,
-      newValue: newTA.type.text,
-    });
+    // Type aliases can appear in both input and output positions (invariant), so
+    // we don't relax widening/narrowing to minor — but structurally equivalent
+    // texts (e.g. `readonly T[]` vs `ReadonlyArray<T>`) are genuine no-ops.
+    const relation = compareTypeText(oldTA.type.text, newTA.type.text);
+    const equivalent = relation !== null && relation.oldToNew && relation.newToOld;
+    if (!equivalent) {
+      changes.push({
+        kind: 'type-alias-changed',
+        severity: 'major',
+        symbolPath: name,
+        message: `Type alias '${name}' changed`,
+        oldValue: oldTA.type.text,
+        newValue: newTA.type.text,
+      });
+    }
   }
 
   changes.push(...classifyTypeParamChanges(name, oldTA.typeParameters, newTA.typeParameters));
@@ -850,15 +919,27 @@ function classifyTypeAliasChanges(name: string, oldTA: ApiTypeAliasSymbol, newTA
 }
 
 function classifyVariableChanges(name: string, oldVar: ApiVariableSymbol, newVar: ApiVariableSymbol): ApiChange[] {
-  if (oldVar.type.text !== newVar.type.text) {
-    return [{
-      kind: 'variable-type-changed',
-      severity: 'major',
-      symbolPath: name,
-      message: `Variable '${name}' type changed`,
-      oldValue: oldVar.type.text,
-      newValue: newVar.type.text,
-    }];
+  if (oldVar.type.text === newVar.type.text) {
+    return [];
   }
-  return [];
+
+  // Variance is NOT safely relaxed for variables: snapshots don't record
+  // const/let/var, `export let` participates in live-binding mutation (an input
+  // position), and literal-union narrowing can break consumer comparisons
+  // (`x === "busy"` becomes a `never` comparison). Only a structurally equivalent
+  // rewrite (e.g. `readonly T[]` vs `ReadonlyArray<T>`) is a true no-op; every
+  // other change — including apparent narrowing — stays conservatively major.
+  const relation = compareTypeText(oldVar.type.text, newVar.type.text);
+  const equivalent = relation !== null && relation.oldToNew && relation.newToOld;
+  if (equivalent) {
+    return [];
+  }
+  return [{
+    kind: 'variable-type-changed',
+    severity: 'major',
+    symbolPath: name,
+    message: `Variable '${name}' type changed`,
+    oldValue: oldVar.type.text,
+    newValue: newVar.type.text,
+  }];
 }

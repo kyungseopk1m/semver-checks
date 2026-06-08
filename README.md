@@ -221,6 +221,8 @@ console.log(Object.keys(snapshot.symbols)); // all exported symbol names
 | `class-property-added` | An optional public class property was added |
 | `class-property-became-optional` | A required class property became optional |
 | `class-property-became-mutable` | A public class property changed from readonly to mutable |
+| `param-type-widened` | A parameter's type was widened — existing callers still type-check (contravariant) |
+| `return-type-narrowed` | A function's return type was narrowed — existing consumers still type-check (covariant) |
 
 ## CLI Reference
 
@@ -404,16 +406,16 @@ To avoid re-extracting the baseline on every run, cache the snapshot file:
 | | semver-checks | semantic-release | changesets | npm-check-updates |
 |---|---|---|---|---|
 | Input | TypeScript AST | Commit messages | Manual YAML | package.json |
-| Detection | 46 typed rules | Keyword matching | Developer-declared | Version range only |
+| Detection | 48 typed rules | Keyword matching | Developer-declared | Version range only |
 | Recommendation | Automatic | Based on message format | Manual per change | Dependency updates only |
 
 semver-checks is **not** a replacement for release tooling — it's a verification layer. Use it alongside `semantic-release` or `changesets` to ensure the declared bump actually matches the code changes.
 
 ## How It Works
 
-1. **Extract**: Parse old and new TypeScript source files using ts-morph, building a typed API snapshot (functions, interfaces, enums, classes, type aliases, variables)
+1. **Extract**: Parse old and new TypeScript source files using ts-morph, building a typed API snapshot (functions, interfaces, enums, classes, type aliases, variables, namespaces)
 2. **Diff**: Compare the two snapshots symbol by symbol — detect additions, removals, and signature changes
-3. **Classify**: Apply the 46 classification rules to each diff, assigning `major`, `minor`, or `patch` severity
+3. **Classify**: Apply the 48 classification rules to each diff, assigning `major`, `minor`, or `patch` severity
 4. **Report**: Return a structured `SemverReport` with the recommended bump and per-change details
 
 For git ref comparisons, the ref is extracted to a temporary directory via `git archive`, dependencies are installed there if needed, and the directory is cleaned up after extraction. Local path comparisons do not install dependencies unless you opt in with `--install-deps` or `installDeps: true`.
@@ -426,7 +428,7 @@ No. The tool catches API surface changes that are mechanically detectable from T
 
 ### Does it have false positives?
 
-Occasionally. Types are still compared mostly as normalized serialized text rather than full semantic assignability. Safe top-level union and intersection member reordering is normalized, so `string | number` and `number | string` no longer differ, but grouped expressions keep their original structure and deeper semantically equivalent rewrites can still produce diffs.
+Occasionally, but less than before. Parameter and return type changes now go through a structural assignability check — a synthesized TypeScript program decides whether a change is a widening or a narrowing — so a widened parameter or a narrowed return type is classified as minor instead of a false major, and structurally equivalent rewrites like `readonly T[]` vs `ReadonlyArray<T>` are treated as no-ops. Other positions (type aliases, variables) are still compared as normalized serialized text: top-level union and intersection member reordering is normalized, so `string | number` and `number | string` no longer differ, but grouped expressions and deeper equivalent rewrites in those positions can still produce diffs. When a type can't be resolved in isolation (imported types, bare generics, or anything involving `any`), the tool falls back to the conservative major verdict.
 
 ### Does it support default exports?
 

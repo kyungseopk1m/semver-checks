@@ -1,6 +1,6 @@
 {
   "name": "semver-checks",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "description": "Detect breaking changes in your TypeScript library's public API. Like cargo-semver-checks, but for TypeScript.",
   "main": "dist/cjs/index.js",
   "module": "dist/mjs/index.js",
@@ -84,6 +84,6 @@
     "@types/node": "^22.13.10",
     "publint": "^0.3.12",
     "typescript": "^6.0.2",
-    "vitest": "^3.2.0"
+    "vitest": "^4.1.8"
   }
 }

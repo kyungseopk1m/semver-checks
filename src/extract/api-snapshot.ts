@@ -81,13 +81,20 @@ export interface ApiVariableSymbol {
   type: SerializedType;
 }
 
+export interface ApiNamespaceSymbol {
+  kind: 'namespace';
+  name: string;
+  symbols: Record<string, ApiSymbol>;
+}
+
 export type ApiSymbol =
   | ApiFunctionSymbol
   | ApiInterfaceSymbol
   | ApiTypeAliasSymbol
   | ApiEnumSymbol
   | ApiClassSymbol
-  | ApiVariableSymbol;
+  | ApiVariableSymbol
+  | ApiNamespaceSymbol;
 
 export interface ApiSnapshot {
   symbols: Record<string, ApiSymbol>;

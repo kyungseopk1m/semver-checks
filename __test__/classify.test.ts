@@ -66,17 +66,50 @@ describe('function parameter changes', () => {
     expect(report.recommended).toBe('minor');
   });
 
-  it('detects return type changed as MAJOR', () => {
+  it('detects return type narrowed as MINOR (covariant, non-breaking)', () => {
     const report = compareFixture('return-type-narrowed');
+    const change = report.changes.find((c) => c.kind === 'return-type-narrowed');
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('minor');
+    expect(report.changes.some((c) => c.kind === 'return-type-changed')).toBe(false);
+    expect(report.recommended).toBe('minor');
+  });
+
+  it('detects return type widened as MAJOR (covariant break)', () => {
+    const report = compareFixture('return-type-widened');
     const change = report.changes.find((c) => c.kind === 'return-type-changed');
     expect(change).toBeDefined();
     expect(change?.severity).toBe('major');
     expect(report.recommended).toBe('major');
   });
 
-  it('detects param type changed as MAJOR', () => {
+  it('detects param type widened as MINOR (contravariant, non-breaking)', () => {
     const report = compareFixture('param-type-widened');
+    const change = report.changes.find((c) => c.kind === 'param-type-widened');
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('minor');
+    expect(report.changes.some((c) => c.kind === 'param-type-changed')).toBe(false);
+    expect(report.recommended).toBe('minor');
+  });
+
+  it('detects param type narrowed as MAJOR (contravariant break)', () => {
+    const report = compareFixture('param-type-narrowed');
     const change = report.changes.find((c) => c.kind === 'param-type-changed');
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('major');
+    expect(report.recommended).toBe('major');
+  });
+
+  it('treats structurally equivalent param type as NO CHANGE (readonly T[] vs ReadonlyArray<T>)', () => {
+    const report = compareFixture('param-type-equivalent');
+    expect(report.changes.some((c) => c.kind === 'param-type-widened')).toBe(false);
+    expect(report.changes.some((c) => c.kind === 'param-type-changed')).toBe(false);
+    expect(report.recommended).toBe('patch');
+  });
+
+  it('keeps exported variable type narrowing as MAJOR (const/let unknown, may break consumers)', () => {
+    const report = compareFixture('variable-type-narrowed');
+    const change = report.changes.find((c) => c.kind === 'variable-type-changed');
     expect(change).toBeDefined();
     expect(change?.severity).toBe('major');
     expect(report.recommended).toBe('major');
@@ -535,5 +568,82 @@ describe('static and instance same-name coexistence', () => {
     expect(report.changes.some((c) => c.kind === 'required-class-property-added')).toBe(false);
     expect(report.changes.some((c) => c.kind === 'class-property-removed')).toBe(false);
     expect(report.recommended).toBe('major');
+  });
+});
+
+describe('namespace and enum accuracy', () => {
+  it('detects changes inside an exported namespace (no false negative)', () => {
+    const report = compareFixture('namespace-member-removed');
+    const removed = report.changes.find(
+      (c) => c.kind === 'interface-method-removed' && c.symbolPath.includes('Foo.Bar'),
+    );
+    expect(removed).toBeDefined();
+    expect(removed?.severity).toBe('major');
+    expect(report.recommended).toBe('major');
+  });
+
+  it('detects string enum member value change as MAJOR', () => {
+    const report = compareFixture('enum-member-string-value-changed');
+    const change = report.changes.find((c) => c.kind === 'enum-member-value-changed');
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('major');
+    expect(report.recommended).toBe('major');
+  });
+
+  it('treats structurally equivalent type alias as NO CHANGE (readonly T[] vs ReadonlyArray<T>)', () => {
+    const report = compareFixture('type-alias-equivalent');
+    expect(report.changes.some((c) => c.kind === 'type-alias-changed')).toBe(false);
+    expect(report.recommended).toBe('patch');
+  });
+});
+
+describe('variance false-negative regressions (independent verification)', () => {
+  // P0-A: `any` is bidirectionally assignable, must NOT be treated as equivalent.
+  it('keeps type alias any -> concrete as MAJOR (not erased as equivalent)', () => {
+    const report = compareFixture('type-alias-any-to-concrete');
+    const change = report.changes.find((c) => c.kind === 'type-alias-changed');
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('major');
+    expect(report.recommended).toBe('major');
+  });
+
+  it('keeps return type any -> concrete as MAJOR (not narrowed to minor)', () => {
+    const report = compareFixture('return-type-any-to-concrete');
+    const change = report.changes.find((c) => c.kind === 'return-type-changed');
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('major');
+    expect(report.changes.some((c) => c.kind === 'return-type-narrowed')).toBe(false);
+    expect(report.recommended).toBe('major');
+  });
+
+  // P0-B: rest <-> non-rest is an arity-contract break, even when the type widens.
+  it('keeps rest -> non-rest array as MAJOR even when the element type widens', () => {
+    const report = compareFixture('rest-param-widened-to-array');
+    const change = report.changes.find(
+      (c) => c.kind === 'param-type-changed' && c.message.includes('rest modifier'),
+    );
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('major');
+    expect(report.changes.some((c) => c.kind === 'param-type-widened')).toBe(false);
+    expect(report.recommended).toBe('major');
+  });
+
+  // P0-C: function + namespace declaration merging must not drop namespace members.
+  it('detects changes in a namespace merged with a function (no false negative)', () => {
+    const report = compareFixture('namespace-merged-function');
+    const removed = report.changes.find(
+      (c) => c.kind === 'interface-method-removed' && c.symbolPath.includes('F.Options'),
+    );
+    expect(removed).toBeDefined();
+    expect(removed?.severity).toBe('major');
+    expect(report.recommended).toBe('major');
+  });
+
+  // P2-E: a safe return narrowing inside an interface method must stay MINOR.
+  it('reports interface method return narrowing as MINOR (wrapper not forced to major)', () => {
+    const report = compareFixture('interface-method-return-narrowed');
+    expect(report.changes.some((c) => c.kind === 'return-type-narrowed')).toBe(true);
+    expect(report.changes.some((c) => c.severity === 'major')).toBe(false);
+    expect(report.recommended).toBe('minor');
   });
 });

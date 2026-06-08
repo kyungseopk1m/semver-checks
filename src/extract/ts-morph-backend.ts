@@ -1,5 +1,5 @@
 import { Project, Type, Node, SyntaxKind, DiagnosticCategory } from 'ts-morph';
-import type { SourceFile } from 'ts-morph';
+import type { SourceFile, ModuleDeclaration } from 'ts-morph';
 import path from 'path';
 import fs from 'fs';
 import type {
@@ -42,7 +42,7 @@ export function extractFromPath(projectPath: string, entry?: string): ApiSnapsho
   }
 
   const entryFile = resolveEntry(project, projectPath, entry);
-  const symbols = collectExports(project, entryFile);
+  const symbols = collectContainerExports(entryFile);
 
   return { symbols };
 }
@@ -75,31 +75,55 @@ function resolveEntry(project: Project, projectPath: string, entry?: string): So
   return fallback;
 }
 
-function collectExports(_project: Project, entryFile: SourceFile): Record<string, ApiSymbol> {
+// Collect exported declarations from a source file OR a namespace/module body.
+// Both expose getExportedDeclarations(), so namespace bodies are handled by the
+// same logic recursively (see the namespace-side branch below).
+function collectContainerExports(container: SourceFile | ModuleDeclaration): Record<string, ApiSymbol> {
   const result: Record<string, ApiSymbol> = {};
 
-  const exportedDeclarations = entryFile.getExportedDeclarations();
+  const exportedDeclarations = container.getExportedDeclarations();
 
   for (const [name, declarations] of exportedDeclarations) {
     if (declarations.length === 0) continue;
 
-    // Handle overloaded functions: multiple FunctionDeclaration nodes for same name
-    const fnDecls = declarations.filter((d) => Node.isFunctionDeclaration(d));
+    // A single name can resolve to multiple declarations (declaration merging) —
+    // e.g. a function or class merged with a same-named namespace. Process the
+    // value side and the namespace side separately so neither is dropped.
+    const moduleDecls = declarations.filter((d) => Node.isModuleDeclaration(d));
+    const valueDecls = declarations.filter((d) => !Node.isModuleDeclaration(d));
+
+    // Value side: overloaded functions produce multiple FunctionDeclaration nodes.
+    const fnDecls = valueDecls.filter((d) => Node.isFunctionDeclaration(d));
     if (fnDecls.length > 1) {
       const overloads = fnDecls.filter((d) => (d as any).isOverload?.());
       const sigDecls = overloads.length > 0 ? overloads : fnDecls.slice(0, 1);
       const signatures = sigDecls.flatMap((d) => convertFunctionSignatures(d));
       result[name] = { kind: 'function', name, signatures };
-      continue;
+    } else if (valueDecls.length > 0) {
+      try {
+        const symbol = convertDeclaration(name, valueDecls[0]);
+        if (symbol) result[name] = symbol;
+      } catch (err) {
+        if (process.env['SEMVER_CHECKS_VERBOSE']) {
+          process.stderr.write(`[semver-checks] warning: could not analyze '${name}': ${err}\n`);
+        }
+      }
     }
 
-    const decl = declarations[0];
-    try {
-      const symbol = convertDeclaration(name, decl);
-      if (symbol) result[name] = symbol;
-    } catch (err) {
-      if (process.env['SEMVER_CHECKS_VERBOSE']) {
-        process.stderr.write(`[semver-checks] warning: could not analyze '${name}': ${err}\n`);
+    // Namespace side: recurse into each namespace body.
+    if (moduleDecls.length > 0) {
+      const nsSymbols: Record<string, ApiSymbol> = {};
+      for (const md of moduleDecls) {
+        Object.assign(nsSymbols, collectContainerExports(md));
+      }
+      if (name in result) {
+        // Merged with a value (function/class/...): flatten namespace members as
+        // `name.child` so they aren't shadowed by the value symbol.
+        for (const [childName, childSym] of Object.entries(nsSymbols)) {
+          result[`${name}.${childName}`] = childSym;
+        }
+      } else {
+        result[name] = { kind: 'namespace', name, symbols: nsSymbols };
       }
     }
   }
@@ -379,6 +403,9 @@ function convertInterface(name: string, node: Node): ApiInterfaceSymbol {
     const existing = methodMap.get(methodName);
     if (existing) {
       existing.signatures.push(...convertFunctionSignatures(m));
+      // TypeScript requires all overload signatures of a method to share the same
+      // optionality ("Overload signatures must all be optional or required"), so
+      // every `hasQuestionToken()` here agrees and the merge operator is immaterial.
       existing.isOptional = existing.isOptional && m.hasQuestionToken();
     } else {
       methodMap.set(methodName, {
@@ -426,7 +453,15 @@ function convertEnum(name: string, node: Node): ApiEnumSymbol {
 function convertClass(name: string, node: Node): ApiClassSymbol {
   if (!Node.isClassDeclaration(node)) return { kind: 'class', name, constructorSignatures: [], methods: [], properties: [], typeParameters: [] };
 
-  const ctors = node.getConstructors().map((c) => convertFunctionSignatures(c)[0] ?? { parameters: [], returnType: { text: 'void' }, typeParameters: [] });
+  // getConstructors() returns only the implementation signature; overload
+  // signatures live on getOverloads(). Extract each overload separately (as we do
+  // for function overloads) so callers see the real public arities — otherwise an
+  // overload's required params look optional via the merged implementation sig.
+  const ctors = node.getConstructors().flatMap((c) => {
+    const overloads = c.getOverloads();
+    const sigNodes = overloads.length > 0 ? overloads : [c];
+    return sigNodes.map((s) => convertFunctionSignatures(s)[0] ?? { parameters: [], returnType: { text: 'void' }, typeParameters: [] });
+  });
 
   // Group methods by name to merge overload signatures (getMethods() returns one node per overload)
   const classMethodMap = new Map<string, { name: string; signatures: ApiFunctionSignature[]; isStatic: boolean }>();

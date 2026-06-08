@@ -48,7 +48,9 @@ export type ChangeKind =
   | 'interface-property-became-optional'
   | 'interface-property-became-mutable'
   | 'class-property-became-optional'
-  | 'class-property-became-mutable';
+  | 'class-property-became-mutable'
+  | 'param-type-widened'
+  | 'return-type-narrowed';
 
 export interface ApiChange {
   kind: ChangeKind;

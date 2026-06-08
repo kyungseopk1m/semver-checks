@@ -2,7 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [0.4.0] - 2026-06-08
+
+### Added
+
+- **Structural type variance analysis**: parameter and return type changes are now checked for assignability via a synthesized TypeScript program instead of raw text comparison. A widened parameter (`param-type-widened`) and a narrowed return type (`return-type-narrowed`) are classified as MINOR, and structurally equivalent rewrites (e.g. `readonly T[]` vs `ReadonlyArray<T>`) are treated as no-ops. Undecidable relations (imported types, bare generics, anything involving `any`) fall back to the conservative MAJOR verdict.
+- **Namespace export support**: members of `export namespace` declarations are now extracted and compared recursively (symbol paths like `Foo.Bar`), including a namespace merged with a same-named function or class.
+
+### Fixed
+
+- **`any` was treated as equivalent to any concrete type**: because `any` is bidirectionally assignable, changes like `type T = any` → `type T = string` were silently erased. The variance check now bails to MAJOR whenever `any` is involved.
+- **Rest modifier change masked by a concurrent type widening**: `(...parts: string[])` → `(parts: unknown[])` is now MAJOR (the call-site arity contract changes) instead of being reported as a parameter widening.
+- **Constructor overload signatures were not extracted**: only the implementation signature was read, so an overload's required parameters appeared optional. Overload signatures are now extracted via `getOverloads()`, matching how function overloads are handled.
+- **Safe variance inside methods/constructors was forced to MAJOR**: the signature-changed wrapper for interface methods, class methods, and constructors now mirrors the severity of its sub-changes, so a method whose only change is a safe widening/narrowing is reported as MINOR.
+
+### New `ChangeKind` values
+
+| Kind | Severity | Description |
+|------|----------|-------------|
+| `param-type-widened` | MINOR | A parameter's type was widened (existing callers still type-check) |
+| `return-type-narrowed` | MINOR | A function's return type was narrowed (existing consumers still type-check) |
+
+### Tests
+
+- New fixtures cover variance (widen/narrow/equivalent), namespace recursion + declaration merging, string enum value changes, and the `any` / rest-modifier / constructor-overload regressions
+- Total: 85 → **97 tests**
 
 ## [0.3.2] - 2026-04-16
 

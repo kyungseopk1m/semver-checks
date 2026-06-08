@@ -23,7 +23,7 @@ npm run check     # attw + publint quality checks
 ```
 src/
   extract/        # ts-morph API surface extraction
-  classify/       # change classification rules (44 rules)
+  classify/       # change classification rules (48 rules) + variance.ts (structural assignability)
   compare/        # diff engine
   resolve/        # git ref / path resolution
   report/         # text and JSON output formatters
