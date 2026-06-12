@@ -419,7 +419,7 @@ jobs:
 | `entry` | Entry file (auto-detected from `package.json` when omitted) | _(auto)_ |
 | `format` | `text`, `json`, `markdown`, or `github` | `github` |
 | `strict` | Fail the step (exit 1) on a breaking change | `false` |
-| `version` | semver-checks version to run via `npx` | `latest` |
+| `version` | semver-checks version to run via `npx` | _(matches the action ref)_ |
 
 A full example that also posts a Markdown summary as a sticky PR comment lives in [`examples/github-actions.yml`](examples/github-actions.yml).
 
