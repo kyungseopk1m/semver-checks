@@ -2,10 +2,14 @@ import { defineCommand, runMain } from 'citty';
 import { compare } from './index.js';
 import { textReport } from './report/text-reporter.js';
 import { jsonReport } from './report/json-reporter.js';
+import { markdownReport } from './report/markdown-reporter.js';
+import { githubReport } from './report/github-reporter.js';
 import { extract } from './extract/extractor.js';
 import { resolvePath } from './resolve/path-resolver.js';
 import { resolveGitRef, cleanupTmpDir } from './resolve/git-resolver.js';
+import { resolveNpmSpec } from './resolve/npm-resolver.js';
 import { resolveSourceInput, type SourceInputKind } from './resolve/source-ref.js';
+import type { SemverReport } from './types.js';
 import { ensureProjectDeps } from './resolve/dependency-installer.js';
 import { getPackageVersion } from './package-info.js';
 
@@ -32,7 +36,7 @@ const compareCommand = defineCommand({
     },
     format: {
       type: 'string',
-      description: 'Output format: text (default) or json',
+      description: 'Output format: text (default), json, markdown, or github',
       alias: 'f',
       default: 'text',
     },
@@ -49,11 +53,11 @@ const compareCommand = defineCommand({
     },
     oldAs: {
       type: 'string',
-      description: 'Force the old input to be treated as path or ref',
+      description: 'Force the old input to be treated as path, ref, or npm',
     },
     newAs: {
       type: 'string',
-      description: 'Force the new input to be treated as path or ref',
+      description: 'Force the new input to be treated as path, ref, or npm',
     },
   },
   async run({ args }) {
@@ -68,11 +72,7 @@ const compareCommand = defineCommand({
         installDeps: args.installDeps,
       });
 
-      if (args.format === 'json') {
-        console.log(jsonReport(report));
-      } else {
-        console.log(textReport(report));
-      }
+      console.log(renderReport(report, args.format));
 
       if (args.strict && report.recommended === 'major') {
         process.exit(1);
@@ -84,11 +84,27 @@ const compareCommand = defineCommand({
   },
 });
 
+function renderReport(report: SemverReport, format: string): string {
+  switch (format) {
+    case 'text':
+      return textReport(report);
+    case 'json':
+      return jsonReport(report);
+    case 'markdown':
+      return markdownReport(report);
+    case 'github':
+      return githubReport(report);
+    default:
+      throw new Error(`--format must be one of: text, json, markdown, github`);
+  }
+}
+
 function parseSourceInputKind(input: string | undefined, flagName: string): SourceInputKind | undefined {
   if (!input) return undefined;
   if (input === 'path') return 'path';
   if (input === 'ref' || input === 'git') return 'git';
-  throw new Error(`${flagName} must be one of: path, ref (or git)`);
+  if (input === 'npm') return 'npm';
+  throw new Error(`${flagName} must be one of: path, ref (or git), npm`);
 }
 
 const snapshotCommand = defineCommand({
@@ -112,6 +128,10 @@ const snapshotCommand = defineCommand({
       description: 'Git ref (instead of path)',
       alias: 'r',
     },
+    npm: {
+      type: 'string',
+      description: 'npm spec (e.g. lodash@4.17.21) to snapshot from the registry',
+    },
     installDeps: {
       type: 'boolean',
       description: 'Install dependencies before analysis for local path inputs',
@@ -124,7 +144,11 @@ const snapshotCommand = defineCommand({
     const shouldInstallDeps = !!args.installDeps;
 
     try {
-      if (args.ref) {
+      if (args.npm) {
+        const res = resolveNpmSpec(args.npm);
+        tmpDir = res.tmpDir;
+        projectPath = res.projectPath;
+      } else if (args.ref) {
         tmpDir = resolveGitRef(args.ref);
         projectPath = tmpDir;
         await ensureProjectDeps(projectPath);

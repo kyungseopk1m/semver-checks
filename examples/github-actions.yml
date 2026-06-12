@@ -1,0 +1,56 @@
+# Example: run semver-checks on every pull request.
+#
+# Copy this file into your library repository at .github/workflows/semver-check.yml
+# (it lives under examples/ here so it does not run on the semver-checks repo itself).
+#
+# It compares the published `latest` release against the PR's working tree, so it
+# answers "does this PR contain a breaking change?" without needing git tags.
+
+name: SemVer Check
+
+on:
+  pull_request:
+    branches: [main]
+
+# Allow the workflow to comment on the PR.
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  semver-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # ── Option A: inline annotations on the PR "Files changed" view ──────────
+      # Replace `your-package` with your published package name. Using the action
+      # from this repo:
+      - name: Check for breaking changes
+        uses: kyungseopk1m/semver-checks@v0.5.0
+        with:
+          old: 'your-package@latest'
+          new: '.'
+          format: 'github'
+          strict: 'true' # fail the PR when a breaking change is detected
+
+      # ── Option B: post a Markdown summary as a PR comment ────────────────────
+      # Generate the report yourself and hand the markdown to a comment action.
+      - name: Generate markdown report
+        if: always()
+        run: |
+          npx --yes semver-checks compare your-package@latest . \
+            --format markdown > semver-report.md || true
+
+      - name: Comment report on PR
+        if: always()
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          path: semver-report.md

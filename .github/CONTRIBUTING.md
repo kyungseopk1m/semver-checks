@@ -25,8 +25,8 @@ src/
   extract/        # ts-morph API surface extraction
   classify/       # change classification rules (48 rules) + variance.ts (structural assignability)
   compare/        # diff engine
-  resolve/        # git ref / path resolution
-  report/         # text and JSON output formatters
+  resolve/        # git ref / npm spec / path resolution
+  report/         # text, JSON, Markdown, and GitHub-annotation output formatters
   cli.ts          # CLI entry point
   mcp.ts          # MCP server (Model Context Protocol)
   index.ts        # programmatic API entry point
@@ -36,7 +36,9 @@ src/
 __test__/
   classify.test.ts       # unit tests for classification rules
   mcp.test.ts            # MCP server integration tests
-  source-ref.test.ts     # source input resolution tests
+  source-ref.test.ts     # source input resolution tests (path / git / npm)
+  report.test.ts         # Markdown / GitHub-annotation formatter tests
+  npm-resolve.test.ts    # .d.ts entry resolution + (gated) live npm pack tests
   fixtures/              # TypeScript fixture pairs for each rule
   e2e/compare.e2e.ts     # end-to-end compare tests
 ```

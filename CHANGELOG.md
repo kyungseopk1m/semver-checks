@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.0] - 2026-06-12
+
+### Added
+
+- **npm 레지스트리 직접 비교**: `compare <package>@<version>` 형태로 배포된 npm 버전을 old 소스로 받아 현재 working tree(또는 다른 버전)와 비교합니다. `npm pack`으로 tarball을 내려받아 추출하고 동봉된 `.d.ts` 선언을 분석합니다. 버전·범위·dist-tag 모두 지원하며(`pkg@1.2.3`, `pkg@^1`, `pkg@latest`), `npm:` 스킴으로 명시할 수 있습니다. `--old-as npm` / `--new-as npm`으로 강제 지정도 가능합니다. `snapshot --npm <spec>`도 추가되었습니다.
+- **출력 포맷 `markdown`·`github` 추가**: `--format markdown`은 PR 코멘트나 `$GITHUB_STEP_SUMMARY`에 적합한 Markdown 요약을, `--format github`은 PR diff에 인라인으로 표시되는 GitHub Actions 워크플로 커맨드(`::error::` / `::warning::`)를 출력합니다. 기존 `text`·`json`은 그대로 유지됩니다.
+- **재사용 가능한 GitHub Action**: `kyungseopk1m/semver-checks@<version>` composite action으로 PR마다 자동 semver 체크를 실행할 수 있습니다(inputs: `old`/`new`/`entry`/`format`/`strict`/`version`). Markdown PR 코멘트까지 포함한 전체 예시는 `examples/github-actions.yml`에 있습니다.
+
+### Changed
+
+- **entry 자동 감지가 `.d.ts` 진입점을 지원**: `package.json`의 `types` 경로를 src(`*.ts`)로 매핑하지 못하면 선언 파일(`*.d.ts`) 원본을 그대로 entry로 사용합니다. 배포된 npm 패키지(소스 미동봉) 분석을 가능하게 하며, 기존 소스 레이아웃 동작에는 영향이 없습니다(폴백만 추가).
+
+### Tests
+
+- npm spec 감지(`source-ref`), Markdown/GitHub 포맷 출력·이스케이프(`report`), `.d.ts` entry 해소 및 실제 `npm pack` 경로(`npm-resolve`) 테스트 추가
+- 실 레지스트리 접속 테스트는 `SEMVER_CHECKS_NETWORK_TESTS=1`로만 동작(오프라인 CI green 유지)
+- Total: 97 → **127 tests** (네트워크 게이트 테스트 별도)
+
 ## [0.4.0] - 2026-06-08
 
 ### Added
@@ -222,7 +240,10 @@ Initial release.
 
 ---
 
-[Unreleased]: https://github.com/kyungseopk1m/semver-checks/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/kyungseopk1m/semver-checks/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/kyungseopk1m/semver-checks/compare/v0.4.0...v0.5.0
+[0.4.0]: https://github.com/kyungseopk1m/semver-checks/compare/v0.3.2...v0.4.0
+[0.3.2]: https://github.com/kyungseopk1m/semver-checks/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/kyungseopk1m/semver-checks/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/kyungseopk1m/semver-checks/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/kyungseopk1m/semver-checks/compare/v0.2.0...v0.2.1

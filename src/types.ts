@@ -80,4 +80,5 @@ export interface CompareOptions {
 
 export type SourceRef =
   | { type: 'path'; path: string }
-  | { type: 'git'; ref: string; cwd?: string };
+  | { type: 'git'; ref: string; cwd?: string }
+  | { type: 'npm'; spec: string };

@@ -2,6 +2,7 @@ import { extract } from './extract/extractor.js';
 import { diff } from './compare/differ.js';
 import { resolvePath } from './resolve/path-resolver.js';
 import { resolveGitRef, cleanupTmpDir } from './resolve/git-resolver.js';
+import { resolveNpmSpec } from './resolve/npm-resolver.js';
 import { ensureProjectDeps } from './resolve/dependency-installer.js';
 import type { CompareOptions, SemverReport } from './types.js';
 
@@ -21,6 +22,10 @@ export async function compare(options: CompareOptions): Promise<SemverReport> {
   try {
     if (oldSource.type === 'path') {
       oldPath = resolvePath(oldSource.path);
+    } else if (oldSource.type === 'npm') {
+      const res = resolveNpmSpec(oldSource.spec);
+      oldTmp = res.tmpDir;
+      oldPath = res.projectPath;
     } else {
       oldTmp = resolveGitRef(oldSource.ref, oldSource.cwd);
       oldPath = oldTmp;
@@ -28,11 +33,17 @@ export async function compare(options: CompareOptions): Promise<SemverReport> {
 
     if (newSource.type === 'path') {
       newPath = resolvePath(newSource.path);
+    } else if (newSource.type === 'npm') {
+      const res = resolveNpmSpec(newSource.spec);
+      newTmp = res.tmpDir;
+      newPath = res.projectPath;
     } else {
       newTmp = resolveGitRef(newSource.ref, newSource.cwd);
       newPath = newTmp;
     }
 
+    // npm tarballs already bundle their built artifacts and declarations, so only
+    // git refs (raw checkouts) and opt-in local paths need a dependency install.
     if (oldSource.type === 'git' || installDeps) {
       await ensureProjectDeps(oldPath);
     }

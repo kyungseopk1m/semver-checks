@@ -62,6 +62,14 @@ Compare a git tag to the current working tree:
 npx semver-checks compare v1.0.0 HEAD
 ```
 
+Compare the **published npm release** against your working tree — answers "is my current change a breaking release?" without needing git tags:
+
+```bash
+npx semver-checks compare your-package@latest
+```
+
+A `<package>@<version>` argument is fetched from the npm registry (via `npm pack`) and used as the old version. Concrete versions, ranges, and common dist-tags are auto-detected (`your-package@1.2.3`, `your-package@^1`, `your-package@next`). For an uncommon dist-tag, make the intent explicit with the `npm:` prefix or `--old-as npm` (`npm:your-package@my-custom-tag`) so it isn't mistaken for a git ref.
+
 Compare two local directories:
 
 ```bash
@@ -80,10 +88,12 @@ If a git ref collides with an existing path name, force ref interpretation expli
 npx semver-checks compare main HEAD --old-as ref
 ```
 
-Output as JSON:
+Output as JSON, Markdown (for PR comments), or GitHub Actions annotations:
 
 ```bash
 npx semver-checks compare v1.0.0 HEAD --format json
+npx semver-checks compare v1.0.0 HEAD --format markdown
+npx semver-checks compare v1.0.0 HEAD --format github
 ```
 
 Fail in CI if breaking changes are detected (`exit 1`):
@@ -97,19 +107,24 @@ Inspect the API surface of the current or a past version:
 ```bash
 npx semver-checks snapshot
 npx semver-checks snapshot --ref v1.0.0
+npx semver-checks snapshot --npm lodash@4.17.21
 ```
 
 ### Example output
 
 ```
-BREAKING CHANGES (2):
-  required-property-added: Required property 'timeout' was added to 'Config'
-  return-type-changed: Return type of 'findUser' changed from 'User | null' to 'User'
+semver-checks — Recommended bump: MAJOR
+  major: 2  minor: 1  patch: 0
 
-FEATURES (1):
-  export-added: Export 'createConfig' was added
+  Breaking Changes (MAJOR)
+  ✗ Required property 'timeout' was added to interface 'Config'
+      now: number
+  ✗ Type alias 'UserId' changed
+      before: string | number
+      after:  string
 
-Recommendation: MAJOR (breaking changes detected)
+  New Features (MINOR)
+  + Export 'createConfig' was added
 ```
 
 ## Programmatic API
@@ -137,7 +152,8 @@ interface CompareOptions {
 
 type SourceRef =
   | { type: 'path'; path: string }
-  | { type: 'git'; ref: string; cwd?: string };
+  | { type: 'git'; ref: string; cwd?: string }
+  | { type: 'npm'; spec: string }; // e.g. { type: 'npm', spec: 'lodash@4.17.21' }
 
 interface SemverReport {
   recommended: 'major' | 'minor' | 'patch';
@@ -235,19 +251,27 @@ semver-checks compare <old> [new] [options]
 | Option | Short | Description | Default |
 |--------|-------|---|---|
 | `--entry <path>` | `-e` | Entry file path (e.g., `src/index.ts`) | Auto-detect |
-| `--format <type>` | `-f` | `text` or `json` | `text` |
+| `--format <type>` | `-f` | `text`, `json`, `markdown`, or `github` | `text` |
 | `--strict` | `-s` | Exit 1 if breaking changes are found | `false` |
 | `--install-deps` |  | Install dependencies before analyzing local path inputs | `false` |
-| `--old-as <kind>` |  | Force `<old>` to be interpreted as `path`, `ref`, or `git` | Auto-detect |
-| `--new-as <kind>` |  | Force `[new]` to be interpreted as `path`, `ref`, or `git` | Auto-detect |
+| `--old-as <kind>` |  | Force `<old>` to be interpreted as `path`, `ref` (or `git`), or `npm` | Auto-detect |
+| `--new-as <kind>` |  | Force `[new]` to be interpreted as `path`, `ref` (or `git`), or `npm` | Auto-detect |
 
 **Arguments:**
-- `<old>`: git ref (tag, branch, commit SHA) or local directory path to the old version
-- `[new]`: git ref or path to the new version; defaults to `.` (current directory)
+- `<old>`: an npm spec (`pkg@version`), a git ref (tag, branch, commit SHA), or a local directory path for the old version
+- `[new]`: npm spec, git ref, or path for the new version; defaults to `.` (current directory)
+
+**Output formats:**
+- `text` — colored human-readable summary (default)
+- `json` — the structured `SemverReport`
+- `markdown` — a Markdown summary suitable for a PR comment or `$GITHUB_STEP_SUMMARY`
+- `github` — [GitHub Actions workflow commands](https://docs.github.com/actions/using-workflows/workflow-commands-for-github-actions) (`::error::` / `::warning::`) that surface inline on the PR
 
 > If an argument matches an existing filesystem path, semver-checks treats it as a path source even without a `./` prefix.
-> Git refs are only used when no matching path exists.
-> Use `--old-as ref` or `--new-as ref` when a git ref name collides with a real path.
+> A `<package>@<version>` shape that is not an existing path is resolved from the npm registry.
+> A plain ref (`v1.2.3`, `main`) has no `@version` and is resolved as a git ref.
+> A git ref that happens to share the `name@version` shape (e.g. a lerna/monorepo tag like `pkg@1.0.0`) would be auto-detected as an npm spec — force git resolution with `--old-as ref` in that case.
+> Use `--old-as ref` / `--new-as ref` (or `--old-as npm`) when auto-detection guesses wrong.
 
 > When using git refs, the command must run inside a git repository. The ref is resolved
 > against the working directory's repo.
@@ -261,6 +285,7 @@ semver-checks snapshot [path] [options]
 | Option | Short | Description |
 |--------|-------|---|
 | `--ref <ref>` | `-r` | Use a git ref instead of a local path |
+| `--npm <spec>` |  | Snapshot a published npm package (e.g. `lodash@4.17.21`) |
 | `--entry <path>` | `-e` | Entry file path |
 | `--install-deps` |  | Install dependencies before analyzing a local path |
 
@@ -359,27 +384,57 @@ Relative paths and git refs are resolved from the MCP server process's current w
 
 ## CI Integration
 
-Add semver-checks to your GitHub Actions workflow to automatically catch breaking changes on every PR:
+### GitHub Action
+
+semver-checks ships a reusable composite action. The most ergonomic setup compares the **published `latest` release** against the PR's working tree, so it needs no git tags and posts inline annotations on the diff:
 
 ```yaml
-name: Check SemVer
+name: SemVer Check
 
 on:
   pull_request:
     branches: [main]
 
 jobs:
-  semver:
+  semver-checks:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0  # Required to access git history
-
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
+      - run: npm ci
 
+      - uses: kyungseopk1m/semver-checks@v0.5.0
+        with:
+          old: 'your-package@latest'   # the published version to compare against
+          format: 'github'             # inline ::error:: / ::warning:: annotations
+          strict: 'true'               # fail the PR on a breaking change
+```
+
+| Input | Description | Default |
+|-------|-------------|---------|
+| `old` | Old version — an npm spec (`pkg@latest`), git ref, or path | _(required)_ |
+| `new` | New version — git ref or path | `.` |
+| `entry` | Entry file (auto-detected from `package.json` when omitted) | _(auto)_ |
+| `format` | `text`, `json`, `markdown`, or `github` | `github` |
+| `strict` | Fail the step (exit 1) on a breaking change | `false` |
+| `version` | semver-checks version to run via `npx` | `latest` |
+
+A full example that also posts a Markdown summary as a sticky PR comment lives in [`examples/github-actions.yml`](examples/github-actions.yml).
+
+### Without the action
+
+Run the CLI directly — for example, compare the published release to the working tree:
+
+```yaml
+      - name: Check for breaking changes
+        run: npx semver-checks compare your-package@latest --format github --strict
+```
+
+Or compare against a git tag:
+
+```yaml
       - name: Check for breaking changes
         run: npx semver-checks compare v$(node -p "require('./package.json').version") HEAD --strict
 ```
@@ -418,7 +473,7 @@ semver-checks is **not** a replacement for release tooling — it's a verificati
 3. **Classify**: Apply the 48 classification rules to each diff, assigning `major`, `minor`, or `patch` severity
 4. **Report**: Return a structured `SemverReport` with the recommended bump and per-change details
 
-For git ref comparisons, the ref is extracted to a temporary directory via `git archive`, dependencies are installed there if needed, and the directory is cleaned up after extraction. Local path comparisons do not install dependencies unless you opt in with `--install-deps` or `installDeps: true`.
+For git ref comparisons, the ref is extracted to a temporary directory via `git archive`, dependencies are installed there if needed, and the directory is cleaned up after extraction. For npm specs, the published tarball is downloaded with `npm pack` and extracted to a temporary directory (no dependency install — the tarball already bundles its build output), then cleaned up. Local path comparisons do not install dependencies unless you opt in with `--install-deps` or `installDeps: true`.
 
 ## FAQ
 
@@ -434,9 +489,20 @@ Occasionally, but less than before. Parameter and return type changes now go thr
 
 Not currently. Only named exports are analyzed.
 
+### Can I compare against a published npm version?
+
+Yes. Pass a `<package>@<version>` spec and semver-checks downloads that release from the registry with `npm pack`, extracts the tarball, and analyzes its bundled `.d.ts` declarations:
+
+```bash
+npx semver-checks compare your-package@latest          # published latest vs working tree
+npx semver-checks compare your-package@1.0.0 your-package@2.0.0  # two published releases
+```
+
+Because a published tarball ships compiled `.d.ts` files while your working tree ships `.ts` source, type *representation* can differ slightly between the two sides (TypeScript materializes some inferred types in declarations). Removals, additions, and signature changes are detected reliably; a handful of equivalent-but-reworded types may show up as a noisy diff. Comparing two published releases (`.d.ts` vs `.d.ts`) avoids that asymmetry.
+
 ### Can I use it without a tsconfig.json?
 
-No. `tsconfig.json` must exist at the project root (or at the path inferred from the `exports` field in `package.json`).
+For local path and git-ref inputs, yes — `tsconfig.json` must exist at the project root (or at the path inferred from the `exports` field in `package.json`). For npm specs, a permissive `tsconfig.json` is synthesized automatically when the published package does not ship one.
 
 ### What happens if the analyzed project has TypeScript errors?
 
@@ -457,8 +523,8 @@ Yes. Point `--entry` at the package's specific entry file, or run the CLI from t
 ## Requirements
 
 - Node.js ≥ 18.0.0
-- `tsconfig.json` present in the analyzed project
-- TypeScript source files (`.ts`/`.tsx`) — not compiled `.d.ts` files
+- For local path / git-ref inputs: a `tsconfig.json` and TypeScript source files (`.ts`/`.tsx`) in the analyzed project
+- For npm specs: nothing extra — the tarball's bundled `.d.ts` declarations are analyzed, and a `tsconfig.json` is synthesized if absent
 
 ### Dual module support
 

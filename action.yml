@@ -1,0 +1,58 @@
+name: 'semver-checks'
+description: "Detect breaking changes in a TypeScript library's public API and recommend the correct SemVer bump."
+author: 'Kyungseop Kim'
+branding:
+  icon: 'git-branch'
+  color: 'blue'
+
+inputs:
+  old:
+    description: 'Old version to compare against — an npm spec (e.g. my-pkg@latest), a git ref, or a path.'
+    required: true
+  new:
+    description: 'New version — a git ref or path. Defaults to the checked-out working tree.'
+    required: false
+    default: '.'
+  entry:
+    description: 'Entry file (e.g. src/index.ts). Auto-detected from package.json when omitted.'
+    required: false
+    default: ''
+  format:
+    description: 'Output format: text, json, markdown, or github (inline PR annotations).'
+    required: false
+    default: 'github'
+  strict:
+    description: 'Fail the step (exit 1) when a breaking/major change is detected.'
+    required: false
+    default: 'false'
+  version:
+    description: 'semver-checks version to run via npx. Defaults to the version matching the action ref you pinned (e.g. @v0.5.0 runs semver-checks@0.5.0).'
+    required: false
+    default: ''
+
+runs:
+  using: 'composite'
+  steps:
+    - shell: bash
+      env:
+        SEMVER_CHECKS_OLD: ${{ inputs.old }}
+        SEMVER_CHECKS_NEW: ${{ inputs.new }}
+        SEMVER_CHECKS_ENTRY: ${{ inputs.entry }}
+        SEMVER_CHECKS_FORMAT: ${{ inputs.format }}
+        SEMVER_CHECKS_STRICT: ${{ inputs.strict }}
+        SEMVER_CHECKS_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        # Default to the CLI version that matches the pinned action ref, so that
+        # `uses: kyungseopk1m/semver-checks@v0.5.0` always runs semver-checks@0.5.0
+        # rather than whatever the npm `latest` dist-tag happens to be.
+        version="$SEMVER_CHECKS_VERSION"
+        if [ -z "$version" ]; then
+          version="$(node -p "require('$GITHUB_ACTION_PATH/package.json').version")"
+        fi
+        args=(compare "$SEMVER_CHECKS_OLD")
+        if [ -n "$SEMVER_CHECKS_NEW" ]; then args+=("$SEMVER_CHECKS_NEW"); fi
+        if [ -n "$SEMVER_CHECKS_ENTRY" ]; then args+=(--entry "$SEMVER_CHECKS_ENTRY"); fi
+        args+=(--format "$SEMVER_CHECKS_FORMAT")
+        if [ "$SEMVER_CHECKS_STRICT" = "true" ]; then args+=(--strict); fi
+        npx --yes "semver-checks@$version" "${args[@]}"

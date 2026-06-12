@@ -55,24 +55,35 @@ function resolveEntry(project: Project, projectPath: string, entry?: string): So
   }
 
   // Auto-detect from package.json
+  let typesPath: string | undefined;
   try {
     const pkg = JSON.parse(fs.readFileSync(path.join(projectPath, 'package.json'), 'utf-8'));
     const main = pkg.exports?.['.'];
-    const typesPath = (typeof main === 'object' ? main?.import?.types ?? main?.types : null) ?? pkg.types ?? pkg.typings;
+    typesPath = (typeof main === 'object' ? main?.import?.types ?? main?.types : null) ?? pkg.types ?? pkg.typings;
     if (typesPath) {
-      const resolved = path.join(projectPath, typesPath.replace('/dist/mjs/', '/src/').replace('.d.ts', '.ts'));
-      const file = project.getSourceFile(resolved);
+      // Source layout (working tree): map the published .d.ts back to its .ts source.
+      const srcMapped = path.join(projectPath, typesPath.replace('/dist/mjs/', '/src/').replace('.d.ts', '.ts'));
+      const file = project.getSourceFile(srcMapped);
       if (file) return file;
     }
   } catch {}
 
-  // Fallback: src/index.ts
+  // Fallback to real source before the declared .d.ts: a working tree with a
+  // stale or unbuilt dist/ would otherwise be analyzed from its outdated
+  // declarations, silently masking source-only API changes.
   const fallback =
     project.getSourceFile(path.join(projectPath, 'src', 'index.ts')) ??
     project.getSourceFile(path.join(projectPath, 'index.ts'));
+  if (fallback) return fallback;
 
-  if (!fallback) throw new Error(`Could not find entry file. Use --entry to specify.`);
-  return fallback;
+  // Last resort: the declared types entry itself. Published npm tarballs ship
+  // their .d.ts declarations but no .ts source, so this is their entry point.
+  if (typesPath) {
+    const rawTypes = project.getSourceFile(path.join(projectPath, typesPath));
+    if (rawTypes) return rawTypes;
+  }
+
+  throw new Error(`Could not find entry file. Use --entry to specify.`);
 }
 
 // Collect exported declarations from a source file OR a namespace/module body.
