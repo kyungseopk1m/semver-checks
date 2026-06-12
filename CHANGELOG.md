@@ -6,19 +6,19 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- **npm 레지스트리 직접 비교**: `compare <package>@<version>` 형태로 배포된 npm 버전을 old 소스로 받아 현재 working tree(또는 다른 버전)와 비교합니다. `npm pack`으로 tarball을 내려받아 추출하고 동봉된 `.d.ts` 선언을 분석합니다. 버전·범위·dist-tag 모두 지원하며(`pkg@1.2.3`, `pkg@^1`, `pkg@latest`), `npm:` 스킴으로 명시할 수 있습니다. `--old-as npm` / `--new-as npm`으로 강제 지정도 가능합니다. `snapshot --npm <spec>`도 추가되었습니다.
-- **출력 포맷 `markdown`·`github` 추가**: `--format markdown`은 PR 코멘트나 `$GITHUB_STEP_SUMMARY`에 적합한 Markdown 요약을, `--format github`은 PR diff에 인라인으로 표시되는 GitHub Actions 워크플로 커맨드(`::error::` / `::warning::`)를 출력합니다. 기존 `text`·`json`은 그대로 유지됩니다.
-- **재사용 가능한 GitHub Action**: `kyungseopk1m/semver-checks@<version>` composite action으로 PR마다 자동 semver 체크를 실행할 수 있습니다(inputs: `old`/`new`/`entry`/`format`/`strict`/`version`). Markdown PR 코멘트까지 포함한 전체 예시는 `examples/github-actions.yml`에 있습니다.
+- **Direct npm registry comparison**: pass a published npm version as the old source with `compare <package>@<version>` and diff it against the current working tree (or another version). The tarball is downloaded and extracted via `npm pack`, and its bundled `.d.ts` declarations are analyzed. Versions, ranges, and dist-tags are all supported (`pkg@1.2.3`, `pkg@^1`, `pkg@latest`), and the `npm:` scheme can be used to make it explicit. `--old-as npm` / `--new-as npm` force the interpretation. `snapshot --npm <spec>` was added as well.
+- **New `markdown` and `github` output formats**: `--format markdown` produces a Markdown summary suited to PR comments or `$GITHUB_STEP_SUMMARY`, and `--format github` emits GitHub Actions workflow commands (`::error::` / `::warning::`) that render inline on the PR diff. The existing `text` and `json` formats are unchanged.
+- **Reusable GitHub Action**: the `kyungseopk1m/semver-checks@<version>` composite action runs an automatic semver check on every PR (inputs: `old`/`new`/`entry`/`format`/`strict`/`version`). A full example including a Markdown PR comment lives in `examples/github-actions.yml`.
 
 ### Changed
 
-- **entry 자동 감지가 `.d.ts` 진입점을 지원**: `package.json`의 `types` 경로를 src(`*.ts`)로 매핑하지 못하면 선언 파일(`*.d.ts`) 원본을 그대로 entry로 사용합니다. 배포된 npm 패키지(소스 미동봉) 분석을 가능하게 하며, 기존 소스 레이아웃 동작에는 영향이 없습니다(폴백만 추가).
+- **Entry auto-detection now supports `.d.ts` entry points**: when the `types` path in `package.json` cannot be mapped to a source file (`*.ts`), the declaration file (`*.d.ts`) itself is used as the entry. This makes published npm packages (which ship without source) analyzable, with no effect on existing source-layout behavior — only a fallback is added.
 
 ### Tests
 
-- npm spec 감지(`source-ref`), Markdown/GitHub 포맷 출력·이스케이프(`report`), `.d.ts` entry 해소 및 실제 `npm pack` 경로(`npm-resolve`) 테스트 추가
-- 실 레지스트리 접속 테스트는 `SEMVER_CHECKS_NETWORK_TESTS=1`로만 동작(오프라인 CI green 유지)
-- Total: 97 → **127 tests** (네트워크 게이트 테스트 별도)
+- Added tests for npm spec detection (`source-ref`), Markdown/GitHub format output and escaping (`report`), and `.d.ts` entry resolution plus the real `npm pack` path (`npm-resolve`)
+- Live registry tests run only with `SEMVER_CHECKS_NETWORK_TESTS=1` (offline CI stays green)
+- Total: 97 → **127 tests** (network-gated tests counted separately)
 
 ## [0.4.0] - 2026-06-08
 
