@@ -74,7 +74,7 @@ describe('.d.ts entry resolution (published-package layout)', () => {
       `export declare function greet(name: string): string;\nexport interface Opts { tone: string; }\n`,
     );
     const snapshot = await extract({ projectPath: dir });
-    expect(Object.keys(snapshot.symbols).sort()).toEqual(['Opts', 'greet']);
+    expect(Object.keys(snapshot.entrypoints['.']).sort()).toEqual(['Opts', 'greet']);
   }, 15_000);
 
   it('detects a breaking change between two published-style .d.ts versions', async () => {
@@ -116,7 +116,7 @@ describe('.d.ts entry resolution (published-package layout)', () => {
     );
 
     const snapshot = await extract({ projectPath: dir });
-    const greet = snapshot.symbols['greet'] as { kind: string; signatures: Array<{ parameters: unknown[] }> };
+    const greet = snapshot.entrypoints['.']['greet'] as { kind: string; signatures: Array<{ parameters: unknown[] }> };
     expect(greet.kind).toBe('function');
     // 2 params come from the current src; the stale dist .d.ts still declares 1.
     expect(greet.signatures[0].parameters).toHaveLength(2);

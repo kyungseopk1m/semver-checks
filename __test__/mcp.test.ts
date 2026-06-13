@@ -149,9 +149,9 @@ describe('MCP server', () => {
       expect(result.isError).toBeFalsy();
       const text = (result.content as Array<{ type: string; text: string }>)[0].text;
       const snapshot = JSON.parse(text) as ApiSnapshot;
-      expect(snapshot).toHaveProperty('symbols');
-      expect(typeof snapshot.symbols).toBe('object');
-      expect(Object.keys(snapshot.symbols).length).toBeGreaterThan(0);
+      expect(snapshot).toHaveProperty('entrypoints');
+      expect(typeof snapshot.entrypoints).toBe('object');
+      expect(Object.keys(snapshot.entrypoints['.']).length).toBeGreaterThan(0);
     });
 
     it('defaults to current directory when path is omitted', async () => {
@@ -207,6 +207,246 @@ describe('MCP server', () => {
       const report = JSON.parse(text);
       expect(report.recommended).toBe('patch');
       expect(report.changes).toHaveLength(0);
+    });
+
+    // Deep validation: a nested null/array entrypoint must fail with a clear
+    // error instead of slipping into the classifier and surfacing as
+    // `entrypoint-removed` (or crashing inside `Object.keys(null)`).
+    it('rejects a null entrypoint value with a deep-validation error', async () => {
+      const { client } = await createConnectedClient();
+      const fixturePath = path.join(FIXTURES, 'export-removed', 'old');
+      const snap = await extract({ projectPath: fixturePath });
+
+      const result = await client.callTool({
+        name: 'semver_diff',
+        arguments: { oldSnapshot: snap, newSnapshot: { entrypoints: { '.': null } } },
+      });
+      expect(result.isError).toBe(true);
+      const text = (result.content as Array<{ type: string; text: string }>)[0].text;
+      expect(text).toContain('newSnapshot.entrypoints');
+      expect(text).toContain('non-null object');
+    });
+
+    it('rejects an array entrypoint value with a deep-validation error', async () => {
+      const { client } = await createConnectedClient();
+      const fixturePath = path.join(FIXTURES, 'export-removed', 'old');
+      const snap = await extract({ projectPath: fixturePath });
+
+      const result = await client.callTool({
+        name: 'semver_diff',
+        arguments: { oldSnapshot: { entrypoints: { '.': [] } }, newSnapshot: snap },
+      });
+      expect(result.isError).toBe(true);
+      const text = (result.content as Array<{ type: string; text: string }>)[0].text;
+      expect(text).toContain('oldSnapshot.entrypoints');
+    });
+
+    // A malformed symbol value (`{ x: [] }`) used to slip past the entry-level
+    // guard and surface as a noisy "patch" report because the classifier
+    // walked the array as a symbol map. Validation now reaches per-symbol.
+    it('rejects a malformed symbol value with a deep-validation error', async () => {
+      const { client } = await createConnectedClient();
+      const malformed = { entrypoints: { '.': { x: [] } } };
+      const result = await client.callTool({
+        name: 'semver_diff',
+        arguments: { oldSnapshot: malformed, newSnapshot: malformed },
+      });
+      expect(result.isError).toBe(true);
+      const text = (result.content as Array<{ type: string; text: string }>)[0].text;
+      expect(text).toContain('oldSnapshot.entrypoints');
+      expect(text).toContain('non-null object');
+    });
+
+    // Leaf validation: a symbol that passes the `kind` check but carries a
+    // non-string `SerializedType.text` (here `5`) used to slip through and feed
+    // a numeric "type" into the classifier's text comparisons, surfacing as a
+    // silent patch instead of a validation error.
+    it('rejects a symbol with a non-string serialized type as a leaf error', async () => {
+      const { client } = await createConnectedClient();
+      const malformed = {
+        entrypoints: { '.': { v: { kind: 'variable', name: 'v', type: { text: 5 } } } },
+      };
+      const result = await client.callTool({
+        name: 'semver_diff',
+        arguments: { oldSnapshot: malformed, newSnapshot: malformed },
+      });
+      expect(result.isError).toBe(true);
+      const text = (result.content as Array<{ type: string; text: string }>)[0].text;
+      expect(text).toContain('serialized type');
+    });
+
+    it('rejects a function symbol missing its signatures array', async () => {
+      const { client } = await createConnectedClient();
+      const malformed = {
+        entrypoints: { '.': { f: { kind: 'function', name: 'f' } } },
+      };
+      const result = await client.callTool({
+        name: 'semver_diff',
+        arguments: { oldSnapshot: malformed, newSnapshot: malformed },
+      });
+      expect(result.isError).toBe(true);
+      const text = (result.content as Array<{ type: string; text: string }>)[0].text;
+      expect(text).toContain('signatures');
+    });
+
+    it('rejects a class with a malformed constructor signature leaf', async () => {
+      const { client } = await createConnectedClient();
+      const malformed = {
+        entrypoints: {
+          '.': {
+            C: {
+              kind: 'class',
+              name: 'C',
+              properties: [],
+              methods: [],
+              typeParameters: [],
+              constructorSignatures: [
+                { parameters: [{ name: 'x', type: { text: 5 } }], returnType: { text: 'void' }, typeParameters: [] },
+              ],
+            },
+          },
+        },
+      };
+      const result = await client.callTool({
+        name: 'semver_diff',
+        arguments: { oldSnapshot: malformed, newSnapshot: malformed },
+      });
+      expect(result.isError).toBe(true);
+      const text = (result.content as Array<{ type: string; text: string }>)[0].text;
+      expect(text).toContain('constructorSignatures');
+    });
+
+    it('rejects a non-string type-parameter constraint leaf', async () => {
+      const { client } = await createConnectedClient();
+      const malformed = {
+        entrypoints: {
+          '.': {
+            T: {
+              kind: 'type-alias',
+              name: 'T',
+              type: { text: 'unknown' },
+              typeParameters: [{ name: 'T', constraint: { text: 5 }, hasDefault: false }],
+            },
+          },
+        },
+      };
+      const result = await client.callTool({
+        name: 'semver_diff',
+        arguments: { oldSnapshot: malformed, newSnapshot: malformed },
+      });
+      expect(result.isError).toBe(true);
+      const text = (result.content as Array<{ type: string; text: string }>)[0].text;
+      expect(text).toContain('constraint');
+    });
+
+    it('rejects an enum member with a non-string name', async () => {
+      const { client } = await createConnectedClient();
+      const malformed = {
+        entrypoints: { '.': { E: { kind: 'enum', name: 'E', members: [{ name: 5, value: 1 }] } } },
+      };
+      const result = await client.callTool({
+        name: 'semver_diff',
+        arguments: { oldSnapshot: malformed, newSnapshot: malformed },
+      });
+      expect(result.isError).toBe(true);
+      const text = (result.content as Array<{ type: string; text: string }>)[0].text;
+      expect(text).toContain('members[0].name');
+    });
+
+    it('rejects a function parameter with a non-string name', async () => {
+      const { client } = await createConnectedClient();
+      const malformed = {
+        entrypoints: {
+          '.': {
+            f: {
+              kind: 'function',
+              name: 'f',
+              signatures: [
+                { parameters: [{ name: 5, type: { text: 'string' } }], returnType: { text: 'void' }, typeParameters: [] },
+              ],
+            },
+          },
+        },
+      };
+      const result = await client.callTool({
+        name: 'semver_diff',
+        arguments: { oldSnapshot: malformed, newSnapshot: malformed },
+      });
+      expect(result.isError).toBe(true);
+      const text = (result.content as Array<{ type: string; text: string }>)[0].text;
+      expect(text).toContain('parameters[0].name');
+    });
+
+    it('rejects an interface index signature with a non-serialized value type', async () => {
+      const { client } = await createConnectedClient();
+      const malformed = {
+        entrypoints: {
+          '.': {
+            D: {
+              kind: 'interface',
+              name: 'D',
+              properties: [],
+              methods: [],
+              typeParameters: [],
+              indexSignatures: [{ keyType: 'string', valueType: { text: 5 }, isReadonly: false }],
+            },
+          },
+        },
+      };
+      const result = await client.callTool({
+        name: 'semver_diff',
+        arguments: { oldSnapshot: malformed, newSnapshot: malformed },
+      });
+      expect(result.isError).toBe(true);
+      const text = (result.content as Array<{ type: string; text: string }>)[0].text;
+      expect(text).toContain('indexSignatures');
+    });
+
+    // A genuine extract() snapshot now carries call/index signatures and
+    // type-parameter defaults; the stricter validation must not false-reject it.
+    it('accepts a real extracted snapshot carrying the new interface/typeparam fields', async () => {
+      const { client } = await createConnectedClient();
+      const oldPath = path.join(FIXTURES, 'interface-index-signature-changed', 'old');
+      const newPath = path.join(FIXTURES, 'interface-index-signature-changed', 'new');
+      const [oldSnap, newSnap] = await Promise.all([
+        extract({ projectPath: oldPath }),
+        extract({ projectPath: newPath }),
+      ]);
+      const result = await client.callTool({ name: 'semver_diff', arguments: { oldSnapshot: oldSnap, newSnapshot: newSnap } });
+      expect(result.isError).toBeFalsy();
+      const report = JSON.parse((result.content as Array<{ type: string; text: string }>)[0].text);
+      expect(report.recommended).toBe('major');
+    });
+
+    it('rejects a symbol with a non-string name', async () => {
+      const { client } = await createConnectedClient();
+      const malformed = {
+        entrypoints: { '.': { v: { kind: 'variable', name: 5, type: { text: 'string' } } } },
+      };
+      const result = await client.callTool({
+        name: 'semver_diff',
+        arguments: { oldSnapshot: malformed, newSnapshot: malformed },
+      });
+      expect(result.isError).toBe(true);
+      const text = (result.content as Array<{ type: string; text: string }>)[0].text;
+      expect(text).toContain('.name must be a string');
+    });
+
+    // Reserved prototype keys (`__proto__`, `constructor`, `prototype`) must
+    // be refused at every level — they let a hostile JSON pollute the maps
+    // the classifier iterates over and trigger runtime crashes downstream.
+    it('rejects reserved prototype-pollution keys at the entrypoint level', async () => {
+      const { client } = await createConnectedClient();
+      const fixturePath = path.join(FIXTURES, 'export-removed', 'old');
+      const snap = await extract({ projectPath: fixturePath });
+      const hostile = JSON.parse('{"entrypoints":{"__proto__":{"x":{"kind":"function","name":"x","signatures":[]}}}}');
+      const result = await client.callTool({
+        name: 'semver_diff',
+        arguments: { oldSnapshot: hostile, newSnapshot: snap },
+      });
+      expect(result.isError).toBe(true);
+      const text = (result.content as Array<{ type: string; text: string }>)[0].text;
+      expect(text).toContain('reserved key');
     });
   });
 

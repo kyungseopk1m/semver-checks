@@ -14,6 +14,7 @@ export type ChangeKind =
   | 'class-method-removed'
   | 'class-property-removed'
   | 'generic-param-required'
+  | 'entrypoint-removed'
   | 'class-constructor-changed'
   | 'type-alias-changed'
   | 'variable-type-changed'
@@ -35,7 +36,13 @@ export type ChangeKind =
   | 'class-property-became-readonly'
   | 'class-method-became-static'
   | 'class-method-became-instance'
+  | 'generic-param-default-changed'
+  | 'interface-call-signature-changed'
+  | 'interface-construct-signature-changed'
+  | 'index-signature-changed'
   // MINOR
+  | 'entrypoint-added'
+  | 'generic-param-default-added'
   | 'export-added'
   | 'optional-param-added'
   | 'optional-property-added'
@@ -74,7 +81,7 @@ export interface SemverReport {
 export interface CompareOptions {
   oldSource: SourceRef;
   newSource: SourceRef;
-  entry?: string;
+  entry?: string | string[];
   installDeps?: boolean;
 }
 

@@ -1,9 +1,191 @@
-import type { ApiSnapshot, ApiSymbol, ApiFunctionSymbol, ApiInterfaceSymbol, ApiEnumSymbol, ApiClassSymbol, ApiTypeAliasSymbol, ApiVariableSymbol, ApiNamespaceSymbol, ApiTypeParameter, ApiFunctionSignature } from '../extract/api-snapshot.js';
+import { Project, Node } from 'ts-morph';
+import type { ApiSnapshot, ApiSymbol, ApiFunctionSymbol, ApiInterfaceSymbol, ApiInterfaceProperty, ApiEnumSymbol, ApiClassSymbol, ApiTypeAliasSymbol, ApiVariableSymbol, ApiNamespaceSymbol, ApiTypeParameter, ApiFunctionSignature, ApiIndexSignature } from '../extract/api-snapshot.js';
 import type { ApiChange } from '../types.js';
 import { compareTypeText } from './variance.js';
+import { computeLiteralSpans, isInsideLiteral } from './literal-spans.js';
+
+// Build a rename map that lets us treat `<T>(x: T)` and `<S>(x: S)` as the same
+// signature. The map projects each new type-parameter identifier onto its
+// positional old counterpart so that a downstream textual comparison can
+// recognise alpha-equivalent rewrites as no-ops. We bail (`null`) when the
+// arities differ — that is a real generic-arity change and the existing
+// classifier handles it — or when every name already matches.
+function buildTypeParamRenameMap(
+  oldTPs: ApiTypeParameter[],
+  newTPs: ApiTypeParameter[],
+): Map<string, string> | null {
+  if (oldTPs.length !== newTPs.length || oldTPs.length === 0) return null;
+  const map = new Map<string, string>();
+  for (let i = 0; i < oldTPs.length; i++) {
+    if (oldTPs[i].name !== newTPs[i].name) map.set(newTPs[i].name, oldTPs[i].name);
+  }
+  return map.size === 0 ? null : map;
+}
+
+// Combine a container-level rename (e.g. `interface Box<T>` vs `interface Box<S>`)
+// with a signature-local rename so a single `renameTypeText` pass aligns the new
+// text onto the old names across *both* scopes. Container entries whose key is
+// shadowed by a signature-local type-parameter name are dropped — TypeScript's
+// lexical scope makes the inner name win, so the container rename must not
+// reach into a signature body that re-declares the same identifier.
+function combineRenames(
+  containerRename: Map<string, string> | null,
+  sigRename: Map<string, string> | null,
+  sigNames: Set<string>,
+): Map<string, string> | null {
+  const combined = new Map<string, string>();
+  if (containerRename) {
+    for (const [from, to] of containerRename) {
+      if (!sigNames.has(from)) combined.set(from, to);
+    }
+  }
+  if (sigRename) {
+    for (const [from, to] of sigRename) {
+      combined.set(from, to);
+    }
+  }
+  return combined.size === 0 ? null : combined;
+}
+
+// Lexical binders introduce their own scope that a purely textual rename cannot
+// reason about. `infer X` (inside a conditional) and a mapped-type key binder
+// (`[K in ...]`) both declare names that can *shadow* an outer type parameter.
+// Renaming `<S>` to `<T>` in `S extends Array<infer T> ? S : never` yields text
+// identical to the structurally *different* `T extends Array<infer T> ? T :
+// never` — where the branch `T` binds to the `infer` result, not the parameter
+// — which would erase a real breaking change as a fast-path no-op. When a binder
+// is present we therefore decline to rename, so the textual fast-path fails and
+// the comparison falls through to the conservative variance / conditional-guard
+// path (which bails to major for these unresolved generics).
+function hasLexicalBinder(text: string): boolean {
+  const spans = computeLiteralSpans(text);
+  const inferRe = /\binfer\b/gu;
+  let m: RegExpExecArray | null;
+  while ((m = inferRe.exec(text)) !== null) {
+    if (!isInsideLiteral(spans, m.index, m.index + 'infer'.length - 1)) return true;
+  }
+  // Mapped-type key declaration: `[ K in ... ]`. Indexed access (`T[K]`) has no
+  // `in`, and a generic argument list (`Array<T>`) has no brackets, so neither
+  // is matched.
+  const mappedRe = /\[\s*[\p{ID_Start}$_][\p{ID_Continue}$]*\s+in\b/gu;
+  while ((m = mappedRe.exec(text)) !== null) {
+    if (!isInsideLiteral(spans, m.index, m.index)) return true;
+  }
+  return false;
+}
+
+// Wrapper so a bare type text parses as a complete statement; the trailing `)`
+// and `;` close it. The prefix length is subtracted from node offsets to map
+// back onto the original `text`.
+const RENAME_PREFIX = 'type __sc_rename__ = (';
+
+let renameProject: Project | undefined;
+function getRenameProject(): Project {
+  if (!renameProject) {
+    renameProject = new Project({
+      useInMemoryFileSystem: true,
+      compilerOptions: { noEmit: true, skipLibCheck: true },
+    });
+  }
+  return renameProject;
+}
+
+// Apply a type-parameter rename to a serialized type text so that `<T>(x: T)`
+// and `<S>(x: S)` are recognised as the same signature.
+//
+// The rename is AST-based: we parse the type and rewrite *only* identifiers in
+// type-reference position (a `TypeReferenceNode`'s `typeName`). A purely textual
+// substitution cannot tell a type-parameter use apart from an object-type
+// property key (`{ T: number }`), a member-access qualifier (`Lib.T`), or a
+// string literal type (`'T'`) — rewriting any of those fabricates a false
+// equivalence and erases a real breaking change (e.g. a renamed public property
+// key). Those positions are never a `TypeReference` type-name, so the AST walk
+// skips them for free, which also subsumes the old regex's literal-span,
+// member-access, and Unicode-boundary guards.
+//
+// `hasLexicalBinder` still bails: even a structurally correct rename can make
+// the new name collide with an existing `infer` / mapped binder and silently
+// shadow it, so we decline and let the conservative variance / guard path run.
+function renameTypeText(text: string, mapping: Map<string, string> | null): string {
+  if (!mapping || mapping.size === 0) return text;
+  if (hasLexicalBinder(text)) return text;
+
+  const project = getRenameProject();
+  const sourceFile = project.createSourceFile('__sc_rename__.ts', `${RENAME_PREFIX}${text});`, {
+    overwrite: true,
+  });
+  try {
+    const edits: Array<{ start: number; end: number; to: string }> = [];
+    sourceFile.forEachDescendant((node) => {
+      if (!Node.isTypeReference(node)) return;
+      const nameNode = node.getTypeName();
+      // A `QualifiedName` (`Lib.T`) is member access, not a type-parameter use.
+      if (!Node.isIdentifier(nameNode)) return;
+      const to = mapping.get(nameNode.getText());
+      if (to === undefined) return;
+      edits.push({
+        start: nameNode.getStart() - RENAME_PREFIX.length,
+        end: nameNode.getEnd() - RENAME_PREFIX.length,
+        to,
+      });
+    });
+    if (edits.length === 0) return text;
+    // Apply right-to-left so earlier offsets stay valid as we splice.
+    edits.sort((a, b) => b.start - a.start);
+    let result = text;
+    for (const edit of edits) {
+      result = result.slice(0, edit.start) + edit.to + result.slice(edit.end);
+    }
+    return result;
+  } finally {
+    project.removeSourceFile(sourceFile);
+  }
+}
 
 export function classifyChanges(oldSnap: ApiSnapshot, newSnap: ApiSnapshot): ApiChange[] {
-  return classifySymbolMap(oldSnap.symbols, newSnap.symbols, '');
+  const changes: ApiChange[] = [];
+
+  const oldEntries = oldSnap.entrypoints;
+  const newEntries = newSnap.entrypoints;
+
+  // Removed entrypoints: dropping a published subpath breaks any consumer that
+  // imports from it.
+  for (const subpath of Object.keys(oldEntries)) {
+    if (!newEntries[subpath]) {
+      changes.push({
+        kind: 'entrypoint-removed',
+        severity: 'major',
+        symbolPath: subpath,
+        message: `Entry point '${subpath}' was removed`,
+      });
+    }
+  }
+
+  // Added entrypoints: a brand-new subpath is additive.
+  for (const subpath of Object.keys(newEntries)) {
+    if (!oldEntries[subpath]) {
+      changes.push({
+        kind: 'entrypoint-added',
+        severity: 'minor',
+        symbolPath: subpath,
+        message: `Entry point '${subpath}' was added`,
+      });
+    }
+  }
+
+  // Common entrypoints: diff their symbols with the existing per-symbol logic.
+  // The root '.' keeps bare symbol paths; subpaths prefix their symbols
+  // (e.g. './utils#foo') so reports stay unambiguous across entry points. `#`
+  // is chosen over `:` because GitHub Actions `::error::` property escaping
+  // turns `:` into `%3A`, which would surface as `./utils%3Afoo` in annotations.
+  for (const subpath of Object.keys(oldEntries)) {
+    const newSymbols = newEntries[subpath];
+    if (!newSymbols) continue;
+    const prefix = subpath === '.' ? '' : `${subpath}#`;
+    changes.push(...classifySymbolMap(oldEntries[subpath], newSymbols, prefix));
+  }
+
+  return changes;
 }
 
 // Compares two maps of exported symbols. `prefix` namespaces the symbol paths so
@@ -124,30 +306,94 @@ function classifyTypeParamChanges(symbolPath: string, oldTPs: ApiTypeParameter[]
       });
     }
   }
-  // Compare constraints of existing type parameters
+  // Compare constraints of existing type parameters. Alpha-rename lets us treat
+  // `<T extends Box<T>>` and `<S extends Box<S>>` as the same constraint —
+  // without it, the rename inside the constraint body would surface as a
+  // spurious `generic-constraint-changed` MAJOR even though the constraint is
+  // structurally identical.
   const commonCount = Math.min(oldTPs.length, newTPs.length);
+  const tpRename = buildTypeParamRenameMap(oldTPs.slice(0, commonCount), newTPs.slice(0, commonCount));
   for (let i = 0; i < commonCount; i++) {
     const oldConstraint = oldTPs[i].constraint?.text ?? null;
-    const newConstraint = newTPs[i].constraint?.text ?? null;
-    if (oldConstraint !== newConstraint) {
+    const newConstraintRaw = newTPs[i].constraint?.text ?? null;
+    const newConstraintForCompare = newConstraintRaw === null ? null : renameTypeText(newConstraintRaw, tpRename);
+    if (oldConstraint !== newConstraintForCompare) {
       changes.push({
         kind: 'generic-constraint-changed',
         severity: 'major',
         symbolPath,
         message: `Generic constraint on '${oldTPs[i].name}' changed in '${symbolPath}'`,
         oldValue: oldConstraint ?? '(none)',
-        newValue: newConstraint ?? '(none)',
+        newValue: newConstraintRaw ?? '(none)',
       });
+    }
+
+    // Default type arguments. Removing or changing a default breaks consumers
+    // that rely on it (`X` resolves differently or no longer omits the arg);
+    // adding one is a backward-compatible relaxation. Alpha-rename aligns the
+    // new default onto the old parameter names so `<T = Box<T>>` and
+    // `<S = Box<S>>` are recognised as the same default.
+    const oldDefault = oldTPs[i].default?.text ?? null;
+    const newDefaultRaw = newTPs[i].default?.text ?? null;
+    const newDefaultForCompare = newDefaultRaw === null ? null : renameTypeText(newDefaultRaw, tpRename);
+    if (oldDefault !== newDefaultForCompare) {
+      if (oldDefault === null) {
+        changes.push({
+          kind: 'generic-param-default-added',
+          severity: 'minor',
+          symbolPath,
+          message: `Default added to generic parameter '${oldTPs[i].name}' in '${symbolPath}'`,
+          newValue: newDefaultRaw ?? '(none)',
+        });
+      } else {
+        changes.push({
+          kind: 'generic-param-default-changed',
+          severity: 'major',
+          symbolPath,
+          message: `Default of generic parameter '${oldTPs[i].name}' changed in '${symbolPath}'`,
+          oldValue: oldDefault,
+          newValue: newDefaultRaw ?? '(none)',
+        });
+      }
     }
   }
 
   return changes;
 }
 
-function compareFunctionSignature(symbolPath: string, oldSig: ApiFunctionSignature, newSig: ApiFunctionSignature): ApiChange[] {
+// `extraTypeParameters` supplies the *container* generic scope when the
+// signature is nested inside an interface / class (e.g. `interface Box<T> { f(x: T): T }`).
+// The container parameters are merged into the variance context so bare
+// generics resolve, with signature-local names shadowing same-named outer
+// parameters (TypeScript's lexical scope rule); duplicates are dropped before
+// they reach the synthesis to keep the probe declaration-error-free.
+// `extraRename` carries the container-level alpha-rename map (e.g. when the
+// container itself was renamed from `<T>` to `<S>`); it is combined with the
+// signature-local rename so the new text is aligned to the old container *and*
+// signature names before textual / variance comparison.
+function compareFunctionSignature(
+  symbolPath: string,
+  oldSig: ApiFunctionSignature,
+  newSig: ApiFunctionSignature,
+  extraTypeParameters?: { old: ApiTypeParameter[]; new: ApiTypeParameter[] },
+  extraRename?: Map<string, string> | null,
+): ApiChange[] {
   const changes: ApiChange[] = [];
   const oldParams = oldSig.parameters;
   const newParams = newSig.parameters;
+  const sigRename = buildTypeParamRenameMap(oldSig.typeParameters, newSig.typeParameters);
+  // Union both sides so the asymmetric case (old uses `<T>`, new uses `<U>`,
+  // container also uses `<U>`) cannot accidentally include the container TP
+  // *under the new name* and shadow the signature scope of the rewritten text.
+  const sigNames = new Set<string>([
+    ...oldSig.typeParameters.map((tp) => tp.name),
+    ...newSig.typeParameters.map((tp) => tp.name),
+  ]);
+  const tpRename = combineRenames(extraRename ?? null, sigRename, sigNames);
+  const oldContextTPs: ApiTypeParameter[] = [
+    ...(extraTypeParameters?.old.filter((tp) => !sigNames.has(tp.name)) ?? []),
+    ...oldSig.typeParameters,
+  ];
 
   for (let i = oldParams.length; i < newParams.length; i++) {
     const p = newParams[i];
@@ -197,12 +443,21 @@ function compareFunctionSignature(symbolPath: string, oldSig: ApiFunctionSignatu
         oldValue: oldP.isRest ? `...${oldP.name}: ${oldP.type.text}` : `${oldP.name}: ${oldP.type.text}`,
         newValue: newP.isRest ? `...${newP.name}: ${newP.type.text}` : `${newP.name}: ${newP.type.text}`,
       });
-    } else if (oldP.type.text !== newP.type.text) {
+    } else if (oldP.type.text !== renameTypeText(newP.type.text, tpRename)) {
       // Parameters are contravariant: existing callers keep passing the *old*
       // type, so a change is non-breaking only if the old type is still assignable
       // to the new one (widening). Equivalent texts (e.g. `readonly T[]` vs
       // `ReadonlyArray<T>`) are no-ops. Undecidable relations stay conservatively major.
-      const relation = compareTypeText(oldP.type.text, newP.type.text);
+      // The new text is alpha-renamed onto the old type-parameter names so that
+      // a pure generic rename (`<T>(x: T)` → `<S>(x: S)`) collapses to a no-op
+      // before variance probing runs. The shared type-parameter scope is also
+      // handed to variance so bare generics (`T | undefined` vs `T`) resolve
+      // against same-named declarations instead of bailing as undecidable.
+      const relation = compareTypeText(
+        oldP.type.text,
+        renameTypeText(newP.type.text, tpRename),
+        { typeParameters: oldContextTPs },
+      );
       const equivalent = relation !== null && relation.oldToNew && relation.newToOld;
       if (!equivalent) {
         if (relation !== null && relation.oldToNew) {
@@ -249,8 +504,12 @@ function compareFunctionSignature(symbolPath: string, oldSig: ApiFunctionSignatu
   // Return types are covariant: consumers expect the *old* type, so a change is
   // non-breaking only if the new type is still assignable to the old one
   // (narrowing). Equivalent texts are no-ops; undecidable relations stay major.
-  if (oldSig.returnType.text !== newSig.returnType.text) {
-    const relation = compareTypeText(oldSig.returnType.text, newSig.returnType.text);
+  if (oldSig.returnType.text !== renameTypeText(newSig.returnType.text, tpRename)) {
+    const relation = compareTypeText(
+      oldSig.returnType.text,
+      renameTypeText(newSig.returnType.text, tpRename),
+      { typeParameters: oldContextTPs },
+    );
     const equivalent = relation !== null && relation.oldToNew && relation.newToOld;
     if (!equivalent) {
       if (relation !== null && relation.newToOld) {
@@ -317,8 +576,51 @@ function classifyFunctionChanges(name: string, oldFn: ApiFunctionSymbol, newFn: 
   return changes;
 }
 
+// Canonical text of a call/construct signature, used to compare interface
+// call/construct signature lists. Two signatures are the same iff their keys
+// match. This is a conservative textual comparison (no variance relaxation):
+// any real change surfaces as a major, an identical list is a no-op. An
+// optional `rename` aligns the new side onto the old container's generic names
+// so a pure container rename (`interface F<T> { (x: T): T }` vs `<S>`) collapses
+// to a no-op; a rename of the signature's *own* type parameter stays an
+// over-conservative major (acceptable under the false-major-is-safe asymmetry).
+function signatureKey(sig: ApiFunctionSignature, rename: Map<string, string> | null = null): string {
+  const tps = sig.typeParameters
+    .map((tp) =>
+      tp.name +
+      (tp.constraint ? ` extends ${renameTypeText(tp.constraint.text, rename)}` : '') +
+      (tp.default ? ` = ${renameTypeText(tp.default.text, rename)}` : ''),
+    )
+    .join(', ');
+  const params = sig.parameters
+    .map((p) => `${p.isRest ? '...' : ''}${p.name}${p.isOptional ? '?' : ''}: ${renameTypeText(p.type.text, rename)}`)
+    .join(', ');
+  return `${tps ? `<${tps}>` : ''}(${params}) => ${renameTypeText(sig.returnType.text, rename)}`;
+}
+
+function indexSignatureKey(ix: ApiIndexSignature, rename: Map<string, string> | null = null): string {
+  return `${ix.isReadonly ? 'readonly ' : ''}[${ix.keyType}]: ${renameTypeText(ix.valueType.text, rename)}`;
+}
+
+function sortedKeys<T>(items: T[] | undefined, toKey: (item: T) => string): string[] {
+  return (items ?? []).map(toKey).sort();
+}
+
+// The container rename, minus any name shadowed by a signature's own type
+// parameters (TypeScript's lexical scope makes the inner name win).
+function renameForSignature(
+  containerRename: Map<string, string> | null,
+  sig: ApiFunctionSignature,
+): Map<string, string> | null {
+  return combineRenames(containerRename, null, new Set(sig.typeParameters.map((tp) => tp.name)));
+}
+
 function classifyInterfaceChanges(name: string, oldIf: ApiInterfaceSymbol, newIf: ApiInterfaceSymbol): ApiChange[] {
   const changes: ApiChange[] = [];
+  // Container-level rename so a generic-only rewrite (`interface Box<T>` vs
+  // `interface Box<S>`) collapses to a no-op for every nested property /
+  // method that mentions the parameter.
+  const containerRename = buildTypeParamRenameMap(oldIf.typeParameters, newIf.typeParameters);
   const oldProps = new Map(oldIf.properties.map((p) => [p.name, p]));
   const newProps = new Map(newIf.properties.map((p) => [p.name, p]));
 
@@ -358,18 +660,39 @@ function classifyInterfaceChanges(name: string, oldIf: ApiInterfaceSymbol, newIf
     }
   }
 
-  // Changed properties
+  // Changed properties. Properties sit in an invariant position (read + write),
+  // so widening/narrowing alone is *not* relaxed to minor — only a structurally
+  // equivalent rewrite (e.g. `readonly T[]` vs `ReadonlyArray<T>`) inside the
+  // interface's generic scope is a true no-op. The container `typeParameters`
+  // are passed as the variance context so bare generics inside the property
+  // type resolve against same-named declarations.
   for (const [propName, oldProp] of oldProps) {
     const newProp = newProps.get(propName);
     if (!newProp) continue;
-    if (oldProp.type.text !== newProp.type.text) {
+    // Properties are invariant; an accessor pair can carry a distinct write
+    // (setter) type, so compare both the read type and the effective write type.
+    const ifaceCtx = { typeParameters: oldIf.typeParameters };
+    const ifaceTextEquivalent = (oldText: string, newRaw: string): boolean => {
+      const newText = renameTypeText(newRaw, containerRename);
+      if (oldText === newText) return true;
+      const relation = compareTypeText(oldText, newText, ifaceCtx);
+      return relation !== null && relation.oldToNew && relation.newToOld;
+    };
+    const ifaceReadEquivalent = ifaceTextEquivalent(oldProp.type.text, newProp.type.text);
+    const ifaceWriteEquivalent = ifaceTextEquivalent(
+      oldProp.writeType?.text ?? oldProp.type.text,
+      newProp.writeType?.text ?? newProp.type.text,
+    );
+    if (!ifaceReadEquivalent || !ifaceWriteEquivalent) {
+      const describe = (p: ApiInterfaceProperty): string =>
+        p.writeType ? `${p.type.text} (set: ${p.writeType.text})` : p.type.text;
       changes.push({
         kind: 'property-type-changed',
         severity: 'major',
         symbolPath: `${name}.${propName}`,
         message: `Property '${propName}' type changed in interface '${name}'`,
-        oldValue: oldProp.type.text,
-        newValue: newProp.type.text,
+        oldValue: describe(oldProp),
+        newValue: describe(newProp),
       });
     }
     if (oldProp.isOptional && !newProp.isOptional) {
@@ -463,7 +786,15 @@ function classifyInterfaceChanges(name: string, oldIf: ApiInterfaceSymbol, newIf
       const oldSig = oldMethod.signatures[i];
       const newSig = newMethod.signatures[i];
       if (!oldSig || !newSig) continue;
-      allSigChanges.push(...compareFunctionSignature(`${name}.${methodName}`, oldSig, newSig));
+      allSigChanges.push(
+        ...compareFunctionSignature(
+          `${name}.${methodName}`,
+          oldSig,
+          newSig,
+          { old: oldIf.typeParameters, new: newIf.typeParameters },
+          containerRename,
+        ),
+      );
       allSigChanges.push(...classifyTypeParamChanges(`${name}.${methodName}`, oldSig.typeParameters, newSig.typeParameters));
     }
     if (allSigChanges.length > 0) {
@@ -477,6 +808,49 @@ function classifyInterfaceChanges(name: string, oldIf: ApiInterfaceSymbol, newIf
       });
       changes.push(...allSigChanges);
     }
+  }
+
+  // Call / construct / index signatures. These are part of the interface's
+  // public shape but live outside properties/methods, so a removed or changed
+  // signature would otherwise be a silent patch. Compared as canonical-text
+  // multisets: a difference is conservatively major, an identical set a no-op.
+  const oldCalls = sortedKeys(oldIf.callSignatures, (s) => signatureKey(s));
+  const newCalls = sortedKeys(newIf.callSignatures, (s) => signatureKey(s, renameForSignature(containerRename, s)));
+  if (oldCalls.join('\n') !== newCalls.join('\n')) {
+    changes.push({
+      kind: 'interface-call-signature-changed',
+      severity: 'major',
+      symbolPath: name,
+      message: `Call signatures of interface '${name}' changed`,
+      oldValue: oldCalls.join(' | ') || '(none)',
+      newValue: newCalls.join(' | ') || '(none)',
+    });
+  }
+
+  const oldCtors = sortedKeys(oldIf.constructSignatures, (s) => signatureKey(s));
+  const newCtors = sortedKeys(newIf.constructSignatures, (s) => signatureKey(s, renameForSignature(containerRename, s)));
+  if (oldCtors.join('\n') !== newCtors.join('\n')) {
+    changes.push({
+      kind: 'interface-construct-signature-changed',
+      severity: 'major',
+      symbolPath: name,
+      message: `Construct signatures of interface '${name}' changed`,
+      oldValue: oldCtors.join(' | ') || '(none)',
+      newValue: newCtors.join(' | ') || '(none)',
+    });
+  }
+
+  const oldIndex = sortedKeys(oldIf.indexSignatures, (ix) => indexSignatureKey(ix));
+  const newIndex = sortedKeys(newIf.indexSignatures, (ix) => indexSignatureKey(ix, containerRename));
+  if (oldIndex.join('\n') !== newIndex.join('\n')) {
+    changes.push({
+      kind: 'index-signature-changed',
+      severity: 'major',
+      symbolPath: name,
+      message: `Index signatures of interface '${name}' changed`,
+      oldValue: oldIndex.join(' | ') || '(none)',
+      newValue: newIndex.join(' | ') || '(none)',
+    });
   }
 
   // Generic param changes
@@ -509,7 +883,13 @@ function classPropertyKey(property: ApiClassProperty): string {
   return `${property.isStatic ? 'static' : 'instance'}:${property.name}`;
 }
 
-function classifySingleClassMethodChange(className: string, oldMethod: ApiClassMethod, newMethod: ApiClassMethod): ApiChange[] {
+function classifySingleClassMethodChange(
+  className: string,
+  oldMethod: ApiClassMethod,
+  newMethod: ApiClassMethod,
+  classTPs?: { old: ApiTypeParameter[]; new: ApiTypeParameter[] },
+  containerRename?: Map<string, string> | null,
+): ApiChange[] {
   const changes: ApiChange[] = [];
   const symbolPath = `${className}.${oldMethod.name}`;
 
@@ -558,7 +938,9 @@ function classifySingleClassMethodChange(className: string, oldMethod: ApiClassM
     const oldSig = oldMethod.signatures[i];
     const newSig = newMethod.signatures[i];
     if (!oldSig || !newSig) continue;
-    allSigChanges.push(...compareFunctionSignature(symbolPath, oldSig, newSig));
+    allSigChanges.push(
+      ...compareFunctionSignature(symbolPath, oldSig, newSig, classTPs, containerRename ?? null),
+    );
     allSigChanges.push(...classifyTypeParamChanges(symbolPath, oldSig.typeParameters, newSig.typeParameters));
   }
   if (allSigChanges.length > 0) {
@@ -576,18 +958,43 @@ function classifySingleClassMethodChange(className: string, oldMethod: ApiClassM
   return changes;
 }
 
-function classifySingleClassPropertyChange(className: string, oldProp: ApiClassProperty, newProp: ApiClassProperty): ApiChange[] {
+function classifySingleClassPropertyChange(
+  className: string,
+  oldProp: ApiClassProperty,
+  newProp: ApiClassProperty,
+  classTPs?: { old: ApiTypeParameter[]; new: ApiTypeParameter[] },
+  containerRename?: Map<string, string> | null,
+): ApiChange[] {
   const changes: ApiChange[] = [];
   const symbolPath = `${className}.${oldProp.name}`;
 
-  if (oldProp.type.text !== newProp.type.text) {
+  // Class properties are invariant (read + write), so only a structurally
+  // equivalent rewrite inside the class's generic scope is a no-op. A get/set
+  // accessor can carry a distinct write (setter) type, so compare both the read
+  // type and the effective write type (which falls back to the read type for
+  // plain fields and matched accessors).
+  const ctx = classTPs ? { typeParameters: classTPs.old } : undefined;
+  const textEquivalent = (oldText: string, newRaw: string): boolean => {
+    const newText = renameTypeText(newRaw, containerRename ?? null);
+    if (oldText === newText) return true;
+    const relation = compareTypeText(oldText, newText, ctx);
+    return relation !== null && relation.oldToNew && relation.newToOld;
+  };
+  const readEquivalent = textEquivalent(oldProp.type.text, newProp.type.text);
+  const writeEquivalent = textEquivalent(
+    oldProp.writeType?.text ?? oldProp.type.text,
+    newProp.writeType?.text ?? newProp.type.text,
+  );
+  if (!readEquivalent || !writeEquivalent) {
+    const describe = (p: ApiClassProperty): string =>
+      p.writeType ? `${p.type.text} (set: ${p.writeType.text})` : p.type.text;
     changes.push({
       kind: 'class-property-type-changed',
       severity: 'major',
       symbolPath,
       message: `Property '${oldProp.name}' type changed in class '${className}'`,
-      oldValue: oldProp.type.text,
-      newValue: newProp.type.text,
+      oldValue: describe(oldProp),
+      newValue: describe(newProp),
     });
   }
   // isStatic checks only fire in the 1:1 name-only shortcut path (classifyClassPropertyGroupChanges).
@@ -644,7 +1051,13 @@ function classifySingleClassPropertyChange(className: string, oldProp: ApiClassP
   return changes;
 }
 
-function classifyClassMethodGroupChanges(className: string, oldGroup: ApiClassMethod[], newGroup: ApiClassMethod[]): ApiChange[] {
+function classifyClassMethodGroupChanges(
+  className: string,
+  oldGroup: ApiClassMethod[],
+  newGroup: ApiClassMethod[],
+  classTPs?: { old: ApiTypeParameter[]; new: ApiTypeParameter[] },
+  containerRename?: Map<string, string> | null,
+): ApiChange[] {
   const changes: ApiChange[] = [];
 
   if (oldGroup.length === 0) {
@@ -672,7 +1085,7 @@ function classifyClassMethodGroupChanges(className: string, oldGroup: ApiClassMe
   }
 
   if (oldGroup.length === 1 && newGroup.length === 1) {
-    return classifySingleClassMethodChange(className, oldGroup[0], newGroup[0]);
+    return classifySingleClassMethodChange(className, oldGroup[0], newGroup[0], classTPs, containerRename);
   }
 
   const oldByKey = new Map(oldGroup.map((method) => [classMethodKey(method), method]));
@@ -689,7 +1102,7 @@ function classifyClassMethodGroupChanges(className: string, oldGroup: ApiClassMe
       });
       continue;
     }
-    changes.push(...classifySingleClassMethodChange(className, oldMethod, newMethod));
+    changes.push(...classifySingleClassMethodChange(className, oldMethod, newMethod, classTPs, containerRename));
   }
 
   for (const [key, newMethod] of newByKey) {
@@ -705,7 +1118,13 @@ function classifyClassMethodGroupChanges(className: string, oldGroup: ApiClassMe
   return changes;
 }
 
-function classifyClassPropertyGroupChanges(className: string, oldGroup: ApiClassProperty[], newGroup: ApiClassProperty[]): ApiChange[] {
+function classifyClassPropertyGroupChanges(
+  className: string,
+  oldGroup: ApiClassProperty[],
+  newGroup: ApiClassProperty[],
+  classTPs?: { old: ApiTypeParameter[]; new: ApiTypeParameter[] },
+  containerRename?: Map<string, string> | null,
+): ApiChange[] {
   const changes: ApiChange[] = [];
 
   if (oldGroup.length === 0) {
@@ -733,7 +1152,7 @@ function classifyClassPropertyGroupChanges(className: string, oldGroup: ApiClass
   }
 
   if (oldGroup.length === 1 && newGroup.length === 1) {
-    return classifySingleClassPropertyChange(className, oldGroup[0], newGroup[0]);
+    return classifySingleClassPropertyChange(className, oldGroup[0], newGroup[0], classTPs, containerRename);
   }
 
   const oldByKey = new Map(oldGroup.map((property) => [classPropertyKey(property), property]));
@@ -750,7 +1169,7 @@ function classifyClassPropertyGroupChanges(className: string, oldGroup: ApiClass
       });
       continue;
     }
-    changes.push(...classifySingleClassPropertyChange(className, oldProperty, newProperty));
+    changes.push(...classifySingleClassPropertyChange(className, oldProperty, newProperty, classTPs, containerRename));
   }
 
   for (const [key, newProperty] of newByKey) {
@@ -814,6 +1233,12 @@ function classifyEnumChanges(name: string, oldEnum: ApiEnumSymbol, newEnum: ApiE
 
 function classifyClassChanges(name: string, oldCls: ApiClassSymbol, newCls: ApiClassSymbol): ApiChange[] {
   const changes: ApiChange[] = [];
+  // Container generic scope shared by constructor / methods / properties, and
+  // the matching alpha-rename so a class-level rename (`class Bag<T>` vs
+  // `class Bag<S>`) collapses to a no-op for every nested member that
+  // references the parameter.
+  const classTPs = { old: oldCls.typeParameters, new: newCls.typeParameters };
+  const containerRename = buildTypeParamRenameMap(oldCls.typeParameters, newCls.typeParameters);
 
   // Constructor changes
   const oldCtors = oldCls.constructorSignatures;
@@ -840,7 +1265,7 @@ function classifyClassChanges(name: string, oldCls: ApiClassSymbol, newCls: ApiC
   }
   const ctorPairCount = Math.min(oldCtors.length, newCtors.length);
   for (let i = 0; i < ctorPairCount; i++) {
-    const ctorSubChanges = compareFunctionSignature(`${name}.constructor`, oldCtors[i], newCtors[i]);
+    const ctorSubChanges = compareFunctionSignature(`${name}.constructor`, oldCtors[i], newCtors[i], classTPs, containerRename);
     if (ctorSubChanges.length > 0) {
       const oldCtorParams = oldCtors[i].parameters.map((p) => `${p.name}: ${p.type.text}`).join(', ');
       const newCtorParams = newCtors[i].parameters.map((p) => `${p.name}: ${p.type.text}`).join(', ');
@@ -868,6 +1293,8 @@ function classifyClassChanges(name: string, oldCls: ApiClassSymbol, newCls: ApiC
         name,
         oldMethodGroups.get(methodName) ?? [],
         newMethodGroups.get(methodName) ?? [],
+        classTPs,
+        containerRename,
       ),
     );
   }
@@ -882,6 +1309,8 @@ function classifyClassChanges(name: string, oldCls: ApiClassSymbol, newCls: ApiC
         name,
         oldPropertyGroups.get(propertyName) ?? [],
         newPropertyGroups.get(propertyName) ?? [],
+        classTPs,
+        containerRename,
       ),
     );
   }
@@ -894,12 +1323,21 @@ function classifyClassChanges(name: string, oldCls: ApiClassSymbol, newCls: ApiC
 
 function classifyTypeAliasChanges(name: string, oldTA: ApiTypeAliasSymbol, newTA: ApiTypeAliasSymbol): ApiChange[] {
   const changes: ApiChange[] = [];
+  const tpRename = buildTypeParamRenameMap(oldTA.typeParameters, newTA.typeParameters);
 
-  if (oldTA.type.text !== newTA.type.text) {
+  if (oldTA.type.text !== renameTypeText(newTA.type.text, tpRename)) {
     // Type aliases can appear in both input and output positions (invariant), so
     // we don't relax widening/narrowing to minor — but structurally equivalent
-    // texts (e.g. `readonly T[]` vs `ReadonlyArray<T>`) are genuine no-ops.
-    const relation = compareTypeText(oldTA.type.text, newTA.type.text);
+    // texts (e.g. `readonly T[]` vs `ReadonlyArray<T>`) are genuine no-ops. The
+    // alpha-rename also collapses pure generic renames (`type X<T> = T` vs
+    // `type X<S> = S`) to a no-op before variance probing. The shared
+    // type-parameter scope lets variance instantiate bare generics rather than
+    // bailing to the conservative major.
+    const relation = compareTypeText(
+      oldTA.type.text,
+      renameTypeText(newTA.type.text, tpRename),
+      { typeParameters: oldTA.typeParameters },
+    );
     const equivalent = relation !== null && relation.oldToNew && relation.newToOld;
     if (!equivalent) {
       changes.push({

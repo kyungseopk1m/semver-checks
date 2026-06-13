@@ -3,7 +3,7 @@ import { extractFromPath } from './ts-morph-backend.js';
 
 export interface ExtractOptions {
   projectPath: string;
-  entry?: string;
+  entry?: string | string[];
 }
 
 export async function extract(options: ExtractOptions): Promise<ApiSnapshot> {

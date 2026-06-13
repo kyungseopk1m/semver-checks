@@ -31,7 +31,7 @@ const compareCommand = defineCommand({
     },
     entry: {
       type: 'string',
-      description: 'Entry file (e.g. src/index.ts)',
+      description: 'Entry file(s), e.g. src/index.ts. Repeat the flag or comma-separate for multiple entries.',
       alias: 'e',
     },
     format: {
@@ -68,7 +68,7 @@ const compareCommand = defineCommand({
       const report = await compare({
         oldSource: resolveSourceInput(oldRef, parseSourceInputKind(args.oldAs, '--old-as')),
         newSource: resolveSourceInput(newRef, parseSourceInputKind(args.newAs, '--new-as')),
-        entry: args.entry,
+        entry: parseEntryArg(args.entry as string | string[] | undefined),
         installDeps: args.installDeps,
       });
 
@@ -99,6 +99,19 @@ function renderReport(report: SemverReport, format: string): string {
   }
 }
 
+// --entry may be passed once, repeated (citty yields an array), or
+// comma-separated. Normalize to undefined, a single string, or a string[].
+function parseEntryArg(input: string | string[] | undefined): string | string[] | undefined {
+  if (input === undefined) return undefined;
+  const raw = Array.isArray(input) ? input : [input];
+  const entries = raw
+    .flatMap((e) => e.split(','))
+    .map((e) => e.trim())
+    .filter((e) => e.length > 0);
+  if (entries.length === 0) return undefined;
+  return entries.length === 1 ? entries[0] : entries;
+}
+
 function parseSourceInputKind(input: string | undefined, flagName: string): SourceInputKind | undefined {
   if (!input) return undefined;
   if (input === 'path') return 'path';
@@ -120,7 +133,7 @@ const snapshotCommand = defineCommand({
     },
     entry: {
       type: 'string',
-      description: 'Entry file',
+      description: 'Entry file(s). Repeat the flag or comma-separate for multiple entries.',
       alias: 'e',
     },
     ref: {
@@ -159,7 +172,7 @@ const snapshotCommand = defineCommand({
         }
       }
 
-      const snapshot = await extract({ projectPath, entry: args.entry });
+      const snapshot = await extract({ projectPath, entry: parseEntryArg(args.entry as string | string[] | undefined) });
       console.log(JSON.stringify(snapshot, null, 2));
     } catch (err: any) {
       console.error(`Error: ${err.message}`);

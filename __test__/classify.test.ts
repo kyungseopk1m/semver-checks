@@ -31,6 +31,18 @@ function compareFixture(fixtureName: string) {
   return diff(oldSnap, newSnap);
 }
 
+// Multi-entry fixtures rely on package.json "exports" auto-detection, so the
+// entry is left unspecified (no explicit 'index.ts' override).
+function compareExportsFixture(fixtureName: string) {
+  const oldDir = fixtureDir(fixtureName, 'old');
+  const newDir = fixtureDir(fixtureName, 'new');
+  ensureFixtureTsConfig(oldDir);
+  ensureFixtureTsConfig(newDir);
+  const oldSnap = extractFromPath(oldDir);
+  const newSnap = extractFromPath(newDir);
+  return { report: diff(oldSnap, newSnap), oldSnap, newSnap };
+}
+
 describe('export changes', () => {
   it('detects removed export as MAJOR', () => {
     const report = compareFixture('export-removed');
@@ -645,5 +657,449 @@ describe('variance false-negative regressions (independent verification)', () =>
     expect(report.changes.some((c) => c.kind === 'return-type-narrowed')).toBe(true);
     expect(report.changes.some((c) => c.severity === 'major')).toBe(false);
     expect(report.recommended).toBe('minor');
+  });
+});
+
+describe('advanced type structure comparison (regression + alpha-rename)', () => {
+  // Regression guard: ts-morph already normalises trailing separators / outer
+  // parens / object-literal whitespace at extraction time, so semantically
+  // equivalent rewrites must stay patch-level no-ops without any extra logic.
+  it('treats object trailing semicolon as a no-op', () => {
+    const report = compareFixture('type-alias-trailing-separator');
+    expect(report.changes).toHaveLength(0);
+    expect(report.recommended).toBe('patch');
+  });
+
+  it('treats mapped-type trailing semicolon as a no-op', () => {
+    const report = compareFixture('type-alias-mapped-trailing-semi');
+    expect(report.changes).toHaveLength(0);
+    expect(report.recommended).toBe('patch');
+  });
+
+  it('treats conditional-type outer parens as a no-op', () => {
+    const report = compareFixture('type-alias-conditional-outer-parens');
+    expect(report.changes).toHaveLength(0);
+    expect(report.recommended).toBe('patch');
+  });
+
+  // Regression guard: the brand synthesis eagerly evaluates a conditional whose
+  // check operand is a branded type parameter, collapsing distinct conditionals
+  // to the same constant. Changing a generic conditional is a real breaking
+  // change and must surface as major, not a silent patch.
+  it('treats a generic conditional check-operand change as breaking', () => {
+    const report = compareFixture('type-alias-conditional-checktype-changed');
+    expect(report.recommended).toBe('major');
+  });
+
+  it('treats a generic conditional infer-branch change as breaking', () => {
+    const report = compareFixture('type-alias-conditional-infer-changed');
+    expect(report.recommended).toBe('major');
+  });
+
+  it('treats a generic conditional return-type change in a function as breaking', () => {
+    const report = compareFixture('function-generic-conditional-return-changed');
+    expect(report.recommended).toBe('major');
+  });
+
+  // Regression guard: an `infer` binder shadows the outer type parameter, so a
+  // purely textual alpha-rename (`<S>` → `<T>`) makes the new text identical to
+  // a structurally different old type. The rename must be declined when a
+  // lexical binder is present, so the fast-path no-op is not reported and the
+  // real breaking change surfaces as major. `X<string[]>` resolves to `string`
+  // before and `string[]` after (proven independently with tsc).
+  it('treats an infer-binder-shadowing type alias change as breaking', () => {
+    const report = compareFixture('type-alias-infer-binder-shadow');
+    expect(report.recommended).toBe('major');
+  });
+
+  it('treats an infer-binder-shadowing function return change as breaking', () => {
+    const report = compareFixture('function-infer-binder-shadow');
+    expect(report.recommended).toBe('major');
+  });
+
+  // Regression guard: an unresolved symbol inside a union/intersection collapses
+  // the whole type to the intrinsic `error` type, which renders as `any`. Two
+  // structurally different unresolved types (`M | string` vs `M | number`) would
+  // both serialize to `any` and compare as a no-op, hiding a breaking change.
+  // The extractor falls back to the source annotation text for `error` types so
+  // the change stays visible, while an identical unresolved type stays a no-op.
+  it('treats a changed unresolved union type as breaking', () => {
+    const report = compareFixture('unresolved-union-type-changed');
+    expect(report.recommended).toBe('major');
+  });
+
+  it('treats an identical unresolved type as a no-op', () => {
+    const report = compareFixture('unresolved-type-unchanged');
+    expect(report.changes).toHaveLength(0);
+    expect(report.recommended).toBe('patch');
+  });
+
+  // Regression guard: alpha-rename must only rewrite type-reference identifiers,
+  // not object-type property keys. `{ T: number }` → `{ S: number }` is a real
+  // public property rename; a textual substitution used to turn it into a no-op.
+  it('treats an object-type property-key rename as breaking', () => {
+    const report = compareFixture('alpha-rename-property-key-changed');
+    expect(report.recommended).toBe('major');
+  });
+
+  // ...while a genuine type-parameter rename inside an object type stays a no-op.
+  it('treats a generic object-type parameter rename as a no-op', () => {
+    const report = compareFixture('alpha-rename-object-property-noop');
+    expect(report.changes).toHaveLength(0);
+    expect(report.recommended).toBe('patch');
+  });
+
+  // Regression guard: an unresolved symbol nested inside a wrapper (`Array<...>`,
+  // a nested object) collapses to `any` at serialization. The extractor falls
+  // back to the source text so `Array<M | string>` → `Array<M | number>` stays
+  // visible as a breaking change instead of both reading as `any[]`.
+  it('treats a changed unresolved type inside a wrapper as breaking', () => {
+    const report = compareFixture('unresolved-wrapper-type-changed');
+    expect(report.recommended).toBe('major');
+  });
+
+  // Regression guard: a function-type call signature's generic constraint is
+  // serialized from a `Type` (not an AST node), so an unresolved symbol collapses
+  // it to `any`. It must route through the source-text fallback so
+  // `<T extends M | string>` → `<T extends M | number>` surfaces as breaking.
+  it('treats a changed unresolved generic constraint on a function type as breaking', () => {
+    const report = compareFixture('unresolved-fn-constraint-changed');
+    expect(report.recommended).toBe('major');
+  });
+
+  // Regression guard: the unresolved-`any` fallback detects the `any` *type*
+  // keyword by parsing, so an object-type property literally named `any`
+  // (`{ any: M | string }`) does not suppress the fallback.
+  it('treats a changed unresolved type behind an "any" property key as breaking', () => {
+    const report = compareFixture('unresolved-any-property-key-changed');
+    expect(report.recommended).toBe('major');
+  });
+
+  // Regression guard: the fallback compares the `any` *count*, not just its
+  // presence, so a genuine `any` field alongside an unresolved one
+  // (`{ ok: any; x: M | string }`) does not mask the collapsed field.
+  it('treats a changed unresolved type beside a genuine any field as breaking', () => {
+    const report = compareFixture('unresolved-mixed-with-explicit-any-changed');
+    expect(report.recommended).toBe('major');
+  });
+
+  // Improvement: a pure generic-parameter rename used to surface as a major
+  // false-positive because variance synthesis cannot resolve bare type
+  // parameters. Alpha-renaming the new text onto the old parameter names lets
+  // the textual guard recognise the equivalence before variance probing runs.
+  it('treats a generic parameter rename in a function signature as a no-op', () => {
+    const report = compareFixture('function-generic-param-rename');
+    expect(report.changes).toHaveLength(0);
+    expect(report.recommended).toBe('patch');
+  });
+
+  it('treats a generic parameter rename in a type alias as a no-op', () => {
+    const report = compareFixture('type-alias-generic-param-rename');
+    expect(report.changes).toHaveLength(0);
+    expect(report.recommended).toBe('patch');
+  });
+
+  // Variance synthesis used to bail to a conservative major whenever a bare
+  // generic appeared in either type text. With the shared type-parameter
+  // scope, the probe instantiates the parameter (constraint or unique-symbol
+  // nominal) and recognises true widening/narrowing.
+  it('classifies generic parameter widening (T -> T | undefined) as MINOR', () => {
+    const report = compareFixture('function-generic-param-widened');
+    const widened = report.changes.find((c) => c.kind === 'param-type-widened');
+    expect(widened).toBeDefined();
+    expect(widened?.severity).toBe('minor');
+    expect(report.recommended).toBe('minor');
+  });
+
+  it('classifies generic return narrowing (T | undefined -> T) as MINOR', () => {
+    const report = compareFixture('function-generic-return-narrowed');
+    const narrowed = report.changes.find((c) => c.kind === 'return-type-narrowed');
+    expect(narrowed).toBeDefined();
+    expect(narrowed?.severity).toBe('minor');
+    expect(report.recommended).toBe('minor');
+  });
+
+  // Regression guards for the conservatism boundary: the type-parameter
+  // synthesis MUST NOT collapse `T` into its constraint and silently classify
+  // a real breaking change as a no-op. The nominal brand on each parameter
+  // keeps `T` distinct from its constraint so the probes still surface MAJOR.
+  it('keeps a generic return collapsing to its constraint as MAJOR', () => {
+    const report = compareFixture('function-generic-return-collapses-to-constraint');
+    const change = report.changes.find((c) => c.kind === 'return-type-changed');
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('major');
+    expect(report.recommended).toBe('major');
+  });
+
+  // Regression guard for the `mentionsAny` constraint hole: an `any`
+  // constraint must trigger the conservative bail-out, otherwise every
+  // probe through the parameter becomes bidirectionally assignable and
+  // erases breaking changes.
+  it('keeps a widening under <T extends any> conservatively as MAJOR', () => {
+    const report = compareFixture('function-generic-any-constraint-widened');
+    const change = report.changes.find((c) => c.kind === 'param-type-changed');
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('major');
+    expect(report.recommended).toBe('major');
+  });
+
+  // Regression guard for the union-constraint operator-precedence hole: a raw
+  // `string | number & { brand }` would bind `&` tighter than `|` and brand
+  // only one branch, leaving the other side bidirectionally assignable. The
+  // constraint must be aliased before the brand intersection so every branch
+  // carries the nominal mark.
+  it('keeps return-type collapse under a union constraint as MAJOR', () => {
+    const report = compareFixture('function-generic-union-constraint-collapse');
+    const change = report.changes.find((c) => c.kind === 'return-type-changed');
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('major');
+    expect(report.recommended).toBe('major');
+  });
+
+  // Regression guard for the ASCII-only identifier boundary hole: a Unicode
+  // identifier continuation (`α` in `Tα` / `Sα`) must not let the
+  // rename leak across symbol borders, or a real return-type change would be
+  // silently collapsed via the textual fast-path.
+  it('does not rewrite Unicode identifiers across symbol boundaries', () => {
+    const report = compareFixture('function-generic-unicode-rename-collision');
+    // The two referenced aliases differ structurally and are unrelated, so the
+    // change must surface — never patch-no-op via a false rename collision.
+    expect(report.recommended).not.toBe('patch');
+  });
+
+  // Alpha-rename now also applies inside type-parameter constraints, so a
+  // self-referential constraint that only swaps the parameter name is treated
+  // as a no-op rather than surfacing as `generic-constraint-changed` MAJOR.
+  it('treats a self-referential constraint rename as a no-op', () => {
+    const report = compareFixture('function-generic-constraint-self-reference-rename');
+    expect(report.changes.some((c) => c.kind === 'generic-constraint-changed')).toBe(false);
+    expect(report.recommended).toBe('patch');
+  });
+
+  // Interface/class property invariance respected: an equivalent rewrite
+  // under the container generic scope (`ReadonlyArray<T>` vs `readonly T[]`)
+  // is a no-op, but a real structural change stays MAJOR.
+  it('treats an interface property equivalent rewrite as a no-op (under container <T>)', () => {
+    const report = compareFixture('interface-property-generic-no-op-rewrite');
+    expect(report.changes).toHaveLength(0);
+    expect(report.recommended).toBe('patch');
+  });
+
+  it('treats a class property equivalent rewrite as a no-op (under container <T>)', () => {
+    const report = compareFixture('class-property-generic-no-op-rewrite');
+    expect(report.changes).toHaveLength(0);
+    expect(report.recommended).toBe('patch');
+  });
+
+  it('keeps an actual interface property change under <T> conservatively as MAJOR', () => {
+    const report = compareFixture('interface-property-generic-actual-change');
+    const change = report.changes.find((c) => c.kind === 'property-type-changed');
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('major');
+    expect(report.recommended).toBe('major');
+  });
+
+  // `mentionsAny` must skip the `any` token when it is bounded by matching
+  // quotes — `'any'` is a string-literal type, not the any keyword.
+  it('does not bail to MAJOR when widening a string-literal \'any\' parameter', () => {
+    const report = compareFixture('function-string-literal-any-no-bail');
+    const widened = report.changes.find((c) => c.kind === 'param-type-widened');
+    expect(widened).toBeDefined();
+    expect(widened?.severity).toBe('minor');
+    expect(report.recommended).toBe('minor');
+  });
+
+  // A constraint whose body still contains the any keyword (e.g.
+  // `Record<string, any>`) must keep the conservative MAJOR — the bidirectional
+  // assignability hazard `mentionsAny` exists to prevent.
+  it('keeps a widening under <T extends Record<string, any>> conservatively as MAJOR', () => {
+    const report = compareFixture('function-record-any-constraint-bail');
+    const change = report.changes.find((c) => c.kind === 'param-type-changed');
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('major');
+    expect(report.recommended).toBe('major');
+  });
+
+  // Alpha-rename must not rewrite identifiers inside string literal types.
+  // `'T'` and `'S'` are distinct literal types: rewriting the new constraint
+  // `'S' | number` to `'T' | number` would silently equate the two and erase
+  // a real breaking change (the constraint literal domain shifted).
+  it('keeps a string-literal rename inside the constraint as MAJOR', () => {
+    const report = compareFixture('function-generic-string-literal-rename-bail');
+    expect(report.recommended).toBe('major');
+    // Either `generic-constraint-changed` (constraint diff) or a param/return
+    // major from the variance probe is acceptable — the absolute boundary is
+    // that the report is NOT patch.
+    expect(report.changes.some((c) => c.severity === 'major')).toBe(true);
+  });
+
+  // Container-level generic rename must propagate into every nested member
+  // comparison. Without it, a pure `interface Box<T>` → `interface Box<S>`
+  // rewrite surfaces as a noisy MAJOR even though no caller-visible change
+  // happened.
+  it('treats an interface container generic rename as a no-op across nested members', () => {
+    const report = compareFixture('interface-container-generic-rename-nested');
+    expect(report.changes).toHaveLength(0);
+    expect(report.recommended).toBe('patch');
+  });
+
+  it('treats a class container generic rename as a no-op across nested members', () => {
+    const report = compareFixture('class-container-generic-rename-nested');
+    expect(report.changes).toHaveLength(0);
+    expect(report.recommended).toBe('patch');
+  });
+
+  // Template-literal placeholders are *type position*. An `any` keyword
+  // inside `${...}` must still trip the conservative bail — otherwise the
+  // variance probe would erase a breaking change involving the placeholder.
+  it('keeps a template-placeholder `any` bail conservatively as MAJOR', () => {
+    const report = compareFixture('function-template-placeholder-any-bail');
+    expect(report.recommended).toBe('major');
+  });
+});
+
+describe('exports map / multiple entrypoints', () => {
+  it('extracts every subpath from a package.json exports map', () => {
+    const { newSnap } = compareExportsFixture('exports-subpath-added');
+    expect(Object.keys(newSnap.entrypoints).sort()).toEqual(['.', './utils']);
+    expect(newSnap.entrypoints['./utils']).toHaveProperty('helper');
+  });
+
+  it('detects an added entry point as MINOR', () => {
+    const { report } = compareExportsFixture('exports-subpath-added');
+    const added = report.changes.find((c) => c.kind === 'entrypoint-added');
+    expect(added).toBeDefined();
+    expect(added?.severity).toBe('minor');
+    expect(added?.symbolPath).toBe('./utils');
+    expect(report.recommended).toBe('minor');
+  });
+
+  it('detects a removed entry point as MAJOR', () => {
+    const { report } = compareExportsFixture('exports-subpath-removed');
+    const removed = report.changes.find((c) => c.kind === 'entrypoint-removed');
+    expect(removed).toBeDefined();
+    expect(removed?.severity).toBe('major');
+    expect(removed?.symbolPath).toBe('./utils');
+    expect(report.recommended).toBe('major');
+  });
+
+  it('detects a breaking symbol change inside a subpath entry point', () => {
+    const { report } = compareExportsFixture('exports-subpath-changed');
+    // No entry point was added or removed — both sides expose '.' and './utils'.
+    expect(report.changes.some((c) => c.kind === 'entrypoint-added')).toBe(false);
+    expect(report.changes.some((c) => c.kind === 'entrypoint-removed')).toBe(false);
+    const change = report.changes.find((c) => c.kind === 'required-param-added');
+    expect(change).toBeDefined();
+    // The symbol path is namespaced by its entry point subpath.
+    expect(change?.symbolPath).toContain('./utils#helper');
+    expect(report.recommended).toBe('major');
+  });
+
+  it('keeps single-entry fixtures working through entrypoints[\'.\']', () => {
+    // Regression guard: a fixture with no exports map still resolves to '.'.
+    const oldSnap = extractFromPath(fixtureDir('export-added', 'old'), 'index.ts');
+    expect(Object.keys(oldSnap.entrypoints)).toEqual(['.']);
+    expect(oldSnap.entrypoints['.']).toHaveProperty('foo');
+  });
+});
+
+describe('generic parameter defaults', () => {
+  it('detects a changed default type as MAJOR', () => {
+    const report = compareFixture('generic-param-default-changed');
+    const change = report.changes.find((c) => c.kind === 'generic-param-default-changed');
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('major');
+    expect(report.recommended).toBe('major');
+  });
+
+  it('detects an added default as MINOR', () => {
+    const report = compareFixture('generic-param-default-added');
+    const change = report.changes.find((c) => c.kind === 'generic-param-default-added');
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('minor');
+    expect(report.changes.some((c) => c.severity === 'major')).toBe(false);
+    expect(report.recommended).toBe('minor');
+  });
+});
+
+describe('class constructor parameter properties and accessors', () => {
+  it('detects a removed constructor parameter property as MAJOR', () => {
+    const report = compareFixture('class-ctor-param-property-removed');
+    const change = report.changes.find((c) => c.kind === 'class-property-removed' && c.symbolPath === 'C.x');
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('major');
+    expect(report.recommended).toBe('major');
+  });
+
+  it('detects a removed accessor as MAJOR', () => {
+    const report = compareFixture('class-accessor-removed');
+    const change = report.changes.find((c) => c.kind === 'class-property-removed' && c.symbolPath === 'C.x');
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('major');
+    expect(report.recommended).toBe('major');
+  });
+
+  it('detects an accessor return-type change as MAJOR', () => {
+    const report = compareFixture('class-accessor-type-changed');
+    const change = report.changes.find((c) => c.kind === 'class-property-type-changed' && c.symbolPath === 'C.x');
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('major');
+    expect(report.recommended).toBe('major');
+  });
+
+  it('detects a set-only (write-side) narrowing of a get/set accessor as MAJOR', () => {
+    const report = compareFixture('class-accessor-setter-narrowed');
+    const change = report.changes.find((c) => c.kind === 'class-property-type-changed' && c.symbolPath === 'C.x');
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('major');
+    expect(report.recommended).toBe('major');
+  });
+
+  it('treats an unchanged accessor with distinct read/write types as a no-op (PATCH)', () => {
+    const report = compareFixture('class-accessor-distinct-noop');
+    expect(report.changes.some((c) => c.kind === 'class-property-type-changed')).toBe(false);
+    expect(report.recommended).toBe('patch');
+  });
+});
+
+describe('interface call and index signatures', () => {
+  it('detects a removed call signature as MAJOR', () => {
+    const report = compareFixture('interface-call-signature-removed');
+    const change = report.changes.find((c) => c.kind === 'interface-call-signature-changed');
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('major');
+    expect(report.recommended).toBe('major');
+  });
+
+  it('detects an index-signature value change as MAJOR', () => {
+    const report = compareFixture('interface-index-signature-changed');
+    const change = report.changes.find((c) => c.kind === 'index-signature-changed');
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('major');
+    expect(report.recommended).toBe('major');
+  });
+
+  it('treats a pure generic rename over an index signature as a no-op (PATCH)', () => {
+    const report = compareFixture('interface-index-signature-generic-rename');
+    expect(report.changes.some((c) => c.kind === 'index-signature-changed')).toBe(false);
+    expect(report.recommended).toBe('patch');
+  });
+});
+
+describe('interface accessors', () => {
+  it('detects a removed interface accessor as MAJOR', () => {
+    const report = compareFixture('interface-accessor-removed');
+    const change = report.changes.find((c) => c.kind === 'property-removed' && c.symbolPath === 'I.x');
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('major');
+    expect(report.recommended).toBe('major');
+  });
+
+  it('detects a set-only (write-side) narrowing of an interface get/set accessor as MAJOR', () => {
+    const report = compareFixture('interface-accessor-setter-narrowed');
+    const change = report.changes.find((c) => c.kind === 'property-type-changed' && c.symbolPath === 'I.x');
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('major');
+    expect(report.recommended).toBe('major');
   });
 });

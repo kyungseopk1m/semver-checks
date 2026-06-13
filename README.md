@@ -110,6 +110,22 @@ npx semver-checks snapshot --ref v1.0.0
 npx semver-checks snapshot --npm lodash@4.17.21
 ```
 
+### Multiple entry points
+
+When `package.json` declares an `"exports"` map with several subpaths, every
+subpath with a declared `.d.ts` entry is extracted and compared independently.
+Adding a subpath is a MINOR change and removing one is MAJOR; a change inside a
+subpath is reported with a `#` separator (e.g. `./utils#helper`). No flags are
+needed — the map is auto-detected.
+
+For projects without an `"exports"` map, pass multiple entries explicitly by
+repeating `--entry` or comma-separating them:
+
+```bash
+npx semver-checks compare v1.0.0 HEAD --entry src/index.ts --entry src/utils.ts
+npx semver-checks compare v1.0.0 HEAD --entry src/index.ts,src/utils.ts
+```
+
 ### Example output
 
 ```
@@ -177,7 +193,9 @@ You can also extract a snapshot independently:
 import { extract } from 'semver-checks';
 
 const snapshot = await extract({ projectPath: '.' });
-console.log(Object.keys(snapshot.symbols)); // all exported symbol names
+// Snapshots are keyed by export subpath ('.' is the root entry; additional
+// subpaths come from the package.json "exports" map).
+console.log(Object.keys(snapshot.entrypoints['.'])); // root entry's symbol names
 ```
 
 ## Change Rules
@@ -250,7 +268,7 @@ semver-checks compare <old> [new] [options]
 
 | Option | Short | Description | Default |
 |--------|-------|---|---|
-| `--entry <path>` | `-e` | Entry file path (e.g., `src/index.ts`) | Auto-detect |
+| `--entry <path>` | `-e` | Entry file path (e.g., `src/index.ts`); repeat or comma-separate for multiple entries | Auto-detect |
 | `--format <type>` | `-f` | `text`, `json`, `markdown`, or `github` | `text` |
 | `--strict` | `-s` | Exit 1 if breaking changes are found | `false` |
 | `--install-deps` |  | Install dependencies before analyzing local path inputs | `false` |
@@ -286,7 +304,7 @@ semver-checks snapshot [path] [options]
 |--------|-------|---|
 | `--ref <ref>` | `-r` | Use a git ref instead of a local path |
 | `--npm <spec>` |  | Snapshot a published npm package (e.g. `lodash@4.17.21`) |
-| `--entry <path>` | `-e` | Entry file path |
+| `--entry <path>` | `-e` | Entry file path; repeat or comma-separate for multiple entries |
 | `--install-deps` |  | Install dependencies before analyzing a local path |
 
 **Arguments:**

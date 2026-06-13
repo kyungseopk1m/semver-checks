@@ -1,0 +1,8 @@
+{
+  "name": "exports-subpath-changed",
+  "version": "1.0.0",
+  "exports": {
+    ".": { "types": "./index.d.ts" },
+    "./utils": { "types": "./utils.d.ts" }
+  }
+}

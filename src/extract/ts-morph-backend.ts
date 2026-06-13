@@ -12,6 +12,7 @@ import type {
   ApiInterfaceSymbol,
   ApiInterfaceProperty,
   ApiInterfaceMethod,
+  ApiIndexSignature,
   ApiTypeAliasSymbol,
   ApiEnumSymbol,
   ApiEnumMember,
@@ -20,7 +21,7 @@ import type {
   SerializedType,
 } from './api-snapshot.js';
 
-export function extractFromPath(projectPath: string, entry?: string): ApiSnapshot {
+export function extractFromPath(projectPath: string, entry?: string | string[]): ApiSnapshot {
   const project = new Project({
     tsConfigFilePath: path.join(projectPath, 'tsconfig.json'),
     skipAddingFilesFromTsConfig: false,
@@ -41,30 +42,107 @@ export function extractFromPath(projectPath: string, entry?: string): ApiSnapsho
     process.stderr.write(`[semver-checks] ${diagnostics.length} TypeScript error(s) found:\n${msgs}\n`);
   }
 
-  const entryFile = resolveEntry(project, projectPath, entry);
-  const symbols = collectContainerExports(entryFile);
+  const entryFiles = resolveEntries(project, projectPath, entry);
+  const entrypoints: Record<string, Record<string, ApiSymbol>> = {};
+  for (const [subpath, file] of Object.entries(entryFiles)) {
+    entrypoints[subpath] = collectContainerExports(file);
+  }
 
-  return { symbols };
+  return { entrypoints };
 }
 
-function resolveEntry(project: Project, projectPath: string, entry?: string): SourceFile {
-  if (entry) {
-    const file = project.getSourceFile(path.join(projectPath, entry));
-    if (!file) throw new Error(`Entry file not found: ${entry}`);
-    return file;
+// Map a declared types path (.d.ts, possibly under dist/) back to its working-tree
+// .ts source, mirroring the auto-detect logic. Returns the resolved SourceFile,
+// or the raw declared file as a last resort (published tarballs ship only .d.ts).
+function resolveTypesFile(project: Project, projectPath: string, typesPath: string): SourceFile | undefined {
+  const srcMapped = path.join(projectPath, typesPath.replace('/dist/mjs/', '/src/').replace('.d.ts', '.ts'));
+  const mapped = project.getSourceFile(srcMapped);
+  if (mapped) return mapped;
+  return project.getSourceFile(path.join(projectPath, typesPath));
+}
+
+// Extract the declared types path from a package.json "exports" subpath value,
+// which can be a bare string (".d.ts") or a conditional object with
+// `import.types` / `types` / a `default` .d.ts.
+function typesFromExportsValue(value: unknown): string | undefined {
+  if (typeof value === 'string') {
+    return value.endsWith('.d.ts') ? value : undefined;
+  }
+  if (value && typeof value === 'object') {
+    const obj = value as Record<string, any>;
+    const fromConditions =
+      obj.import?.types ?? obj.types ?? obj.import?.default ?? obj.default;
+    if (typeof fromConditions === 'string' && fromConditions.endsWith('.d.ts')) {
+      return fromConditions;
+    }
+  }
+  return undefined;
+}
+
+// Resolve one or more entry source files keyed by export subpath ('.' for root).
+// Honors an explicit `entry` (single file or list), then a package.json "exports"
+// map (multiple subpaths), then falls back to conventional single-entry layouts.
+function resolveEntries(
+  project: Project,
+  projectPath: string,
+  entry?: string | string[],
+): Record<string, SourceFile> {
+  // Explicit entry/entries take precedence. A single string maps to the root '.';
+  // a list is keyed by each relative file path so distinct entries stay separate.
+  if (entry !== undefined) {
+    const entries = Array.isArray(entry) ? entry : [entry];
+    const result: Record<string, SourceFile> = {};
+    for (const e of entries) {
+      const file = project.getSourceFile(path.join(projectPath, e));
+      if (!file) throw new Error(`Entry file not found: ${e}`);
+      result[entries.length === 1 ? '.' : e] = file;
+    }
+    return result;
   }
 
   // Auto-detect from package.json
   let typesPath: string | undefined;
   try {
     const pkg = JSON.parse(fs.readFileSync(path.join(projectPath, 'package.json'), 'utf-8'));
+    const exportsField = pkg.exports;
+
+    // Multi-entry "exports" map: walk every subpath ('.', './utils', ...) and
+    // resolve each to its declared types source. Subpaths without a resolvable
+    // .d.ts entry are skipped (e.g. `default`-only without `types`). A verbose
+    // warning helps surface partial-coverage exports maps that would otherwise
+    // cause spurious `entrypoint-added` reports the next time a `types` field
+    // is added to that subpath.
+    if (exportsField && typeof exportsField === 'object' && !Array.isArray(exportsField)) {
+      const result: Record<string, SourceFile> = {};
+      const skipped: string[] = [];
+      for (const [subpath, value] of Object.entries(exportsField)) {
+        if (!subpath.startsWith('.')) continue;
+        const sub = typesFromExportsValue(value);
+        if (!sub) {
+          skipped.push(subpath);
+          continue;
+        }
+        const file = resolveTypesFile(project, projectPath, sub);
+        if (file) result[subpath] = file;
+        else skipped.push(subpath);
+      }
+      if (Object.keys(result).length > 0) {
+        if (skipped.length > 0 && process.env['SEMVER_CHECKS_VERBOSE']) {
+          process.stderr.write(
+            `[semver-checks] exports map subpaths skipped (no resolvable types entry): ${skipped.join(', ')}\n`,
+          );
+        }
+        return result;
+      }
+    }
+
     const main = pkg.exports?.['.'];
     typesPath = (typeof main === 'object' ? main?.import?.types ?? main?.types : null) ?? pkg.types ?? pkg.typings;
     if (typesPath) {
       // Source layout (working tree): map the published .d.ts back to its .ts source.
       const srcMapped = path.join(projectPath, typesPath.replace('/dist/mjs/', '/src/').replace('.d.ts', '.ts'));
       const file = project.getSourceFile(srcMapped);
-      if (file) return file;
+      if (file) return { '.': file };
     }
   } catch {}
 
@@ -74,13 +152,13 @@ function resolveEntry(project: Project, projectPath: string, entry?: string): So
   const fallback =
     project.getSourceFile(path.join(projectPath, 'src', 'index.ts')) ??
     project.getSourceFile(path.join(projectPath, 'index.ts'));
-  if (fallback) return fallback;
+  if (fallback) return { '.': fallback };
 
   // Last resort: the declared types entry itself. Published npm tarballs ship
   // their .d.ts declarations but no .ts source, so this is their entry point.
   if (typesPath) {
     const rawTypes = project.getSourceFile(path.join(projectPath, typesPath));
-    if (rawTypes) return rawTypes;
+    if (rawTypes) return { '.': rawTypes };
   }
 
   throw new Error(`Could not find entry file. Use --entry to specify.`);
@@ -314,22 +392,102 @@ function splitTopLevel(text: string, delimiter: '|' | '&'): string[] {
 // EDGE-4: Pass contextNode to getText() so types are resolved relative to the
 // declaration's file, not an absolute tmp path. This prevents false positives
 // when comparing git-ref snapshots (in /tmp) vs local paths.
-function serializeType(type: Type, contextNode: Node): SerializedType {
-  return { text: normalizeTypeText(type.getText(contextNode)) };
+//
+// Unresolved symbols (a missing import, an undeclared name) make TypeScript
+// collapse the type to the intrinsic `error` type, which `getText()` renders as
+// `any`. Two structurally different unresolved types (`M | string` vs
+// `M | number`) would then both serialize to a text containing `any` and
+// compare as a no-op, silently hiding a breaking change. This happens both at
+// the top level (`intrinsicName === 'error'`) and *nested* inside a wrapper
+// (`Array<M | string>`, `{ a: M | string }`, `<T extends M | string>`) where the
+// outer type is a normal array/object/function but the collapsed `any` still
+// leaks into the text. In either case we fall back to the *source* annotation
+// text so the two stay distinguishable (conservative: a real change surfaces as
+// major; an identical unresolved type stays a no-op). A genuine `any` is present
+// in the source too, so explicit-`any` types are untouched. Inferred positions
+// have no annotation node, so an unresolved inferred type still degrades to
+// `any` — a separate, narrower gap tracked for a follow-up.
+// In-memory project for cheap structural probes of a serialized type text.
+let probeProject: Project | undefined;
+function getProbeProject(): Project {
+  if (!probeProject) {
+    probeProject = new Project({
+      useInMemoryFileSystem: true,
+      compilerOptions: { noEmit: true, skipLibCheck: true },
+    });
+  }
+  return probeProject;
+}
+
+// Counts `any` *type* keyword nodes in a serialized type text. Parsing (rather
+// than a text scan) is required so that an object-type property *named* `any`
+// (`{ any: M | string }`) is not counted — only an `AnyKeyword` type node is.
+// `serializeType` compares the count in the computed text against the source:
+// an unresolved symbol only ever *adds* `any` (it collapses `M | string` to
+// `any` but leaves genuine `any`s in place), so a higher count in the computed
+// text signals a collapse. A plain boolean "mentions any" check is not enough —
+// it is suppressed when the source already has an unrelated genuine `any` field
+// (`{ ok: any; x: M | string }`), letting the collapsed field slip through.
+function countAnyKeywords(text: string): number {
+  const sourceFile = getProbeProject().createSourceFile('__sc_any_probe__.ts', `type __sc_a = (${text});`, {
+    overwrite: true,
+  });
+  try {
+    return sourceFile.getDescendantsOfKind(SyntaxKind.AnyKeyword).length;
+  } finally {
+    getProbeProject().removeSourceFile(sourceFile);
+  }
+}
+
+function serializeType(type: Type, contextNode: Node, annotationNode?: Node): SerializedType {
+  const computed = normalizeTypeText(type.getText(contextNode));
+  if (annotationNode) {
+    const intrinsic = (type.compilerType as { intrinsicName?: string }).intrinsicName;
+    const source = normalizeTypeText(annotationNode.getText());
+    // `error` intrinsic catches the top-level case; a higher `any` count in the
+    // computed text catches a collapsed `any` that leaked in from a nested
+    // unresolved symbol, even when the source already has a genuine `any` field.
+    if (intrinsic === 'error' || countAnyKeywords(computed) > countAnyKeywords(source)) {
+      return { text: source };
+    }
+  }
+  return { text: computed };
 }
 
 function convertTypeParams(node: Node): ApiTypeParameter[] {
   const params = (node as any).getTypeParameters?.() ?? [];
   return params.map((tp: any) => {
-    // tp.getConstraint() returns a TypeNode (AST node); getText() is literal source text.
-    // normalizeTypeText() applied for consistency in case the constraint references an imported type.
+    // tp.getConstraint()/getDefault() return TypeNodes (AST nodes); getText() is
+    // literal source text. normalizeTypeText() applied for consistency in case
+    // the constraint/default references an imported type.
     const c = tp.getConstraint();
+    const d = tp.getDefault();
     return {
       name: tp.getName(),
       constraint: c ? { text: normalizeTypeText(c.getText()) } : undefined,
-      hasDefault: tp.getDefault() != null,
+      hasDefault: d != null,
+      default: d ? { text: normalizeTypeText(d.getText()) } : undefined,
     };
   });
+}
+
+// Build an ApiFunctionSignature from a call/construct signature declaration.
+// These nodes expose the same parameter / return / type-parameter accessors as
+// function declarations but are not covered by convertFunctionSignatures' node
+// guards (and must not force the constructor's `void` return).
+function convertSignatureFromNode(node: Node): ApiFunctionSignature {
+  const n = node as any;
+  const params: ApiParameter[] = (n.getParameters?.() ?? []).map((p: any) => ({
+    name: p.getName(),
+    type: serializeType(p.getType(), node, p.getTypeNode?.()),
+    isOptional: p.isOptional?.() ?? false,
+    isRest: p.isRestParameter?.() ?? false,
+  }));
+  const returnNode = n.getReturnTypeNode?.();
+  const returnType: SerializedType = n.getReturnType
+    ? serializeType(n.getReturnType(), node, returnNode)
+    : { text: 'unknown' };
+  return { parameters: params, returnType, typeParameters: convertTypeParams(node) };
 }
 
 function convertFunction(name: string, node: Node): ApiFunctionSymbol {
@@ -350,18 +508,34 @@ function convertFunctionType(name: string, type: Type, contextNode: Node): ApiFu
       const isRest = !!(valueDecl as any)?.isRestParameter?.();
       return {
         name: p.getName(),
-        type: serializeType(paramType, contextNode),
+        type: serializeType(paramType, contextNode, (valueDecl as { getTypeNode?: () => Node | undefined } | undefined)?.getTypeNode?.()),
         isOptional: p.isOptional(),
         isRest,
       };
     }),
-    returnType: serializeType(sig.getReturnType(), contextNode),
-    // EDGE-3: extract type parameters from the call signature
-    typeParameters: sig.getTypeParameters().map((tp) => ({
-      name: tp.getSymbol()?.getName() ?? '?',
-      constraint: tp.getConstraint() ? { text: normalizeTypeText(tp.getConstraint()!.getText(contextNode)) } : undefined,
-      hasDefault: tp.getDefault() != null,
-    })),
+    returnType: serializeType(
+      sig.getReturnType(),
+      contextNode,
+      (sig.getDeclaration() as { getReturnTypeNode?: () => Node | undefined } | undefined)?.getReturnTypeNode?.(),
+    ),
+    // EDGE-3: extract type parameters from the call signature.
+    // The constraint comes from a `Type` here (not an AST node), so an
+    // unresolved symbol collapses it to `any`. Route it through `serializeType`
+    // with the declaration's constraint node so the source text is preserved
+    // (`<T extends M | string>` must not read as `<T extends any>`).
+    typeParameters: sig.getTypeParameters().map((tp) => {
+      const constraintType = tp.getConstraint();
+      const decl = tp.getSymbol()?.getDeclarations()?.[0];
+      const constraintNode = (decl as { getConstraint?: () => Node | undefined } | undefined)?.getConstraint?.();
+      const defaultType = tp.getDefault();
+      const defaultNode = (decl as { getDefault?: () => Node | undefined } | undefined)?.getDefault?.();
+      return {
+        name: tp.getSymbol()?.getName() ?? '?',
+        constraint: constraintType ? serializeType(constraintType, contextNode, constraintNode) : undefined,
+        hasDefault: defaultType != null,
+        default: defaultType ? serializeType(defaultType, contextNode, defaultNode) : undefined,
+      };
+    }),
   }));
   return { kind: 'function', name, signatures };
 }
@@ -379,15 +553,16 @@ function convertFunctionSignatures(node: Node): ApiFunctionSignature[] {
   // EDGE-4: use node as context for getText() to avoid absolute path leakage
   const params: ApiParameter[] = node.getParameters().map((p) => ({
     name: p.getName(),
-    type: serializeType(p.getType(), node),
+    type: serializeType(p.getType(), node, p.getTypeNode()),
     isOptional: p.isOptional(),
     isRest: p.isRestParameter(),
   }));
 
   const rawReturnType = (node as any).getReturnType?.();
+  const returnTypeNode = (node as { getReturnTypeNode?: () => Node | undefined }).getReturnTypeNode?.();
   const returnType: SerializedType = Node.isConstructorDeclaration(node)
     ? { text: 'void' }
-    : rawReturnType ? serializeType(rawReturnType, node) : { text: 'unknown' };
+    : rawReturnType ? serializeType(rawReturnType, node, returnTypeNode) : { text: 'unknown' };
 
   return [{
     parameters: params,
@@ -402,10 +577,43 @@ function convertInterface(name: string, node: Node): ApiInterfaceSymbol {
   // EDGE-4: use node as context for getText()
   const properties: ApiInterfaceProperty[] = node.getProperties().map((p) => ({
     name: p.getName(),
-    type: serializeType(p.getType(), node),
+    type: serializeType(p.getType(), node, p.getTypeNode()),
     isOptional: p.hasQuestionToken(),
     isReadonly: p.isReadonly(),
   }));
+
+  // Interfaces may declare get/set accessors too (since TS 4.3). Model them as
+  // properties, mirroring the class extraction: get-only is readonly, get+set is
+  // mutable, and a distinct write (setter) type is preserved so a set-only
+  // narrowing surfaces even when the getter is unchanged.
+  const ifaceAccessors = new Map<string, ApiInterfaceProperty>();
+  for (const g of node.getGetAccessors()) {
+    ifaceAccessors.set(g.getName(), {
+      name: g.getName(),
+      type: serializeType(g.getReturnType(), node, g.getReturnTypeNode()),
+      isOptional: false,
+      isReadonly: true,
+    });
+  }
+  for (const s of node.getSetAccessors()) {
+    const param = s.getParameters()[0];
+    const setterType: SerializedType = param
+      ? serializeType(param.getType(), node, param.getTypeNode())
+      : { text: 'unknown' };
+    const existing = ifaceAccessors.get(s.getName());
+    if (existing) {
+      existing.isReadonly = false;
+      if (setterType.text !== existing.type.text) existing.writeType = setterType;
+    } else {
+      ifaceAccessors.set(s.getName(), {
+        name: s.getName(),
+        type: setterType,
+        isOptional: false,
+        isReadonly: false,
+      });
+    }
+  }
+  for (const accessor of ifaceAccessors.values()) properties.push(accessor);
 
   // Group methods by name to merge overload signatures (getMethods() returns one node per overload)
   const methodMap = new Map<string, ApiInterfaceMethod>();
@@ -428,12 +636,26 @@ function convertInterface(name: string, node: Node): ApiInterfaceSymbol {
   }
   const methods: ApiInterfaceMethod[] = [...methodMap.values()];
 
+  // Call / construct / index signatures are part of the interface's public
+  // shape; getProperties()/getMethods() do not surface them, so removing or
+  // changing one would otherwise be invisible (a silent patch).
+  const callSignatures = node.getCallSignatures().map((s) => convertSignatureFromNode(s));
+  const constructSignatures = node.getConstructSignatures().map((s) => convertSignatureFromNode(s));
+  const indexSignatures: ApiIndexSignature[] = node.getIndexSignatures().map((ix) => ({
+    keyType: ix.getKeyTypeNode()?.getText() ?? normalizeTypeText(ix.getKeyType().getText()),
+    valueType: serializeType(ix.getReturnType(), node, ix.getReturnTypeNode()),
+    isReadonly: ix.isReadonly(),
+  }));
+
   return {
     kind: 'interface',
     name,
     properties,
     methods,
     typeParameters: convertTypeParams(node),
+    callSignatures,
+    constructSignatures,
+    indexSignatures,
   };
 }
 
@@ -444,7 +666,7 @@ function convertTypeAlias(name: string, node: Node): ApiTypeAliasSymbol {
     kind: 'type-alias',
     name,
     // EDGE-4: use node as context for getText()
-    type: serializeType(node.getType(), node),
+    type: serializeType(node.getType(), node, node.getTypeNode()),
     typeParameters: convertTypeParams(node),
   };
 }
@@ -506,11 +728,82 @@ function convertClass(name: string, node: Node): ApiClassSymbol {
     .map((p) => ({
       name: p.getName(),
       // EDGE-4: use node as context for getText()
-      type: serializeType(p.getType(), node),
+      type: serializeType(p.getType(), node, p.getTypeNode()),
       isOptional: p.hasQuestionToken(),
       isReadonly: p.isReadonly(),
       isStatic: p.isStatic(),
     }));
+
+  // Constructor parameter properties (`constructor(public x: string)`) declare
+  // public instance members that getProperties() does not surface. Only public
+  // ones reach the API surface; private/protected are excluded like fields are.
+  for (const ctor of node.getConstructors()) {
+    for (const p of ctor.getParameters()) {
+      const isParamProperty =
+        p.hasModifier(SyntaxKind.PublicKeyword) ||
+        p.hasModifier(SyntaxKind.PrivateKeyword) ||
+        p.hasModifier(SyntaxKind.ProtectedKeyword) ||
+        p.hasModifier(SyntaxKind.ReadonlyKeyword);
+      if (!isParamProperty) continue;
+      if (p.hasModifier(SyntaxKind.PrivateKeyword) || p.hasModifier(SyntaxKind.ProtectedKeyword)) continue;
+      properties.push({
+        name: p.getName(),
+        type: serializeType(p.getType(), node, p.getTypeNode()),
+        isOptional: p.hasQuestionToken(),
+        isReadonly: p.isReadonly(),
+        isStatic: false,
+      });
+    }
+  }
+
+  // Get/set accessors define public members too. Model each name once: a
+  // get-only accessor is readonly, a get+set pair is mutable, and a set-only
+  // accessor takes its type from the setter parameter. Private/protected/`#`
+  // accessors are not part of the public surface.
+  const accessors = new Map<string, { name: string; type: SerializedType; writeType?: SerializedType; isOptional: boolean; isReadonly: boolean; isStatic: boolean }>();
+  for (const g of node.getGetAccessors()) {
+    if (
+      g.hasModifier(SyntaxKind.PrivateKeyword) ||
+      g.hasModifier(SyntaxKind.ProtectedKeyword) ||
+      g.getName().startsWith('#')
+    ) continue;
+    accessors.set(`${g.isStatic() ? 'static' : 'instance'}:${g.getName()}`, {
+      name: g.getName(),
+      type: serializeType(g.getReturnType(), node, g.getReturnTypeNode()),
+      isOptional: false,
+      isReadonly: true,
+      isStatic: g.isStatic(),
+    });
+  }
+  for (const s of node.getSetAccessors()) {
+    if (
+      s.hasModifier(SyntaxKind.PrivateKeyword) ||
+      s.hasModifier(SyntaxKind.ProtectedKeyword) ||
+      s.getName().startsWith('#')
+    ) continue;
+    const key = `${s.isStatic() ? 'static' : 'instance'}:${s.getName()}`;
+    const param = s.getParameters()[0];
+    const setterType: SerializedType = param
+      ? serializeType(param.getType(), node, param.getTypeNode())
+      : { text: 'unknown' };
+    const existing = accessors.get(key);
+    if (existing) {
+      existing.isReadonly = false;
+      // A get/set pair can have distinct read/write types. Record the write
+      // (setter) type only when it differs, so a set-only narrowing surfaces
+      // even though the getter type is unchanged.
+      if (setterType.text !== existing.type.text) existing.writeType = setterType;
+    } else {
+      accessors.set(key, {
+        name: s.getName(),
+        type: setterType,
+        isOptional: false,
+        isReadonly: false,
+        isStatic: s.isStatic(),
+      });
+    }
+  }
+  for (const accessor of accessors.values()) properties.push(accessor);
 
   return {
     kind: 'class',
@@ -527,6 +820,6 @@ function convertVariable(name: string, node: Node): ApiVariableSymbol {
     kind: 'variable',
     name,
     // EDGE-4: use node as context for getText()
-    type: serializeType(node.getType(), node),
+    type: serializeType(node.getType(), node, (node as { getTypeNode?: () => Node | undefined }).getTypeNode?.()),
   };
 }

@@ -13,6 +13,10 @@ export interface ApiTypeParameter {
   name: string;
   constraint?: SerializedType;
   hasDefault: boolean;
+  // Serialized text of the default type argument, when one is declared
+  // (`<T = string>`). Changing or removing a default is breaking for consumers
+  // that rely on the default, so the text must be captured, not just `hasDefault`.
+  default?: SerializedType;
 }
 
 export interface ApiFunctionSignature {
@@ -30,6 +34,9 @@ export interface ApiFunctionSymbol {
 export interface ApiInterfaceProperty {
   name: string;
   type: SerializedType;
+  // Write (setter) type of a get/set accessor pair when it differs from the
+  // read (getter) type; absent for plain properties and matched accessors.
+  writeType?: SerializedType;
   isOptional: boolean;
   isReadonly: boolean;
 }
@@ -40,12 +47,26 @@ export interface ApiInterfaceMethod {
   isOptional: boolean;
 }
 
+export interface ApiIndexSignature {
+  // The key type as written (`string`, `number`, or `symbol`).
+  keyType: string;
+  valueType: SerializedType;
+  isReadonly: boolean;
+}
+
 export interface ApiInterfaceSymbol {
   kind: 'interface';
   name: string;
   properties: ApiInterfaceProperty[];
   methods: ApiInterfaceMethod[];
   typeParameters: ApiTypeParameter[];
+  // Call signatures (`(x: string): string`), construct signatures
+  // (`new (x: string): Foo`), and index signatures (`[k: string]: V`) are part
+  // of the public interface shape, so a change to any of them is breaking.
+  // Optional for backward compatibility with snapshots produced before 0.6.0.
+  callSignatures?: ApiFunctionSignature[];
+  constructSignatures?: ApiFunctionSignature[];
+  indexSignatures?: ApiIndexSignature[];
 }
 
 export interface ApiTypeAliasSymbol {
@@ -71,7 +92,11 @@ export interface ApiClassSymbol {
   name: string;
   constructorSignatures: ApiFunctionSignature[];
   methods: Array<{ name: string; signatures: ApiFunctionSignature[]; isStatic: boolean }>;
-  properties: Array<{ name: string; type: SerializedType; isOptional: boolean; isReadonly: boolean; isStatic: boolean }>;
+  // `writeType` is the write (setter) type of a get/set accessor pair when it
+  // differs from the read (getter) type — a `set`-only narrowing is breaking on
+  // the write side even though the read type is unchanged. Absent for plain
+  // fields and for accessors whose get/set types match.
+  properties: Array<{ name: string; type: SerializedType; writeType?: SerializedType; isOptional: boolean; isReadonly: boolean; isStatic: boolean }>;
   typeParameters: ApiTypeParameter[];
 }
 
@@ -97,5 +122,8 @@ export type ApiSymbol =
   | ApiNamespaceSymbol;
 
 export interface ApiSnapshot {
-  symbols: Record<string, ApiSymbol>;
+  // Keyed by export subpath: the root entry is '.', subpaths follow the
+  // package.json "exports" convention (e.g. './utils'). A single-entry package
+  // is represented as `{ '.': { ...symbols } }`.
+  entrypoints: Record<string, Record<string, ApiSymbol>>;
 }

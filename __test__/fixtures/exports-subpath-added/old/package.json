@@ -1,0 +1,7 @@
+{
+  "name": "exports-subpath-added",
+  "version": "1.0.0",
+  "exports": {
+    ".": { "types": "./index.d.ts" }
+  }
+}
