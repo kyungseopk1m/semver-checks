@@ -26,7 +26,7 @@ inputs:
     required: false
     default: 'false'
   version:
-    description: 'semver-checks version to run via npx. Defaults to the version matching the action ref you pinned (e.g. @v0.5.0 runs semver-checks@0.5.0).'
+    description: 'semver-checks version to run via npx. Defaults to the version matching the action ref you pinned (e.g. @v0.6.1 runs semver-checks@0.6.1).'
     required: false
     default: ''
 
@@ -44,7 +44,7 @@ runs:
       run: |
         set -euo pipefail
         # Default to the CLI version that matches the pinned action ref, so that
-        # `uses: kyungseopk1m/semver-checks@v0.5.0` always runs semver-checks@0.5.0
+        # `uses: kyungseopk1m/semver-checks@v0.6.1` always runs semver-checks@0.6.1
         # rather than whatever the npm `latest` dist-tag happens to be.
         version="$SEMVER_CHECKS_VERSION"
         if [ -z "$version" ]; then

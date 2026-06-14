@@ -51,32 +51,81 @@ export function extractFromPath(projectPath: string, entry?: string | string[]):
   return { entrypoints };
 }
 
-// Map a declared types path (.d.ts, possibly under dist/) back to its working-tree
-// .ts source, mirroring the auto-detect logic. Returns the resolved SourceFile,
-// or the raw declared file as a last resort (published tarballs ship only .d.ts).
-function resolveTypesFile(project: Project, projectPath: string, typesPath: string): SourceFile | undefined {
-  const srcMapped = path.join(projectPath, typesPath.replace('/dist/mjs/', '/src/').replace('.d.ts', '.ts'));
-  const mapped = project.getSourceFile(srcMapped);
-  if (mapped) return mapped;
-  return project.getSourceFile(path.join(projectPath, typesPath));
+const DTS_SUFFIXES = ['.d.ts', '.d.mts', '.d.cts'] as const;
+const isDtsPath = (p: string): boolean => DTS_SUFFIXES.some((s) => p.endsWith(s));
+
+// Map a declared types path back to its working-tree source: dist→src and
+// .d.ts/.d.mts/.d.cts → .ts/.mts/.cts. Published tarballs ship only declarations,
+// so the raw path is also tried separately (see resolveRawDecl).
+function declToSrc(typesPath: string): string {
+  return typesPath
+    .replace('/dist/mjs/', '/src/')
+    .replace(/\.d\.ts$/, '.ts')
+    .replace(/\.d\.mts$/, '.mts')
+    .replace(/\.d\.cts$/, '.cts');
 }
 
-// Extract the declared types path from a package.json "exports" subpath value,
-// which can be a bare string (".d.ts") or a conditional object with
-// `import.types` / `types` / a `default` .d.ts.
-function typesFromExportsValue(value: unknown): string | undefined {
-  if (typeof value === 'string') {
-    return value.endsWith('.d.ts') ? value : undefined;
-  }
-  if (value && typeof value === 'object') {
-    const obj = value as Record<string, any>;
-    const fromConditions =
-      obj.import?.types ?? obj.types ?? obj.import?.default ?? obj.default;
-    if (typeof fromConditions === 'string' && fromConditions.endsWith('.d.ts')) {
-      return fromConditions;
-    }
+// First candidate that resolves to a working-tree source file (dist mapped to src).
+// Preferred over the declared .d.ts so a stale/unbuilt dist never masks source
+// changes (see the resolveEntries fallback ordering).
+function resolveMappedSource(
+  project: Project,
+  projectPath: string,
+  candidates: string[],
+): SourceFile | undefined {
+  for (const tp of candidates) {
+    const f = project.getSourceFile(path.join(projectPath, declToSrc(tp)));
+    if (f) return f;
   }
   return undefined;
+}
+
+// First candidate that resolves to its declared file as-is (the published tarball
+// case: .d.ts/.d.mts/.d.cts shipped without source).
+function resolveRawDecl(
+  project: Project,
+  projectPath: string,
+  candidates: string[],
+): SourceFile | undefined {
+  for (const tp of candidates) {
+    const f = project.getSourceFile(path.join(projectPath, tp));
+    if (f) return f;
+  }
+  return undefined;
+}
+
+// All candidate declaration paths from a package.json "exports" subpath value, in
+// preference order. A value is a bare string or a nested conditions object; types
+// can live under a `types` key or any condition (`require`/`import`/`node`/
+// `browser`/`module`/`default`), arbitrarily nested. `.d.ts` candidates are
+// ordered before `.d.mts`/`.d.cts` because the default tsconfig include always
+// loads `.d.ts`, whereas mts/cts loading depends on the include globs.
+function typesCandidatesFromExportsValue(value: unknown): string[] {
+  // `import` before `require` preserves v0.6.0's watched-surface preference (it
+  // read `import.types` first): when a package ships separate ESM and CJS
+  // declaration files of the *same* extension, the ESM surface stays the one
+  // analyzed rather than silently flipping to CJS.
+  const PRIORITY_CONDS = ['import', 'require', 'node', 'node-addons', 'browser', 'module', 'default'];
+  const out: string[] = [];
+  const visit = (v: unknown): void => {
+    if (typeof v === 'string') {
+      if (isDtsPath(v)) out.push(v);
+      return;
+    }
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      const obj = v as Record<string, unknown>;
+      if (typeof obj['types'] === 'string' && isDtsPath(obj['types'] as string)) out.push(obj['types'] as string);
+      for (const cond of PRIORITY_CONDS) if (obj[cond] !== undefined) visit(obj[cond]);
+      for (const [k, cv] of Object.entries(obj)) {
+        if (k === 'types' || PRIORITY_CONDS.includes(k)) continue;
+        visit(cv);
+      }
+    }
+  };
+  visit(value);
+  const ordered = [...out.filter((p) => p.endsWith('.d.ts')), ...out.filter((p) => !p.endsWith('.d.ts'))];
+  const seen = new Set<string>();
+  return ordered.filter((p) => (seen.has(p) ? false : (seen.add(p), true)));
 }
 
 // Resolve one or more entry source files keyed by export subpath ('.' for root).
@@ -101,28 +150,29 @@ function resolveEntries(
   }
 
   // Auto-detect from package.json
-  let typesPath: string | undefined;
+  let rootCandidates: string[] = [];
   try {
     const pkg = JSON.parse(fs.readFileSync(path.join(projectPath, 'package.json'), 'utf-8'));
     const exportsField = pkg.exports;
 
     // Multi-entry "exports" map: walk every subpath ('.', './utils', ...) and
     // resolve each to its declared types source. Subpaths without a resolvable
-    // .d.ts entry are skipped (e.g. `default`-only without `types`). A verbose
-    // warning helps surface partial-coverage exports maps that would otherwise
-    // cause spurious `entrypoint-added` reports the next time a `types` field
-    // is added to that subpath.
+    // declaration entry are skipped (e.g. `default`-only without `types`). A
+    // verbose warning helps surface partial-coverage exports maps that would
+    // otherwise cause spurious `entrypoint-added` reports the next time a `types`
+    // field is added to that subpath.
     if (exportsField && typeof exportsField === 'object' && !Array.isArray(exportsField)) {
       const result: Record<string, SourceFile> = {};
       const skipped: string[] = [];
       for (const [subpath, value] of Object.entries(exportsField)) {
         if (!subpath.startsWith('.')) continue;
-        const sub = typesFromExportsValue(value);
-        if (!sub) {
+        const cands = typesCandidatesFromExportsValue(value);
+        if (cands.length === 0) {
           skipped.push(subpath);
           continue;
         }
-        const file = resolveTypesFile(project, projectPath, sub);
+        const file =
+          resolveMappedSource(project, projectPath, cands) ?? resolveRawDecl(project, projectPath, cands);
         if (file) result[subpath] = file;
         else skipped.push(subpath);
       }
@@ -136,14 +186,25 @@ function resolveEntries(
       }
     }
 
+    // Single root entry. Gather every candidate declaration path — from the '.'
+    // exports conditions (any nesting), then the top-level `types`/`typings`
+    // fields — and try them all. Crucially the top-level fields are appended as
+    // fallbacks rather than short-circuited: a package whose `.` export points its
+    // `import.types` at a `.d.mts` still resolves via its `.d.ts` `types` field.
     const main = pkg.exports?.['.'];
-    typesPath = (typeof main === 'object' ? main?.import?.types ?? main?.types : null) ?? pkg.types ?? pkg.typings;
-    if (typesPath) {
-      // Source layout (working tree): map the published .d.ts back to its .ts source.
-      const srcMapped = path.join(projectPath, typesPath.replace('/dist/mjs/', '/src/').replace('.d.ts', '.ts'));
-      const file = project.getSourceFile(srcMapped);
-      if (file) return { '.': file };
-    }
+    const gathered = [
+      ...(main !== undefined ? typesCandidatesFromExportsValue(main) : []),
+      ...(typeof pkg.types === 'string' && isDtsPath(pkg.types) ? [pkg.types] : []),
+      ...(typeof pkg.typings === 'string' && isDtsPath(pkg.typings) ? [pkg.typings] : []),
+    ].filter((p, i, a) => a.indexOf(p) === i);
+    // Prefer `.d.ts` over `.d.mts`/`.d.cts` across the whole candidate set: a
+    // package that ships both should be analysed from one consistent declaration
+    // file, and `.d.ts` is the one the default tsconfig include always loads.
+    rootCandidates = [...gathered.filter((p) => p.endsWith('.d.ts')), ...gathered.filter((p) => !p.endsWith('.d.ts'))];
+
+    // Source layout (working tree): map the declared path back to its source.
+    const fromSource = resolveMappedSource(project, projectPath, rootCandidates);
+    if (fromSource) return { '.': fromSource };
   } catch {}
 
   // Fallback to real source before the declared .d.ts: a working tree with a
@@ -155,11 +216,9 @@ function resolveEntries(
   if (fallback) return { '.': fallback };
 
   // Last resort: the declared types entry itself. Published npm tarballs ship
-  // their .d.ts declarations but no .ts source, so this is their entry point.
-  if (typesPath) {
-    const rawTypes = project.getSourceFile(path.join(projectPath, typesPath));
-    if (rawTypes) return { '.': rawTypes };
-  }
+  // their declarations but no .ts source, so this is their entry point.
+  const fromDecl = resolveRawDecl(project, projectPath, rootCandidates);
+  if (fromDecl) return { '.': fromDecl };
 
   throw new Error(`Could not find entry file. Use --entry to specify.`);
 }
@@ -647,6 +706,12 @@ function convertInterface(name: string, node: Node): ApiInterfaceSymbol {
     isReadonly: ix.isReadonly(),
   }));
 
+  // Heritage (`extends Base, Other`): inherited members are NOT flattened into
+  // `properties`/`methods`, so record the clause text. A type-alias <-> interface
+  // conversion can't be proven shape-equal from own members alone when the
+  // interface inherits a base (the base may add required members).
+  const heritage = node.getExtends().map((e) => e.getText());
+
   return {
     kind: 'interface',
     name,
@@ -656,6 +721,7 @@ function convertInterface(name: string, node: Node): ApiInterfaceSymbol {
     callSignatures,
     constructSignatures,
     indexSignatures,
+    heritage,
   };
 }
 

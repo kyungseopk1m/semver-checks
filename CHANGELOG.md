@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.1] - 2026-06-15
+
+This release is a real-world usability pass: it lets the tool analyze popular packages it previously could not even load, and stops it from crying wolf on routine, non-breaking refactors. None of these relaxations weaken breaking-change detection — each keeps its breaking-case counterpart, and the full regression battery (including the cycle 7–13 false-negative guards) stays green.
+
+### Fixed
+
+- **Conditional `exports` entry resolution**: the entry auto-detector now walks every condition in a `package.json` `exports["."]` map (`types`, `require`/`import`/`node`/`browser`/`module`/`default`, nested arbitrarily) and accepts `.d.ts`, `.d.mts`, and `.d.cts` declarations. Previously it read only `import.types ?? types`, and a non-`.d.ts` value there (e.g. an `import.types` pointing at a `.d.mts`) short-circuited the fallback to the top-level `types`/`typings` field — so packages like `commander` (`require.types`), `zustand` (`default.types`), and `ofetch` (nested `node` condition) failed with "Could not find entry file." `.d.ts` is preferred when a package ships several declaration flavors so the analysis runs from one consistent file.
+- **Synthesized tsconfig loads `.d.mts`/`.d.cts`**: the permissive tsconfig generated for published npm tarballs now includes `**/*.d.mts` and `**/*.d.cts`, so ESM-only packages whose sole declarations are `.d.mts` resolve.
+- **`type X = {...}` → `interface X {...}` is no longer a false breaking change**: converting a type alias to an interface (or vice versa) with the same shape was reported as `export-removed` because the symbol's `kind` changed. The two are now compared by an order-independent canonical member-set comparison that preserves `readonly`, optionality, member types, and a synthetic write-type marker — so any of those differing keeps the breaking verdict, and the comparison needs no type resolution (it tolerates the package-internal member types real interfaces reference). An interface with an `extends` heritage clause is conservatively treated as not shape-equal (inherited members aren't captured). An incompatible shape still surfaces as a breaking change.
+- **Structurally equivalent generic-parameter default rewrites are no-ops**: a default change whose old and new types are mutually assignable (e.g. `<T = ReadonlyArray<string>>` → `<T = readonly string[]>`) no longer reports `generic-param-default-changed`. A concrete narrowing such as `<T = string>` → `<T = number>`, a default removal, or any change involving `any` (where assignability can't be trusted) all remain breaking.
+
 ## [0.6.0] - 2026-06-13
 
 ### Added

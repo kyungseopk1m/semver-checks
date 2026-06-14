@@ -99,7 +99,7 @@ function ensureTsconfig(pkgDir: string): void {
         skipLibCheck: true,
         declaration: true,
       },
-      include: ['**/*.ts', '**/*.d.ts'],
+      include: ['**/*.ts', '**/*.d.ts', '**/*.d.mts', '**/*.d.cts'],
     }),
   );
 }

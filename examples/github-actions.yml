@@ -34,7 +34,7 @@ jobs:
       # Replace `your-package` with your published package name. Using the action
       # from this repo:
       - name: Check for breaking changes
-        uses: kyungseopk1m/semver-checks@v0.5.0
+        uses: kyungseopk1m/semver-checks@v0.6.1
         with:
           old: 'your-package@latest'
           new: '.'

@@ -123,6 +123,96 @@ describe('.d.ts entry resolution (published-package layout)', () => {
   }, 15_000);
 });
 
+// Synthesized tsconfig matching resolveNpmSpec()'s, including the .d.mts/.d.cts
+// globs so ESM-only declaration files load.
+const SYNTH_TSCONFIG = JSON.stringify({
+  compilerOptions: {
+    target: 'ES2020',
+    module: 'ESNext',
+    moduleResolution: 'bundler',
+    strict: true,
+    skipLibCheck: true,
+    declaration: true,
+  },
+  include: ['**/*.ts', '**/*.d.ts', '**/*.d.mts', '**/*.d.cts'],
+});
+
+// Build an arbitrary on-disk package layout for entry-resolution tests.
+function makeLayout(files: Record<string, string>): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'semver-checks-layout-'));
+  tmpDirs.push(dir);
+  for (const [rel, content] of Object.entries(files)) {
+    const full = path.join(dir, rel);
+    fs.mkdirSync(path.dirname(full), { recursive: true });
+    fs.writeFileSync(full, content);
+  }
+  return dir;
+}
+
+// These layouts mirror real top-N packages that v0.6.0 could not analyze because
+// the entry resolver only read `exports['.'].import.types ?? .types` and never
+// fell back to the top-level `types` field once that was a non-null `.d.mts`.
+describe('conditional exports entry resolution', () => {
+  it('resolves the .d.ts under exports["."].require.types (commander layout)', async () => {
+    const dir = makeLayout({
+      'package.json': JSON.stringify({
+        name: 'cmdr',
+        version: '1.0.0',
+        types: './typings/index.d.ts',
+        exports: {
+          '.': {
+            require: { types: './typings/index.d.ts', default: './index.js' },
+            import: { types: './typings/esm.d.mts', default: './esm.mjs' },
+            default: './index.js',
+          },
+        },
+      }),
+      'typings/index.d.ts': 'export declare function program(): void;\n',
+      'typings/esm.d.mts': 'export declare function program(): void;\n',
+      'tsconfig.json': SYNTH_TSCONFIG,
+    });
+    const snapshot = await extract({ projectPath: dir });
+    expect(Object.keys(snapshot.entrypoints['.'])).toContain('program');
+  }, 15_000);
+
+  it('falls back to the top-level types field when exports point only at .d.mts (ofetch layout)', async () => {
+    const dir = makeLayout({
+      'package.json': JSON.stringify({
+        name: 'oftch',
+        version: '1.0.0',
+        types: './dist/index.d.ts',
+        exports: {
+          '.': {
+            node: { import: { types: './dist/index.d.mts', default: './dist/index.mjs' } },
+            import: { types: './dist/index.d.mts', default: './dist/index.mjs' },
+            default: './dist/index.mjs',
+          },
+        },
+      }),
+      'dist/index.d.ts': 'export declare const fetchJson: (url: string) => Promise<unknown>;\n',
+      'dist/index.d.mts': 'export declare const fetchJson: (url: string) => Promise<unknown>;\n',
+      'tsconfig.json': SYNTH_TSCONFIG,
+    });
+    const snapshot = await extract({ projectPath: dir });
+    expect(Object.keys(snapshot.entrypoints['.'])).toContain('fetchJson');
+  }, 15_000);
+
+  it('resolves an ESM-only package whose sole declaration is a .d.mts', async () => {
+    const dir = makeLayout({
+      'package.json': JSON.stringify({
+        name: 'esm-only',
+        version: '1.0.0',
+        type: 'module',
+        exports: { '.': { import: { types: './index.d.mts', default: './index.mjs' } } },
+      }),
+      'index.d.mts': 'export declare function only(): number;\n',
+      'tsconfig.json': SYNTH_TSCONFIG,
+    });
+    const snapshot = await extract({ projectPath: dir });
+    expect(Object.keys(snapshot.entrypoints['.'])).toContain('only');
+  }, 15_000);
+});
+
 // The live test hits the npm registry, so it is opt-in to keep offline CI green.
 // Run with SEMVER_CHECKS_NETWORK_TESTS=1 to exercise the real `npm pack` path.
 const liveTest = process.env['SEMVER_CHECKS_NETWORK_TESTS'] ? describe : describe.skip;

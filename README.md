@@ -423,7 +423,7 @@ jobs:
           node-version: '20'
       - run: npm ci
 
-      - uses: kyungseopk1m/semver-checks@v0.5.0
+      - uses: kyungseopk1m/semver-checks@v0.6.1
         with:
           old: 'your-package@latest'   # the published version to compare against
           format: 'github'             # inline ::error:: / ::warning:: annotations
@@ -497,11 +497,11 @@ For git ref comparisons, the ref is extracted to a temporary directory via `git 
 
 ### Will semver-checks catch every semver violation?
 
-No. The tool catches API surface changes that are mechanically detectable from TypeScript's static type system: removed exports, signature changes, type changes, optionality changes, and so on. It does not detect behavioral changes, documentation changes, or changes hidden behind conditional compilation.
+No. The tool catches API surface changes that are mechanically detectable from TypeScript's static type system: removed exports, signature changes, type changes, optionality changes, and so on. It does not detect behavioral changes, documentation changes, or changes hidden behind conditional compilation. When a package ships *distinct* ESM and CJS declaration files for the same entry point (e.g. divergent `import.types` and `require.types`), only one surface (the ESM one) is analyzed, so a breaking change confined to the other surface can be missed.
 
 ### Does it have false positives?
 
-Occasionally, but less than before. Parameter and return type changes now go through a structural assignability check — a synthesized TypeScript program decides whether a change is a widening or a narrowing — so a widened parameter or a narrowed return type is classified as minor instead of a false major, and structurally equivalent rewrites like `readonly T[]` vs `ReadonlyArray<T>` are treated as no-ops. Other positions (type aliases, variables) are still compared as normalized serialized text: top-level union and intersection member reordering is normalized, so `string | number` and `number | string` no longer differ, but grouped expressions and deeper equivalent rewrites in those positions can still produce diffs. When a type can't be resolved in isolation (imported types, bare generics, or anything involving `any`), the tool falls back to the conservative major verdict.
+Occasionally, but less than before. Parameter and return type changes now go through a structural assignability check — a synthesized TypeScript program decides whether a change is a widening or a narrowing — so a widened parameter or a narrowed return type is classified as minor instead of a false major, and structurally equivalent rewrites like `readonly T[]` vs `ReadonlyArray<T>` are treated as no-ops. Converting a type alias to an interface (or back) with the same shape is also recognised as a no-op rather than a false "export removed" (an interface that `extends` a base stays conservatively major, since inherited members aren't captured). Other positions (type aliases, variables) are still compared as normalized serialized text: top-level union and intersection member reordering is normalized, so `string | number` and `number | string` no longer differ, but grouped expressions and deeper equivalent rewrites in those positions can still produce diffs. When a type can't be resolved in isolation (imported types, bare generics, or anything involving `any`), the tool falls back to the conservative major verdict.
 
 ### Does it support default exports?
 
@@ -530,9 +530,11 @@ semver-checks will print a warning to stderr listing up to 5 errors and continue
 
 semver-checks looks for the entry file in this order:
 1. The `--entry` flag if provided
-2. The `types` field under `exports['.']` in `package.json`
+2. The declaration under `exports['.']` in `package.json` — every condition is walked (`types`, `require`/`import`/`node`/`browser`/`module`/`default`, nested), and `.d.ts`/`.d.mts`/`.d.cts` are all accepted
 3. The top-level `types` or `typings` field in `package.json`
 4. `src/index.ts`, then `index.ts` as fallbacks
+
+When a project ships an `"exports"` map with several subpaths, each subpath is resolved and compared independently (see [Multiple entry points](#multiple-entry-points)).
 
 ### Does it work with monorepos?
 

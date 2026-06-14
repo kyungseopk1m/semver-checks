@@ -235,8 +235,142 @@ function classifySymbolMap(
   return changes;
 }
 
+// Render one function signature as object-type-member syntax (no leading name):
+// `<T>(x: string): number`. Used to reconstruct an interface's structural text.
+function signatureMemberText(sig: ApiFunctionSignature): string {
+  const tps = sig.typeParameters.length
+    ? `<${sig.typeParameters
+        .map(
+          (tp) =>
+            `${tp.name}${tp.constraint ? ` extends ${tp.constraint.text}` : ''}${tp.default ? ` = ${tp.default.text}` : ''}`,
+        )
+        .join(', ')}>`
+    : '';
+  const params = sig.parameters
+    .map((p) => `${p.isRest ? '...' : ''}${p.name}${p.isOptional ? '?' : ''}: ${p.type.text}`)
+    .join(', ');
+  return `${tps}(${params}): ${sig.returnType.text}`;
+}
+
+// Reconstruct an interface as the equivalent object-type text so it can be
+// compared structurally against a type alias. The output need not be byte-perfect
+// TypeScript: if it fails to parse, the variance probe yields an undecidable
+// relation and the caller keeps the conservative major verdict.
+function interfaceToTypeText(iface: ApiInterfaceSymbol): string {
+  const members: string[] = [];
+  for (const p of iface.properties) {
+    members.push(`${p.isReadonly ? 'readonly ' : ''}${p.name}${p.isOptional ? '?' : ''}: ${p.type.text}`);
+    // A get/set accessor whose setter type differs from the getter (write-side
+    // narrowing) is breaking even though the read type is unchanged. A type-alias
+    // property cannot express a divergent write type, so emitting it as an extra
+    // synthetic member guarantees the canonical shapes differ — the comparison can
+    // never silently equate a narrowed setter with a plain property.
+    if (p.writeType) members.push(`${p.name} [[write]]: ${p.writeType.text}`);
+  }
+  for (const m of iface.methods) {
+    for (const sig of m.signatures) {
+      members.push(`${m.name}${m.isOptional ? '?' : ''}${signatureMemberText(sig)}`);
+    }
+  }
+  for (const sig of iface.callSignatures ?? []) members.push(signatureMemberText(sig));
+  for (const sig of iface.constructSignatures ?? []) members.push(`new ${signatureMemberText(sig)}`);
+  for (const ix of iface.indexSignatures ?? []) {
+    members.push(`${ix.isReadonly ? 'readonly ' : ''}[__key: ${ix.keyType}]: ${ix.valueType.text}`);
+  }
+  return `{ ${members.join('; ')} }`;
+}
+
+// Canonical, order-independent rendering of an object-literal type's members:
+// split on top-level `;`, normalize whitespace, sort. Returns null when the text
+// is not an object literal (`{ ... }`) — e.g. a union or primitive alias, which a
+// shape comparison cannot vouch for. Member types are compared as text, so an
+// equal result is a *sufficient* (not necessary) proof of structural identity and
+// needs no type resolution — unlike the variance probe, which bails on the
+// package-internal types that interface members routinely reference.
+function canonicalObjectShape(text: string): string | null {
+  const t = text.trim();
+  if (!t.startsWith('{') || !t.endsWith('}')) return null;
+  const inner = t.slice(1, -1);
+  const members: string[] = [];
+  let depth = 0;
+  let quote: string | null = null;
+  let buf = '';
+  for (let i = 0; i < inner.length; i++) {
+    const ch = inner[i];
+    if (quote) {
+      buf += ch;
+      if (ch === quote && inner[i - 1] !== '\\') quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === '`') {
+      quote = ch;
+      buf += ch;
+      continue;
+    }
+    if (ch === '{' || ch === '(' || ch === '[') depth++;
+    else if (ch === '}' || ch === ')' || ch === ']') depth--;
+    if (ch === ';' && depth === 0) {
+      members.push(buf);
+      buf = '';
+      continue;
+    }
+    buf += ch;
+  }
+  members.push(buf);
+  const norm = members
+    .map((m) => m.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    // Normalize an index signature's key *name* (the identifier is arbitrary:
+    // `[k: string]` and `[__key: string]` denote the same signature). Only the
+    // leading `[ident:` is rewritten — the key *type*, value type, and `readonly`
+    // are preserved, so distinct index signatures never collapse. `[K in ...]`
+    // mapped types are not matched (they have `in`, not `:`), and a nested index
+    // signature inside a member value is left untouched (it is not at offset 0).
+    .map((m) => m.replace(/^(readonly )?\[\s*[A-Za-z_$][\w$]*\s*:/, '$1[__key:'))
+    .sort();
+  return norm.length ? norm.join('; ') : '{empty}';
+}
+
+// A type alias and an interface that describe the same shape are interchangeable
+// for every consumer (`type X = {...}` <-> `interface X {...}` is a routine,
+// non-breaking refactor). Type parameters are aligned by alpha-rename so
+// `type X<T> = {...}` and `interface X<S> {...}` still match. Equivalence is
+// proven only by an identical canonical member set — deliberately NOT by
+// structural assignability, which is blind to write-side breaks: TypeScript
+// reports `{ a: T }` and `{ readonly a: T }` (and a narrowed setter) as mutually
+// assignable, so an assignability check would erase a real breaking change. The
+// canonical text comparison preserves `readonly`, optionality, and a synthetic
+// write-type member, so any of those differing leaves the conservative major
+// verdict in place. (A purely stylistic member rewrite that text comparison can't
+// see through stays conservatively major — sound, never a false negative.)
+function typeAliasInterfaceEquivalent(ta: ApiTypeAliasSymbol, iface: ApiInterfaceSymbol): boolean {
+  if (ta.typeParameters.length !== iface.typeParameters.length) return false;
+  // An `extends` clause pulls in inherited members that are not part of the
+  // interface's own captured members, so the canonical shape would understate the
+  // real type (a base may add required members). Can't prove equivalence — stay
+  // conservatively major.
+  if ((iface.heritage?.length ?? 0) > 0) return false;
+  const rename = buildTypeParamRenameMap(ta.typeParameters, iface.typeParameters);
+  const aliasText = ta.type.text;
+  const ifaceText = renameTypeText(interfaceToTypeText(iface), rename);
+  if (aliasText.trim() === ifaceText.trim()) return true;
+  const aliasShape = canonicalObjectShape(aliasText);
+  return aliasShape !== null && aliasShape === canonicalObjectShape(ifaceText);
+}
+
 function classifySymbolChanges(name: string, oldSym: ApiSymbol, newSym: ApiSymbol): ApiChange[] {
   if (oldSym.kind !== newSym.kind) {
+    // A type-alias <-> interface conversion with a structurally equivalent shape
+    // is a non-breaking refactor, not an export removal.
+    const taIfacePair =
+      oldSym.kind === 'type-alias' && newSym.kind === 'interface'
+        ? ([oldSym, newSym] as const)
+        : oldSym.kind === 'interface' && newSym.kind === 'type-alias'
+          ? ([newSym as ApiTypeAliasSymbol, oldSym as ApiInterfaceSymbol] as const)
+          : null;
+    if (taIfacePair && typeAliasInterfaceEquivalent(taIfacePair[0], taIfacePair[1])) {
+      return [];
+    }
     return [{
       kind: 'export-removed',
       severity: 'major',
@@ -269,6 +403,29 @@ function classifySymbolChanges(name: string, oldSym: ApiSymbol, newSym: ApiSymbo
     default:
       return [];
   }
+}
+
+// Two generic-parameter defaults are interchangeable when they are mutually
+// assignable: a consumer that omits the argument type-checks identically against
+// either. Sibling type parameters are supplied as variance context so a default
+// that references an earlier parameter (`<T, U = T>`) resolves rather than bailing.
+// An undecidable relation (null) is treated as not-equivalent — the caller keeps
+// the conservative major verdict.
+//
+// NOTE: there is deliberately NO `newDefault === 'any'` widening shortcut. It is
+// unsound for conditional/distributive defaults — `<T = unknown>` -> `<T = any>`
+// inside `T extends U ? ... : ...` can distribute and widen the resolved output
+// of an omitting consumer (e.g. a literal-union result broadens), a real break.
+// `compareTypeText` already bails (-> null -> major) whenever `any` is mentioned,
+// so any default involving `any` stays conservatively major here.
+function defaultsAreEquivalent(
+  oldDefault: string,
+  newDefault: string,
+  typeParameters: ApiTypeParameter[],
+): boolean {
+  if (oldDefault === newDefault) return true;
+  const relation = compareTypeText(oldDefault, newDefault, { typeParameters });
+  return relation !== null && relation.oldToNew && relation.newToOld;
 }
 
 function classifyTypeParamChanges(symbolPath: string, oldTPs: ApiTypeParameter[], newTPs: ApiTypeParameter[]): ApiChange[] {
@@ -345,6 +502,16 @@ function classifyTypeParamChanges(symbolPath: string, oldTPs: ApiTypeParameter[]
           message: `Default added to generic parameter '${oldTPs[i].name}' in '${symbolPath}'`,
           newValue: newDefaultRaw ?? '(none)',
         });
+      } else if (
+        newDefaultForCompare !== null &&
+        defaultsAreEquivalent(oldDefault, newDefaultForCompare, oldTPs.slice(0, commonCount))
+      ) {
+        // A default change only breaks consumers who omit the argument, and only
+        // when the type they now receive is incompatible. Mutually-assignable
+        // defaults (e.g. `unknown` <-> `any`, or `readonly T[]` <-> `ReadonlyArray<T>`)
+        // leave every omitting call site type-checking identically, so this is a
+        // no-op. Concrete narrowing such as `string` -> `number` is NOT mutually
+        // assignable and still falls through to the major branch below.
       } else {
         changes.push({
           kind: 'generic-param-default-changed',

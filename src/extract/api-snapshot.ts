@@ -67,6 +67,12 @@ export interface ApiInterfaceSymbol {
   callSignatures?: ApiFunctionSignature[];
   constructSignatures?: ApiFunctionSignature[];
   indexSignatures?: ApiIndexSignature[];
+  // `extends` heritage clause text(s), e.g. `["Base", "Other<T>"]`. Inherited
+  // members are not flattened into `properties`/`methods`, so this records that
+  // the interface's full shape is larger than its own members — consumed when
+  // deciding whether a type-alias <-> interface conversion is truly shape-equal.
+  // Optional for backward compatibility with snapshots produced before 0.6.1.
+  heritage?: string[];
 }
 
 export interface ApiTypeAliasSymbol {

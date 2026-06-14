@@ -563,6 +563,81 @@ describe('type alias and variable changes', () => {
   });
 });
 
+// False-positive reductions that make the tool usable on real-world libraries
+// without crying wolf on routine, non-breaking refactors. Each retains the
+// breaking-case counterpart so the relaxation stays sound (no new false negative).
+describe('false-positive reduction (real-world refactors)', () => {
+  it('treats type-alias -> interface with the same shape as NO CHANGE', () => {
+    const report = compareFixture('type-alias-to-interface-noop');
+    // Was reported as export-removed (changed kind) — a clear false positive on a
+    // routine refactor. Member types reference a package-internal type that does
+    // not resolve standalone, so this exercises the canonical member-set path.
+    expect(report.changes.some((c) => c.symbolPath === 'RefinementCtx')).toBe(false);
+    expect(report.recommended).toBe('patch');
+  });
+
+  it('keeps type-alias -> interface MAJOR when the shape is incompatible', () => {
+    const report = compareFixture('type-alias-to-interface-incompatible');
+    const change = report.changes.find((c) => c.kind === 'export-removed' && c.symbolPath === 'Cfg');
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('major');
+    expect(report.recommended).toBe('major');
+  });
+
+  // Write-side guard: structural assignability is blind to readonly, so an
+  // assignability-only equivalence check would erase this. The canonical member
+  // set keeps `readonly` visible, so the conversion stays breaking.
+  it('keeps type-alias -> interface MAJOR when a property becomes readonly', () => {
+    const report = compareFixture('type-alias-to-interface-readonly-added');
+    expect(report.changes.some((c) => c.symbolPath === 'T')).toBe(true);
+    expect(report.recommended).toBe('major');
+  });
+
+  it('treats a type-alias -> interface with the same index signature as NO CHANGE', () => {
+    const report = compareFixture('type-alias-to-interface-index-sig-noop');
+    // The index key name is arbitrary (`[k: string]` vs `[key: string]`), so this
+    // is a no-op refactor.
+    expect(report.changes.some((c) => c.symbolPath === 'Dict')).toBe(false);
+    expect(report.recommended).toBe('patch');
+  });
+
+  it('keeps type-alias -> interface MAJOR when the interface extends a base', () => {
+    // Inherited members aren't captured, so own-member equality ({} vs {}) cannot
+    // prove shape equivalence — the extends clause forces a conservative major.
+    const report = compareFixture('type-alias-to-interface-heritage');
+    const change = report.changes.find((c) => c.kind === 'export-removed' && c.symbolPath === 'Options');
+    expect(change).toBeDefined();
+    expect(report.recommended).toBe('major');
+  });
+
+  it('treats a structurally equivalent generic default rewrite as NO CHANGE', () => {
+    const report = compareFixture('generic-default-equivalent-rewrite');
+    // ReadonlyArray<string> <-> readonly string[] are mutually assignable.
+    expect(report.changes.some((c) => c.kind === 'generic-param-default-changed')).toBe(false);
+    expect(report.recommended).toBe('patch');
+  });
+
+  it('keeps a generic default changed to any MAJOR (no unsound any-widening shortcut)', () => {
+    // unknown -> any inside a conditional type can widen the omitting consumer's
+    // resolved output; there is no `any`-widening relaxation, so this stays major.
+    const report = compareFixture('generic-default-any-conditional');
+    const change = report.changes.find((c) => c.kind === 'generic-param-default-changed');
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('major');
+    expect(report.recommended).toBe('major');
+  });
+
+  it('still flags a concrete generic default narrowing (string -> number) as MAJOR', () => {
+    // Companion to the widening case: the 13th-cycle tsc-proven breaking change
+    // must survive the relaxation.
+    const report = compareFixture('generic-param-default-changed');
+    const change = report.changes.find((c) => c.kind === 'generic-param-default-changed');
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('major');
+    expect(report.recommended).toBe('major');
+  });
+});
+
 describe('static and instance same-name coexistence', () => {
   it('detects class method changes without collapsing static and instance methods', () => {
     const report = compareFixture('class-method-static-instance-coexistence');
