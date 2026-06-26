@@ -42,8 +42,14 @@ const compareCommand = defineCommand({
     },
     strict: {
       type: 'boolean',
-      description: 'Exit with code 1 if breaking changes are found',
+      description: 'Exit with code 1 if a confident (proven) breaking change is found. Safe to gate CI on.',
       alias: 's',
+      default: false,
+    },
+    strictReview: {
+      type: 'boolean',
+      description: 'Exit with code 1 if any breaking change is found, including review-only (heuristic) ones',
+      alias: 'strict-review',
       default: false,
     },
     installDeps: {
@@ -74,7 +80,13 @@ const compareCommand = defineCommand({
 
       console.log(renderReport(report, args.format));
 
-      if (args.strict && report.recommended === 'major') {
+      // `--strict` gates on confident (proven) breaks only — the graded-confidence
+      // contract: review-only majors do not fail CI unless `--strict-review` opts
+      // into the prior "any major fails" behaviour.
+      const failBuild =
+        (args.strictReview && report.summary.major > 0) ||
+        (args.strict && report.summary.majorProven > 0);
+      if (failBuild) {
         process.exit(1);
       }
     } catch (err: any) {

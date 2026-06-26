@@ -419,7 +419,7 @@ export function createMcpServer(): Server {
       {
         name: 'semver_compare',
         description:
-          'Compare two versions of a TypeScript library and detect breaking API changes. Returns the recommended SemVer bump (major/minor/patch) and a detailed list of all changes.',
+          'Compare two versions of a TypeScript library and detect breaking API changes. Returns the recommended SemVer bump (major/minor/patch) and a detailed list of all changes. Each change carries a confidence: "proven" (a structurally confident break — gate on these) or "heuristic" (a conservative major the tool could not prove safe — surface for review). summary.majorProven / majorReview split the major count accordingly.',
         inputSchema: {
           type: 'object',
           properties: {

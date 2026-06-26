@@ -5,13 +5,14 @@
 
 # semver-checks
 
-Lint your TypeScript library's public API for semver violations.
+Catch the version bumps your commit messages miss — by analyzing what actually changed in your TypeScript public API.
 
 ```bash
 npx semver-checks compare v1.0.0 HEAD
 ```
 
 - [Why semver-checks?](#why-semver-checks)
+- [Accuracy & Limitations](#accuracy--limitations)
 - [Quick Start](#quick-start)
 - [Programmatic API](#programmatic-api)
 - [Change Rules](#change-rules)
@@ -27,6 +28,8 @@ npx semver-checks compare v1.0.0 HEAD
 Tools like `semantic-release` and `changesets` rely on developers writing correct commit messages. In practice, commit messages don't always reflect actual API impact — a "small refactor" that removes a required export gets published as a patch, and downstream consumers' builds break.
 
 semver-checks **analyzes your TypeScript public API directly** using [ts-morph](https://github.com/dsherret/ts-morph) and recommends the correct SemVer bump based on what actually changed in the type signatures — not what the commit message says.
+
+This is not hypothetical. Run it across real releases and it flags breaking type changes that shipped as minors or patches — for example, `p-limit` 6.1.0 added a required property to its exported `LimitFunction` type and was published as a *minor*; semver-checks flags it MAJOR. It is most dependable on **structural changes** — removed or renamed exports, narrowed signatures, added required parameters and properties — which it detects reliably. Equivalence-preserving type rewrites are a known weak spot it can over-report; see [Accuracy & Limitations](#accuracy--limitations) for exactly where to trust it and where not to.
 
 ```typescript
 // v1.0.0
@@ -49,6 +52,36 @@ export function findUser(id: string): User;
 ```
 
 semver-checks is complementary to your existing release workflow. Use it as a **verification step** before publishing — it tells you whether your intended bump is safe, or whether you're about to ship a breaking change by accident.
+
+## Accuracy & Limitations
+
+semver-checks grades every breaking change by **confidence**, so the CI gate stays trustworthy:
+
+- **proven** — the break follows from a structural fact (a member added/removed, an optionality/readonly/static transition, an enum or overload change) or from a *resolved* type relation the analyzer decided is genuinely unrelated. `--strict` exits 1 on these, and only these — safe to leave on in CI.
+- **heuristic** — a conservative MAJOR the analyzer could *not* prove (a type-text difference it couldn't resolve, or a one-directional change in an invariant position where a safe reading exists). These surface for human review but do **not** fail `--strict`; opt in with `--strict-review` if you want every MAJOR to gate.
+
+This is the design's center of gravity: the equivalence-preserving rewrites and input-union widenings that make text-based type-semver tools cry wolf land in *heuristic*, off the default gate, while real under-bumps stay *proven* and on it. It is neither *sound* (zero false positives) nor *complete* (catches everything), so a `proven` MAJOR is a strong signal, not a theorem — but the surfaces in [Known limitations](#known-limitations) are isolated to `heuristic`, not silently mixed into the gate.
+
+It is most reliable on **conventional, single-entry packages with an explicitly-typed public surface**: added / removed / renamed exports, function and method signature changes, added required parameters and properties, and removed members are detected dependably and reported as `proven`.
+
+**Measured.** Across 44 adjacent real-world npm release pairs (`.d.ts` ↔ `.d.ts`, seven API shapes, the author's published bump as the oracle), 37 were analyzable. Of those, 19 matched the published bump exactly, 9 were *stricter* than the published bump, and 9 were *looser*. The graded gate splits the 9 stricter rows cleanly: `--strict` fires on 4 of them — real breaks the author shipped under-bumped, e.g. `p-limit` 6.1.0 and `ky` 1.14.0 each added a required property to an exported type yet released as a minor (`tsc` confirms a `TS2741` for implementers), and `commander` 12.1.0 removed a public method — while the other 5 (the equivalence rewrites, input-union widenings, and return-only generics on the surfaces below) demote to review-only and pass the gate. Most of the looser results are releases bumped for runtime-only reasons with no public *type* change. Reproduce the scorecard with [`scripts/accuracy-probe.mjs`](scripts/accuracy-probe.mjs) (after `npm run build`), or spot-check your own dependencies:
+
+```bash
+npx semver-checks compare <pkg>@<previous> <pkg>@<latest>
+```
+
+### Known limitations
+
+| Area | What happens | Why |
+|------|--------------|-----|
+| **Equivalence-preserving refactors** | Replacing a type with an equivalent one — an alias swap like `Exclude<…>` → `SetDifference<…>`, or `{ [P in K]: T }` → `Pick<T, K>` — is reported as a `type-alias-changed`, but as a **review-only (heuristic)** MAJOR, off the `--strict` gate. | Type aliases and variables are compared as normalized text, not by resolving both types and checking assignability; an unresolved comparison is graded `heuristic`. |
+| **Input-position widening in aliases** | Widening a union used as an *input* (e.g. adding `bigint` to a parameter-only union) is reported MAJOR, though it accepts strictly more — graded **heuristic** (the relation is one-directional in an invariant position), so `--strict` does not gate on it. | Variance is analyzed for function parameters and returns, but not inside a `type` alias body. |
+| **Type parameters added to functions** | Adding a return-only type parameter (`fn(): string` → `fn<T extends string>(): T`) is reported MAJOR, though existing call sites still infer the same result — graded **heuristic** (a generic added to a callable), off the gate. | The "required generic added" rule treats a callable-context addition as review-only; in a type/interface/class context, where the argument is always written explicitly, it stays `proven`. |
+| **Dual-format / multi-subpath double counting** | A package exposing the same symbols under several `exports` subpaths (`.` plus a JS wrapper like `./esm.mjs`, or `.` plus `./lite`) reports each change once per subpath. | Each `.`-prefixed subpath is analyzed independently; identical changes across subpaths are not yet de-duplicated. |
+| **Deeply recursive conditional types** | Extremely type-heavy libraries (e.g. `type-fest`) can exhaust memory during extraction. | Declaration extraction has no depth/size bound on deeply recursive conditional / mapped types. |
+| **Non-standard entry layouts** | A few packages whose types live only beside a JS target — no `types` condition, no top-level `types`, no root `index.d.ts` — can't be auto-resolved; pass `--entry`. | Sibling-`.d.ts`-of-JS-target resolution is not implemented. |
+
+When a type can't be resolved in isolation (imported types, bare generics, anything involving `any`), semver-checks falls back to the conservative MAJOR verdict by design — see [Does it have false positives?](#does-it-have-false-positives).
 
 ## Quick Start
 
@@ -130,18 +163,22 @@ npx semver-checks compare v1.0.0 HEAD --entry src/index.ts,src/utils.ts
 
 ```
 semver-checks — Recommended bump: MAJOR
-  major: 2  minor: 1  patch: 0
+  major: 2 (confident: 1, review: 1)  minor: 1  patch: 0
 
-  Breaking Changes (MAJOR)
+  Breaking Changes — confident (MAJOR)
   ✗ Required property 'timeout' was added to interface 'Config'
       now: number
-  ✗ Type alias 'UserId' changed
+
+  Needs review — couldn't prove safe (MAJOR)
+  ? Type alias 'UserId' changed
       before: string | number
       after:  string
 
   New Features (MINOR)
   + Export 'createConfig' was added
 ```
+
+`--strict` exits 1 on the confident break only; the review-only item passes the gate unless you opt into `--strict-review`.
 
 ## Programmatic API
 
@@ -270,7 +307,8 @@ semver-checks compare <old> [new] [options]
 |--------|-------|---|---|
 | `--entry <path>` | `-e` | Entry file path (e.g., `src/index.ts`); repeat or comma-separate for multiple entries | Auto-detect |
 | `--format <type>` | `-f` | `text`, `json`, `markdown`, or `github` | `text` |
-| `--strict` | `-s` | Exit 1 if breaking changes are found | `false` |
+| `--strict` | `-s` | Exit 1 if a **confident (proven)** breaking change is found — safe to gate CI on | `false` |
+| `--strict-review` |  | Exit 1 if **any** breaking change is found, including review-only (heuristic) ones | `false` |
 | `--install-deps` |  | Install dependencies before analyzing local path inputs | `false` |
 | `--old-as <kind>` |  | Force `<old>` to be interpreted as `path`, `ref` (or `git`), or `npm` | Auto-detect |
 | `--new-as <kind>` |  | Force `[new]` to be interpreted as `path`, `ref` (or `git`), or `npm` | Auto-detect |
@@ -423,11 +461,11 @@ jobs:
           node-version: '20'
       - run: npm ci
 
-      - uses: kyungseopk1m/semver-checks@v0.6.1
+      - uses: kyungseopk1m/semver-checks@v0.7.0
         with:
           old: 'your-package@latest'   # the published version to compare against
           format: 'github'             # inline ::error:: / ::warning:: annotations
-          strict: 'true'               # fail the PR on a breaking change
+          strict: 'true'               # fail the PR on a confident (proven) breaking change
 ```
 
 | Input | Description | Default |
@@ -436,7 +474,8 @@ jobs:
 | `new` | New version — git ref or path | `.` |
 | `entry` | Entry file (auto-detected from `package.json` when omitted) | _(auto)_ |
 | `format` | `text`, `json`, `markdown`, or `github` | `github` |
-| `strict` | Fail the step (exit 1) on a breaking change | `false` |
+| `strict` | Fail the step (exit 1) on a **confident (proven)** breaking change | `false` |
+| `strict-review` | Fail the step (exit 1) on **any** breaking change, including review-only (heuristic) ones | `false` |
 | `version` | semver-checks version to run via `npx` | _(matches the action ref)_ |
 
 A full example that also posts a Markdown summary as a sticky PR comment lives in [`examples/github-actions.yml`](examples/github-actions.yml).
@@ -497,11 +536,13 @@ For git ref comparisons, the ref is extracted to a temporary directory via `git 
 
 ### Will semver-checks catch every semver violation?
 
-No. The tool catches API surface changes that are mechanically detectable from TypeScript's static type system: removed exports, signature changes, type changes, optionality changes, and so on. It does not detect behavioral changes, documentation changes, or changes hidden behind conditional compilation. When a package ships *distinct* ESM and CJS declaration files for the same entry point (e.g. divergent `import.types` and `require.types`), only one surface (the ESM one) is analyzed, so a breaking change confined to the other surface can be missed.
+No — and it does not try to be sound or complete. It catches API surface changes that are mechanically detectable from TypeScript's static type system: removed exports, signature changes, type changes, optionality changes, and so on. It does not detect behavioral changes, documentation changes, or changes hidden behind conditional compilation. It also has known blind spots and over-reporting patterns on complex surfaces — see [Accuracy & Limitations](#accuracy--limitations). When a package ships *distinct* ESM and CJS declaration files for the same entry point (e.g. divergent `import.types` and `require.types`), only one surface (the ESM one) is analyzed, so a breaking change confined to the other surface can be missed. Use it as a review signal, not a silent gate.
 
 ### Does it have false positives?
 
-Occasionally, but less than before. Parameter and return type changes now go through a structural assignability check — a synthesized TypeScript program decides whether a change is a widening or a narrowing — so a widened parameter or a narrowed return type is classified as minor instead of a false major, and structurally equivalent rewrites like `readonly T[]` vs `ReadonlyArray<T>` are treated as no-ops. Converting a type alias to an interface (or back) with the same shape is also recognised as a no-op rather than a false "export removed" (an interface that `extends` a base stays conservatively major, since inherited members aren't captured). Other positions (type aliases, variables) are still compared as normalized serialized text: top-level union and intersection member reordering is normalized, so `string | number` and `number | string` no longer differ, but grouped expressions and deeper equivalent rewrites in those positions can still produce diffs. When a type can't be resolved in isolation (imported types, bare generics, or anything involving `any`), the tool falls back to the conservative major verdict.
+Yes — by design it errs toward over-reporting MAJOR rather than missing a break, and on complex surfaces that means some safe changes are flagged. Parameter and return type changes go through a structural assignability check — a synthesized TypeScript program decides whether a change is a widening or a narrowing — so a widened parameter or a narrowed return type is classified as minor instead of a false major, and structurally equivalent rewrites like `readonly T[]` vs `ReadonlyArray<T>` are treated as no-ops. Converting a type alias to an interface (or back) with the same shape is also recognised as a no-op rather than a false "export removed" (an interface that `extends` a base stays conservatively major, since inherited members aren't captured).
+
+But type aliases and variables are still compared as normalized serialized text, not by resolving the types: top-level union/intersection reordering is normalized (`string | number` ≡ `number | string`), yet an equivalence-preserving rewrite (an alias swapped for an equal one, a union widened in input position) still reports as a false MAJOR. Adding a return-only type parameter to a function, and packages that expose the same symbols under multiple `exports` subpaths, are also over-reported. The concrete patterns and their causes are listed under [Known limitations](#known-limitations). When a type can't be resolved in isolation (imported types, bare generics, or anything involving `any`), the tool falls back to the conservative major verdict.
 
 ### Does it support default exports?
 
@@ -530,9 +571,11 @@ semver-checks will print a warning to stderr listing up to 5 errors and continue
 
 semver-checks looks for the entry file in this order:
 1. The `--entry` flag if provided
-2. The declaration under `exports['.']` in `package.json` — every condition is walked (`types`, `require`/`import`/`node`/`browser`/`module`/`default`, nested), and `.d.ts`/`.d.mts`/`.d.cts` are all accepted
+2. The declaration under `exports['.']` in `package.json` — every condition is walked (`types`, `require`/`import`/`node`/`browser`/`module`/`default`, nested, and fallback arrays), and `.d.ts`/`.d.mts`/`.d.cts` are all accepted. A bare-string `"exports": "./index.js"` or a flat conditions object `"exports": { "types": "./index.d.ts", "default": "./index.js" }` (no `.` subpath key) is treated as the `.` entry, so its `types` condition is read. A subpath-only map with no `.` key is left without a root entry (no fabricated root)
 3. The top-level `types` or `typings` field in `package.json`
-4. `src/index.ts`, then `index.ts` as fallbacks
+4. `src/index.ts`, then `index.ts`, then a conventional root `index.d.ts`/`.d.mts`/`.d.cts` as fallbacks
+
+If none of these resolve (e.g. a package whose declarations sit beside a JS target with no `types` condition and no root `index.d.ts`), pass `--entry` explicitly.
 
 When a project ships an `"exports"` map with several subpaths, each subpath is resolved and compared independently (see [Multiple entry points](#multiple-entry-points)).
 

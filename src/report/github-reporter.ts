@@ -1,14 +1,17 @@
 import type { SemverReport } from '../types.js';
 
-// Renders a SemverReport as GitHub Actions workflow commands. Breaking changes
-// become `::error::` annotations and new features become `::warning::`, so they
-// surface inline on the PR "Files changed" view and in the run summary.
+// Renders a SemverReport as GitHub Actions workflow commands. A confident
+// (proven) breaking change is an `::error::`; a review-only (heuristic) major and
+// a new feature are `::warning::` (distinguished by title), so they surface inline
+// on the PR "Files changed" view and in the run summary.
 export function githubReport(report: SemverReport): string {
   const lines: string[] = [];
 
   for (const c of report.changes) {
-    if (c.severity === 'major') {
+    if (c.severity === 'major' && c.confidence !== 'heuristic') {
       lines.push(`::error title=${escapeProperty(`Breaking change (${c.symbolPath})`)}::${escapeData(c.message)}`);
+    } else if (c.severity === 'major') {
+      lines.push(`::warning title=${escapeProperty(`Needs review (${c.symbolPath})`)}::${escapeData(c.message)}`);
     } else if (c.severity === 'minor') {
       lines.push(`::warning title=${escapeProperty(`New feature (${c.symbolPath})`)}::${escapeData(c.message)}`);
     }
@@ -17,7 +20,8 @@ export function githubReport(report: SemverReport): string {
   lines.push(
     `::notice title=semver-checks::${escapeData(
       `Recommended bump: ${report.recommended.toUpperCase()} ` +
-        `(major: ${report.summary.major}, minor: ${report.summary.minor}, patch: ${report.summary.patch})`,
+        `(major: ${report.summary.major} [confident: ${report.summary.majorProven}, review: ${report.summary.majorReview}], ` +
+        `minor: ${report.summary.minor}, patch: ${report.summary.patch})`,
     )}`,
   );
 

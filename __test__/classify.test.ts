@@ -1178,3 +1178,70 @@ describe('interface accessors', () => {
     expect(report.recommended).toBe('major');
   });
 });
+
+describe('graded confidence', () => {
+  it('decomposes an object-literal alias so an added required property is a PROVEN major', () => {
+    // The p-limit `LimitFunction.concurrency` case: `type X = { ... }` gains a
+    // required property. Without decomposition this is an opaque, review-only
+    // `type-alias-changed`; decomposed it is a structural required-property-added.
+    const report = compareFixture('object-alias-required-prop-added');
+    const added = report.changes.find((c) => c.kind === 'required-property-added' && c.symbolPath === 'LimitFunction.concurrency');
+    expect(added).toBeDefined();
+    expect(added?.severity).toBe('major');
+    expect(added?.confidence).toBe('proven');
+    expect(report.changes.some((c) => c.kind === 'type-alias-changed')).toBe(false);
+    expect(report.summary.majorProven).toBeGreaterThan(0);
+    expect(report.recommended).toBe('major');
+  });
+
+  it('decomposes an object-literal alias so an added optional property demotes to MINOR', () => {
+    // The additive-property case (ideal ky-style demote): an optional property is
+    // backward compatible, so the whole-alias major disappears entirely.
+    const report = compareFixture('object-alias-optional-prop-added');
+    const added = report.changes.find((c) => c.kind === 'optional-property-added' && c.symbolPath === 'Opts.retry');
+    expect(added).toBeDefined();
+    expect(added?.severity).toBe('minor');
+    expect(report.summary.major).toBe(0);
+    expect(report.recommended).toBe('minor');
+  });
+
+  it('tags a non-object union widening as a HEURISTIC (review-only) major', () => {
+    // The clsx `ClassValue` case: a union alias gains a member. Widening an input
+    // union is safe in practice but unprovable from the declaration alone, so it
+    // stays major but review-only — `--strict` does not gate on it.
+    const report = compareFixture('type-alias-union-widened-heuristic');
+    const change = report.changes.find((c) => c.kind === 'type-alias-changed' && c.symbolPath === 'ClassValue');
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('major');
+    expect(change?.confidence).toBe('heuristic');
+    expect(report.summary.majorProven).toBe(0);
+    expect(report.summary.majorReview).toBeGreaterThan(0);
+  });
+
+  it('tags a function return-only generic addition as HEURISTIC majors', () => {
+    // The nanoid case: a return-only `<Type extends string>` is inferred at call
+    // sites and stays compatible, so both the generic-param-required and the
+    // return-type change are review-only.
+    const report = compareFixture('fn-return-only-generic-heuristic');
+    const majors = report.changes.filter((c) => c.severity === 'major');
+    expect(majors.length).toBeGreaterThan(0);
+    expect(majors.every((c) => c.confidence === 'heuristic')).toBe(true);
+    expect(report.summary.majorProven).toBe(0);
+  });
+
+  it('keeps a genuinely unrelated non-object alias change PROVEN', () => {
+    // `type ID = string` -> `type ID = number`: variance resolves the two as
+    // unrelated, so the major is confident (proven), not review-only.
+    const report = compareFixture('type-alias-changed');
+    const change = report.changes.find((c) => c.kind === 'type-alias-changed' && c.symbolPath === 'ID');
+    expect(change).toBeDefined();
+    expect(change?.confidence).toBe('proven');
+    expect(report.summary.majorProven).toBeGreaterThan(0);
+  });
+
+  it('normalizes every change to a concrete confidence and splits the major summary', () => {
+    const report = compareFixture('object-alias-required-prop-added');
+    expect(report.changes.every((c) => c.confidence === 'proven' || c.confidence === 'heuristic')).toBe(true);
+    expect(report.summary.majorProven + report.summary.majorReview).toBe(report.summary.major);
+  });
+});

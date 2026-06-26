@@ -48,8 +48,22 @@ export function resolveNpmSpec(spec: string): NpmResolution {
     return { projectPath: pkgDir, tmpDir };
   } catch (err: any) {
     fs.rmSync(tmpDir, { recursive: true, force: true });
-    throw new Error(`Failed to resolve npm package '${spec}': ${err.message}`);
+    throw new Error(`Failed to resolve npm package '${spec}': ${explainNpmError(spec, err)}`);
   }
+}
+
+// Turn an opaque `npm pack` failure into one actionable line. The raw npm output
+// (E404 walls, network stack traces) is otherwise dumped verbatim, leaving the
+// user unable to tell a typo from a registry outage from a missing npm binary.
+export function explainNpmError(spec: string, err: any): string {
+  if (err?.code === 'ENOENT') return 'npm was not found on your PATH. Install Node.js/npm and try again.';
+  const out = `${err?.stderr?.toString?.() ?? ''}${err?.stdout?.toString?.() ?? ''}`;
+  if (/E404|404 Not Found/i.test(out))
+    return `'${spec}' was not found in the npm registry. Check the package name and that the version/tag is published.`;
+  if (/ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNREFUSED|network/i.test(out))
+    return 'could not reach the npm registry (network issue). Check your connection or proxy and retry.';
+  const tail = out.trim().split('\n').filter(Boolean).slice(-3).join(' ');
+  return tail || err?.message || 'unknown npm error';
 }
 
 // npm tarballs are standardized to a `package/` root, but some legacy and

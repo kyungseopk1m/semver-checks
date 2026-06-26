@@ -8,7 +8,7 @@ export function markdownReport(report: SemverReport): string {
   lines.push(`## semver-checks — recommended bump: \`${report.recommended.toUpperCase()}\``);
   lines.push('');
   lines.push(
-    `**major:** ${report.summary.major} · **minor:** ${report.summary.minor} · **patch:** ${report.summary.patch}`,
+    `**major:** ${report.summary.major} (confident: ${report.summary.majorProven}, review: ${report.summary.majorReview}) · **minor:** ${report.summary.minor} · **patch:** ${report.summary.patch}`,
   );
   lines.push('');
 
@@ -18,13 +18,23 @@ export function markdownReport(report: SemverReport): string {
     return lines.join('\n');
   }
 
-  const major = report.changes.filter((c) => c.severity === 'major');
+  // A proven major is a confident break; a heuristic major could not be proven
+  // safe and is surfaced for human review rather than gated by default.
+  const proven = report.changes.filter((c) => c.severity === 'major' && c.confidence !== 'heuristic');
+  const review = report.changes.filter((c) => c.severity === 'major' && c.confidence === 'heuristic');
   const minor = report.changes.filter((c) => c.severity === 'minor');
 
-  if (major.length > 0) {
-    lines.push('### 🚨 Breaking changes (MAJOR)');
+  if (proven.length > 0) {
+    lines.push('### 🚨 Breaking changes — confident (MAJOR)');
     lines.push('');
-    appendTable(lines, major);
+    appendTable(lines, proven);
+    lines.push('');
+  }
+
+  if (review.length > 0) {
+    lines.push("### ⚠️ Needs review — couldn't prove safe (MAJOR)");
+    lines.push('');
+    appendTable(lines, review);
     lines.push('');
   }
 

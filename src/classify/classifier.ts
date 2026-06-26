@@ -1,8 +1,75 @@
 import { Project, Node } from 'ts-morph';
 import type { ApiSnapshot, ApiSymbol, ApiFunctionSymbol, ApiInterfaceSymbol, ApiInterfaceProperty, ApiEnumSymbol, ApiClassSymbol, ApiTypeAliasSymbol, ApiVariableSymbol, ApiNamespaceSymbol, ApiTypeParameter, ApiFunctionSignature, ApiIndexSignature } from '../extract/api-snapshot.js';
-import type { ApiChange } from '../types.js';
-import { compareTypeText } from './variance.js';
+import type { ApiChange, Confidence } from '../types.js';
+import { compareTypeText, type TypeRelation } from './variance.js';
 import { computeLiteralSpans, isInsideLiteral } from './literal-spans.js';
+
+// Confidence for a MAJOR emitted from a type-text comparison. The position
+// records which variance direction is already known safe (and thus excluded
+// before this major was emitted):
+//   - 'param'     : contravariant — a widening was demoted to minor, so a major
+//                   here is a narrowing/unrelated change, a genuine break.
+//   - 'return'    : covariant — a narrowing was demoted to minor, so a major here
+//                   is a widening/unrelated change, a genuine break.
+//   - 'invariant' : type alias / variable / property — no direction is safe, so a
+//                   one-directional relation still *could* be safe in practice
+//                   (the verified FPs: clsx input-union widening). We can't prove
+//                   it, so it is review-only.
+// A bailed probe (null) is always review; a fully-resolved "unrelated" relation
+// (both directions fail) is always proven — the tool decided the types share no
+// assignability, which is structurally confident.
+function typeChangeConfidence(relation: TypeRelation | null, position: 'param' | 'return' | 'invariant'): Confidence {
+  if (relation === null) return 'heuristic';
+  if (!relation.oldToNew && !relation.newToOld) return 'proven';
+  return position === 'invariant' ? 'heuristic' : 'proven';
+}
+
+// Spread into a change literal: tags 'heuristic' explicitly, leaves 'proven'
+// implicit (omitted, normalized to 'proven' by `diff()`). Keeps proven sites a
+// zero-diff so confidence reads as the exception, not noise on every push.
+function maybeHeuristic(confidence: Confidence): { confidence: 'heuristic' } | Record<string, never> {
+  return confidence === 'heuristic' ? { confidence } : {};
+}
+
+interface InvariantCompare {
+  equivalent: boolean;
+  // Confidence of the *change* when not equivalent (meaningless when equivalent).
+  confidence: Confidence;
+}
+
+// Compare two type texts in an invariant position (interface/class property),
+// alpha-renaming the new text onto the container's generic scope first. Returns
+// whether they are equivalent and, if not, the confidence of the resulting break.
+function invariantTextCompare(
+  oldText: string,
+  newRaw: string,
+  containerRename: Map<string, string> | null,
+  ctx?: { typeParameters: ApiTypeParameter[] },
+): InvariantCompare {
+  const newText = renameTypeText(newRaw, containerRename);
+  if (oldText === newText) return { equivalent: true, confidence: 'proven' };
+  const relation = compareTypeText(oldText, newText, ctx);
+  const equivalent = relation !== null && relation.oldToNew && relation.newToOld;
+  return { equivalent, confidence: typeChangeConfidence(relation, 'invariant') };
+}
+
+// A property's read and write types are compared separately; the property is a
+// proven break only when a *non-equivalent* side resolved to a genuine break.
+function propTypeConfidence(read: InvariantCompare, write: InvariantCompare): Confidence {
+  const provenBreak =
+    (!read.equivalent && read.confidence === 'proven') ||
+    (!write.equivalent && write.confidence === 'proven');
+  return provenBreak ? 'proven' : 'heuristic';
+}
+
+// Spread into a signature/constructor wrapper change. The wrapper is proven when
+// at least one of its major sub-changes is itself proven; if every major sub is
+// review-only, so is the wrapper (and a non-major wrapper stays proven/omitted).
+function maybeWrapper(subChanges: ApiChange[]): { confidence: 'heuristic' } | Record<string, never> {
+  const majors = subChanges.filter((c) => c.severity === 'major');
+  if (majors.length === 0) return {};
+  return majors.some((c) => c.confidence !== 'heuristic') ? {} : { confidence: 'heuristic' };
+}
 
 // Build a rename map that lets us treat `<T>(x: T)` and `<S>(x: S)` as the same
 // signature. The map projects each new type-parameter identifier onto its
@@ -428,7 +495,19 @@ function defaultsAreEquivalent(
   return relation !== null && relation.oldToNew && relation.newToOld;
 }
 
-function classifyTypeParamChanges(symbolPath: string, oldTPs: ApiTypeParameter[], newTPs: ApiTypeParameter[]): ApiChange[] {
+// `genericContext` records where the type parameters live. In a *callable*
+// context (a function/method signature) adding a parameter without a default is
+// only a break when call sites pass explicit type arguments — and a return-only
+// parameter (the verified nanoid FP) is inferred at the constraint and stays
+// compatible — so `generic-param-required` is review-only. In a *type* context
+// (interface/class/type-alias) the argument is always written explicitly, so the
+// addition is a proven break.
+function classifyTypeParamChanges(
+  symbolPath: string,
+  oldTPs: ApiTypeParameter[],
+  newTPs: ApiTypeParameter[],
+  genericContext: 'callable' | 'type',
+): ApiChange[] {
   const changes: ApiChange[] = [];
 
   // Removed type parameters (breaking)
@@ -452,6 +531,7 @@ function classifyTypeParamChanges(symbolPath: string, oldTPs: ApiTypeParameter[]
         symbolPath,
         message: `Required generic parameter '${tp.name}' was added to '${symbolPath}'`,
         newValue: tp.name,
+        ...(genericContext === 'callable' ? { confidence: 'heuristic' as const } : {}),
       });
     } else {
       changes.push({
@@ -482,6 +562,9 @@ function classifyTypeParamChanges(symbolPath: string, oldTPs: ApiTypeParameter[]
         message: `Generic constraint on '${oldTPs[i].name}' changed in '${symbolPath}'`,
         oldValue: oldConstraint ?? '(none)',
         newValue: newConstraintRaw ?? '(none)',
+        // A bare constraint-text difference; whether it actually narrows the
+        // accepted arguments is not resolved here.
+        confidence: 'heuristic',
       });
     }
 
@@ -520,6 +603,10 @@ function classifyTypeParamChanges(symbolPath: string, oldTPs: ApiTypeParameter[]
           message: `Default of generic parameter '${oldTPs[i].name}' changed in '${symbolPath}'`,
           oldValue: oldDefault,
           newValue: newDefaultRaw ?? '(none)',
+          // The default only matters to consumers that omit the argument, and only
+          // when the new default is incompatible. We could not prove that, so the
+          // major is review-only.
+          confidence: 'heuristic',
         });
       }
     }
@@ -644,6 +731,7 @@ function compareFunctionSignature(
             message: `Parameter '${oldP.name}' type changed in '${symbolPath}'`,
             oldValue: oldP.type.text,
             newValue: newP.type.text,
+            ...maybeHeuristic(typeChangeConfidence(relation, 'param')),
           });
         }
       }
@@ -696,6 +784,7 @@ function compareFunctionSignature(
           message: `Return type of '${symbolPath}' changed`,
           oldValue: oldSig.returnType.text,
           newValue: newSig.returnType.text,
+          ...maybeHeuristic(typeChangeConfidence(relation, 'return')),
         });
       }
     }
@@ -737,7 +826,7 @@ function classifyFunctionChanges(name: string, oldFn: ApiFunctionSymbol, newFn: 
     const oldSig = oldFn.signatures[i];
     const newSig = newFn.signatures[i];
     changes.push(...compareFunctionSignature(name, oldSig, newSig));
-    changes.push(...classifyTypeParamChanges(name, oldSig.typeParameters, newSig.typeParameters));
+    changes.push(...classifyTypeParamChanges(name, oldSig.typeParameters, newSig.typeParameters, 'callable'));
   }
 
   return changes;
@@ -839,18 +928,14 @@ function classifyInterfaceChanges(name: string, oldIf: ApiInterfaceSymbol, newIf
     // Properties are invariant; an accessor pair can carry a distinct write
     // (setter) type, so compare both the read type and the effective write type.
     const ifaceCtx = { typeParameters: oldIf.typeParameters };
-    const ifaceTextEquivalent = (oldText: string, newRaw: string): boolean => {
-      const newText = renameTypeText(newRaw, containerRename);
-      if (oldText === newText) return true;
-      const relation = compareTypeText(oldText, newText, ifaceCtx);
-      return relation !== null && relation.oldToNew && relation.newToOld;
-    };
-    const ifaceReadEquivalent = ifaceTextEquivalent(oldProp.type.text, newProp.type.text);
-    const ifaceWriteEquivalent = ifaceTextEquivalent(
+    const read = invariantTextCompare(oldProp.type.text, newProp.type.text, containerRename, ifaceCtx);
+    const write = invariantTextCompare(
       oldProp.writeType?.text ?? oldProp.type.text,
       newProp.writeType?.text ?? newProp.type.text,
+      containerRename,
+      ifaceCtx,
     );
-    if (!ifaceReadEquivalent || !ifaceWriteEquivalent) {
+    if (!read.equivalent || !write.equivalent) {
       const describe = (p: ApiInterfaceProperty): string =>
         p.writeType ? `${p.type.text} (set: ${p.writeType.text})` : p.type.text;
       changes.push({
@@ -860,6 +945,7 @@ function classifyInterfaceChanges(name: string, oldIf: ApiInterfaceSymbol, newIf
         message: `Property '${propName}' type changed in interface '${name}'`,
         oldValue: describe(oldProp),
         newValue: describe(newProp),
+        ...maybeHeuristic(propTypeConfidence(read, write)),
       });
     }
     if (oldProp.isOptional && !newProp.isOptional) {
@@ -962,7 +1048,7 @@ function classifyInterfaceChanges(name: string, oldIf: ApiInterfaceSymbol, newIf
           containerRename,
         ),
       );
-      allSigChanges.push(...classifyTypeParamChanges(`${name}.${methodName}`, oldSig.typeParameters, newSig.typeParameters));
+      allSigChanges.push(...classifyTypeParamChanges(`${name}.${methodName}`, oldSig.typeParameters, newSig.typeParameters, 'callable'));
     }
     if (allSigChanges.length > 0) {
       changes.push({
@@ -972,6 +1058,7 @@ function classifyInterfaceChanges(name: string, oldIf: ApiInterfaceSymbol, newIf
         severity: allSigChanges.some((c) => c.severity === 'major') ? 'major' : 'minor',
         symbolPath: `${name}.${methodName}`,
         message: `Method '${methodName}' signature changed in interface '${name}'`,
+        ...maybeWrapper(allSigChanges),
       });
       changes.push(...allSigChanges);
     }
@@ -991,6 +1078,9 @@ function classifyInterfaceChanges(name: string, oldIf: ApiInterfaceSymbol, newIf
       message: `Call signatures of interface '${name}' changed`,
       oldValue: oldCalls.join(' | ') || '(none)',
       newValue: newCalls.join(' | ') || '(none)',
+      // Conservative text-multiset comparison (no variance); a difference could be
+      // a safe widening as easily as a break, so it is review-only.
+      confidence: 'heuristic',
     });
   }
 
@@ -1004,6 +1094,7 @@ function classifyInterfaceChanges(name: string, oldIf: ApiInterfaceSymbol, newIf
       message: `Construct signatures of interface '${name}' changed`,
       oldValue: oldCtors.join(' | ') || '(none)',
       newValue: newCtors.join(' | ') || '(none)',
+      confidence: 'heuristic',
     });
   }
 
@@ -1017,11 +1108,12 @@ function classifyInterfaceChanges(name: string, oldIf: ApiInterfaceSymbol, newIf
       message: `Index signatures of interface '${name}' changed`,
       oldValue: oldIndex.join(' | ') || '(none)',
       newValue: newIndex.join(' | ') || '(none)',
+      confidence: 'heuristic',
     });
   }
 
   // Generic param changes
-  changes.push(...classifyTypeParamChanges(name, oldIf.typeParameters, newIf.typeParameters));
+  changes.push(...classifyTypeParamChanges(name, oldIf.typeParameters, newIf.typeParameters, 'type'));
 
   return changes;
 }
@@ -1108,7 +1200,7 @@ function classifySingleClassMethodChange(
     allSigChanges.push(
       ...compareFunctionSignature(symbolPath, oldSig, newSig, classTPs, containerRename ?? null),
     );
-    allSigChanges.push(...classifyTypeParamChanges(symbolPath, oldSig.typeParameters, newSig.typeParameters));
+    allSigChanges.push(...classifyTypeParamChanges(symbolPath, oldSig.typeParameters, newSig.typeParameters, 'callable'));
   }
   if (allSigChanges.length > 0) {
     changes.push({
@@ -1118,6 +1210,7 @@ function classifySingleClassMethodChange(
       severity: allSigChanges.some((c) => c.severity === 'major') ? 'major' : 'minor',
       symbolPath,
       message: `Method '${oldMethod.name}' signature changed in class '${className}'`,
+      ...maybeWrapper(allSigChanges),
     });
     changes.push(...allSigChanges);
   }
@@ -1141,18 +1234,14 @@ function classifySingleClassPropertyChange(
   // type and the effective write type (which falls back to the read type for
   // plain fields and matched accessors).
   const ctx = classTPs ? { typeParameters: classTPs.old } : undefined;
-  const textEquivalent = (oldText: string, newRaw: string): boolean => {
-    const newText = renameTypeText(newRaw, containerRename ?? null);
-    if (oldText === newText) return true;
-    const relation = compareTypeText(oldText, newText, ctx);
-    return relation !== null && relation.oldToNew && relation.newToOld;
-  };
-  const readEquivalent = textEquivalent(oldProp.type.text, newProp.type.text);
-  const writeEquivalent = textEquivalent(
+  const read = invariantTextCompare(oldProp.type.text, newProp.type.text, containerRename ?? null, ctx);
+  const write = invariantTextCompare(
     oldProp.writeType?.text ?? oldProp.type.text,
     newProp.writeType?.text ?? newProp.type.text,
+    containerRename ?? null,
+    ctx,
   );
-  if (!readEquivalent || !writeEquivalent) {
+  if (!read.equivalent || !write.equivalent) {
     const describe = (p: ApiClassProperty): string =>
       p.writeType ? `${p.type.text} (set: ${p.writeType.text})` : p.type.text;
     changes.push({
@@ -1162,6 +1251,7 @@ function classifySingleClassPropertyChange(
       message: `Property '${oldProp.name}' type changed in class '${className}'`,
       oldValue: describe(oldProp),
       newValue: describe(newProp),
+      ...maybeHeuristic(propTypeConfidence(read, write)),
     });
   }
   // isStatic checks only fire in the 1:1 name-only shortcut path (classifyClassPropertyGroupChanges).
@@ -1445,6 +1535,7 @@ function classifyClassChanges(name: string, oldCls: ApiClassSymbol, newCls: ApiC
         message: `Constructor of class '${name}' changed`,
         oldValue: oldCtorParams,
         newValue: newCtorParams,
+        ...maybeWrapper(ctorSubChanges),
       });
       changes.push(...ctorSubChanges);
     }
@@ -1483,12 +1574,42 @@ function classifyClassChanges(name: string, oldCls: ApiClassSymbol, newCls: ApiC
   }
 
   // Generic param changes
-  changes.push(...classifyTypeParamChanges(name, oldCls.typeParameters, newCls.typeParameters));
+  changes.push(...classifyTypeParamChanges(name, oldCls.typeParameters, newCls.typeParameters, 'type'));
 
   return changes;
 }
 
+// Synthesize an interface view of a bare object-literal type alias so its
+// members can be diffed by the interface logic. Object literals have no `extends`
+// clause, so heritage is empty.
+function aliasToInterface(ta: ApiTypeAliasSymbol): ApiInterfaceSymbol {
+  const m = ta.objectMembers!;
+  return {
+    kind: 'interface',
+    name: ta.name,
+    properties: m.properties,
+    methods: m.methods,
+    typeParameters: ta.typeParameters,
+    callSignatures: m.callSignatures,
+    constructSignatures: m.constructSignatures,
+    indexSignatures: m.indexSignatures,
+    heritage: [],
+  };
+}
+
 function classifyTypeAliasChanges(name: string, oldTA: ApiTypeAliasSymbol, newTA: ApiTypeAliasSymbol): ApiChange[] {
+  // When both versions are bare object-literal aliases (`type X = { ... }`), diff
+  // them member-by-member like an interface. An added required property then
+  // surfaces as a proven `required-property-added` instead of an opaque,
+  // review-only `type-alias-changed` (the p-limit `LimitFunction.concurrency`
+  // case). classifyInterfaceChanges also classifies the alias's own type
+  // parameters, so the generic scope is covered. A non-object alias on either
+  // side (union / conditional / mapped / function type) falls through to the
+  // conservative whole-text comparison below.
+  if (oldTA.objectMembers && newTA.objectMembers) {
+    return classifyInterfaceChanges(name, aliasToInterface(oldTA), aliasToInterface(newTA));
+  }
+
   const changes: ApiChange[] = [];
   const tpRename = buildTypeParamRenameMap(oldTA.typeParameters, newTA.typeParameters);
 
@@ -1514,11 +1635,15 @@ function classifyTypeAliasChanges(name: string, oldTA: ApiTypeAliasSymbol, newTA
         message: `Type alias '${name}' changed`,
         oldValue: oldTA.type.text,
         newValue: newTA.type.text,
+        // A non-object alias text difference: proven only when variance resolved
+        // the two as genuinely unrelated; a bail or a one-directional (in this
+        // invariant position) relation is review-only.
+        ...maybeHeuristic(typeChangeConfidence(relation, 'invariant')),
       });
     }
   }
 
-  changes.push(...classifyTypeParamChanges(name, oldTA.typeParameters, newTA.typeParameters));
+  changes.push(...classifyTypeParamChanges(name, oldTA.typeParameters, newTA.typeParameters, 'type'));
 
   return changes;
 }
@@ -1546,5 +1671,9 @@ function classifyVariableChanges(name: string, oldVar: ApiVariableSymbol, newVar
     message: `Variable '${name}' type changed`,
     oldValue: oldVar.type.text,
     newValue: newVar.type.text,
+    // Variable types are invariant: a one-directional or unresolved relation can
+    // still be safe in practice, so it is review-only; only a genuinely unrelated
+    // change is proven.
+    ...maybeHeuristic(typeChangeConfidence(relation, 'invariant')),
   }];
 }

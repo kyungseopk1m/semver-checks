@@ -1,5 +1,17 @@
 export type SemverBump = 'major' | 'minor' | 'patch';
 
+// How firmly a change's severity is established.
+//   - 'proven'    : the severity follows from a structural fact (a member was
+//                   added/removed, an optionality/readonly/static transition, an
+//                   enum/overload change) or from a *resolved* type relation
+//                   (assignability concluded the types are genuinely unrelated).
+//                   Safe to gate CI on — this is what `--strict` fails the build on.
+//   - 'heuristic' : the severity is a conservative fallback the analyzer could
+//                   not prove — a text comparison that did not resolve, or a
+//                   one-directional assignability in an invariant position where a
+//                   safe direction exists. Surfaced for review, not the default gate.
+export type Confidence = 'proven' | 'heuristic';
+
 export type ChangeKind =
   // MAJOR
   | 'export-removed'
@@ -66,6 +78,9 @@ export interface ApiChange {
   message: string;
   oldValue?: string;
   newValue?: string;
+  // Defaults to 'proven' when omitted; the classifier only sets 'heuristic'
+  // explicitly, and `diff()` normalizes the rest to 'proven'.
+  confidence?: Confidence;
 }
 
 export interface SemverReport {
@@ -75,6 +90,10 @@ export interface SemverReport {
     major: number;
     minor: number;
     patch: number;
+    // Breakdown of the `major` count by confidence. `majorProven + majorReview
+    // === major`. `--strict` gates on `majorProven`; `--strict-review` on `major`.
+    majorProven: number;
+    majorReview: number;
   };
 }
 

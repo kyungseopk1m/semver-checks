@@ -22,11 +22,15 @@ inputs:
     required: false
     default: 'github'
   strict:
-    description: 'Fail the step (exit 1) when a breaking/major change is detected.'
+    description: 'Fail the step (exit 1) on a confident (proven) breaking change. Safe to gate CI on.'
+    required: false
+    default: 'false'
+  strict-review:
+    description: 'Fail the step (exit 1) on any breaking change, including review-only (heuristic) ones.'
     required: false
     default: 'false'
   version:
-    description: 'semver-checks version to run via npx. Defaults to the version matching the action ref you pinned (e.g. @v0.6.1 runs semver-checks@0.6.1).'
+    description: 'semver-checks version to run via npx. Defaults to the version matching the action ref you pinned (e.g. @v0.7.0 runs semver-checks@0.7.0).'
     required: false
     default: ''
 
@@ -40,11 +44,12 @@ runs:
         SEMVER_CHECKS_ENTRY: ${{ inputs.entry }}
         SEMVER_CHECKS_FORMAT: ${{ inputs.format }}
         SEMVER_CHECKS_STRICT: ${{ inputs.strict }}
+        SEMVER_CHECKS_STRICT_REVIEW: ${{ inputs.strict-review }}
         SEMVER_CHECKS_VERSION: ${{ inputs.version }}
       run: |
         set -euo pipefail
         # Default to the CLI version that matches the pinned action ref, so that
-        # `uses: kyungseopk1m/semver-checks@v0.6.1` always runs semver-checks@0.6.1
+        # `uses: kyungseopk1m/semver-checks@v0.7.0` always runs semver-checks@0.7.0
         # rather than whatever the npm `latest` dist-tag happens to be.
         version="$SEMVER_CHECKS_VERSION"
         if [ -z "$version" ]; then
@@ -55,4 +60,5 @@ runs:
         if [ -n "$SEMVER_CHECKS_ENTRY" ]; then args+=(--entry "$SEMVER_CHECKS_ENTRY"); fi
         args+=(--format "$SEMVER_CHECKS_FORMAT")
         if [ "$SEMVER_CHECKS_STRICT" = "true" ]; then args+=(--strict); fi
+        if [ "$SEMVER_CHECKS_STRICT_REVIEW" = "true" ]; then args+=(--strict-review); fi
         npx --yes "semver-checks@$version" "${args[@]}"

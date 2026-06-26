@@ -2,6 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.0] - 2026-06-27
+
+This release makes the gate trustworthy enough to leave on in CI. Every breaking change now carries a **confidence** — `proven` (a structural fact or a resolved type relation) or `heuristic` (a conservative MAJOR the analyzer could not prove safe) — and `--strict` gates on `proven` only. The equivalence-preserving rewrites and input-union widenings that made text-based type-semver tools cry wolf now land in `heuristic`, off the default gate, while real under-bumps stay `proven` and on it. It also lands the entry-resolution and diagnostics work accumulated since 0.6.1, plus a reproducible accuracy probe. The full regression battery stays green; no breaking-change detection was weakened.
+
+### Added
+
+- **Graded confidence on every change**: `ApiChange.confidence` is `'proven'` or `'heuristic'`. A break is `proven` when it follows from a structural fact (member added/removed, optionality/readonly/static transition, enum/overload change, removed export) or from a type comparison the analyzer resolved as genuinely unrelated; it is `heuristic` when the severity is a conservative fallback — an unresolved type-text comparison, a one-directional relation in an invariant position (e.g. input-union widening), a constraint/default text difference, a call/construct/index-signature change, or a return-only generic added to a function. `SemverReport.summary` gains `majorProven` and `majorReview` (`majorProven + majorReview === major`).
+- **`--strict-review` flag**: exits 1 on *any* breaking change, including review-only (`heuristic`) ones — the previous `--strict` behaviour, now opt-in.
+- **Object-literal type-alias decomposition**: a bare `type X = { ... }` alias is now diffed member-by-member like an interface, so an added required property is a `proven` `required-property-added` (e.g. `p-limit` `LimitFunction.concurrency`, `ky` `KyInstance.retry`) instead of an opaque, review-only `type-alias-changed`. Non-object aliases (union / conditional / mapped / intersection / function type) keep their whole-text comparison.
+- **Confidence in every reporter**: `text` and `markdown` split MAJOR into a confident section and a "needs review — couldn't prove safe" section; `github` emits `::error::` for `proven` and `::warning::` for `heuristic`; `json` and the MCP tools include `confidence` on each change and the `majorProven`/`majorReview` summary fields.
+- **Reproducible accuracy probe** (`scripts/accuracy-probe.mjs`): runs the built CLI against 44 frozen real-world npm release pairs and prints the shape × outcome matrix plus the proven/review split behind the README's "Accuracy & Limitations" numbers. Zero dependencies; not shipped in the published package.
+- **Actionable resolution errors**: an opaque `npm pack` / `git archive` / entry-detection failure is now reformatted into one line — a missing `npm`/`git` binary, an unpublished spec (`E404`), a registry network issue, a ref that doesn't exist, or a "looked here, pass `--entry`" hint — instead of dumping raw tool output. When the analyzed project has TypeScript errors, the snapshot warning now spells out that the result may under-report breaking changes.
+
+### Changed
+
+- **`--strict` now gates on confident breaks only** (BREAKING): it exits 1 when a `proven` MAJOR is present, not on every MAJOR. A release whose only breaking changes are `heuristic` (the surfaces in the README's Known limitations) now passes `--strict`; use `--strict-review` for the prior "any MAJOR fails" behaviour.
+- **`SemverReport.summary` gains required `majorProven` / `majorReview` fields** (BREAKING for code that constructs a `SemverReport`; additive for code that reads one).
+
+### Fixed
+
+- **Flat-conditions and bare-string `exports` entry resolution**: a package whose `exports` has no `.` subpath key — a flat conditions object (`{ "types": "./index.d.ts", "default": "./index.js" }`) or a bare string (`"exports": "./index.js"`) — now resolves its entry. Previously the resolver read `exports['.']`, found `undefined`, and never looked at the `types` condition, so trivial packages like `p-limit`, `execa`, and `escape-string-regexp` failed with "Could not find an entry file."
+- **Conventional root declaration fallback**: packages with no `exports`/`types` fields (older single-file libs such as `chalk` 4.x's `{ "main": "source" }`) now fall back to a root `index.d.ts` / `.d.mts` / `.d.cts`.
+- **`exports` fallback arrays** (`[{ types, default }, "./index.js"]`) are walked when resolving the entry.
+- **Subpath-only `exports` no longer fabricate a root surface**: a package whose `exports` is a subpath map with no `.` root is not analyzed from a stray root `index.d.ts` (an internal file, not a public entry), preventing false analysis of a non-exported surface.
+
 ## [0.6.1] - 2026-06-15
 
 This release is a real-world usability pass: it lets the tool analyze popular packages it previously could not even load, and stops it from crying wolf on routine, non-breaking refactors. None of these relaxations weaken breaking-change detection — each keeps its breaking-case counterpart, and the full regression battery (including the cycle 7–13 false-negative guards) stays green.

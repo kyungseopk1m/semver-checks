@@ -34,12 +34,12 @@ jobs:
       # Replace `your-package` with your published package name. Using the action
       # from this repo:
       - name: Check for breaking changes
-        uses: kyungseopk1m/semver-checks@v0.6.1
+        uses: kyungseopk1m/semver-checks@v0.7.0
         with:
           old: 'your-package@latest'
           new: '.'
           format: 'github'
-          strict: 'true' # fail the PR when a breaking change is detected
+          strict: 'true' # fail the PR on a confident (proven) breaking change
 
       # ── Option B: post a Markdown summary as a PR comment ────────────────────
       # Generate the report yourself and hand the markdown to a comment action.

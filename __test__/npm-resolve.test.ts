@@ -211,6 +211,84 @@ describe('conditional exports entry resolution', () => {
     const snapshot = await extract({ projectPath: dir });
     expect(Object.keys(snapshot.entrypoints['.'])).toContain('only');
   }, 15_000);
+
+  // A flat conditions object — `exports` is itself the '.' value, with no subpath
+  // keys (p-limit/execa shape). The `types` condition lives in that object; reading
+  // only `exports['.']` (undefined here) missed it, so these packages threw
+  // "Could not find an entry file" despite shipping a perfectly resolvable .d.ts.
+  it('resolves a flat conditions exports object with no "." key (p-limit layout)', async () => {
+    const dir = makeLayout({
+      'package.json': JSON.stringify({
+        name: 'p-limit-like',
+        version: '1.0.0',
+        type: 'module',
+        exports: { types: './index.d.ts', default: './index.js' },
+      }),
+      'index.d.ts': 'export declare function pLimit(concurrency: number): unknown;\n',
+      'tsconfig.json': SYNTH_TSCONFIG,
+    });
+    const snapshot = await extract({ projectPath: dir });
+    expect(Object.keys(snapshot.entrypoints['.'])).toContain('pLimit');
+  }, 15_000);
+
+  // No `exports`/`types` fields at all (chalk 4.x's `{ "main": "source" }`), but a
+  // conventional root index.d.ts is shipped. Previously only src/index.ts and
+  // index.ts were probed, so the published declaration was never found.
+  it('falls back to a conventional root index.d.ts when no exports/types are declared (chalk-4 layout)', async () => {
+    const dir = makeLayout({
+      'package.json': JSON.stringify({ name: 'chalk-like', version: '1.0.0', main: 'source' }),
+      'index.d.ts': 'export declare const supportsColor: boolean;\n',
+      'tsconfig.json': SYNTH_TSCONFIG,
+    });
+    const snapshot = await extract({ projectPath: dir });
+    expect(Object.keys(snapshot.entrypoints['.'])).toContain('supportsColor');
+  }, 15_000);
+
+  // Bare-string `exports` pointing at a .js, no top-level types, but a sibling root
+  // index.d.ts (escape-string-regexp shape). The string is not a .d.ts candidate,
+  // so resolution leans on the conventional root index.d.ts fallback.
+  it('resolves a bare-string exports with a sibling root index.d.ts (escape-string-regexp layout)', async () => {
+    const dir = makeLayout({
+      'package.json': JSON.stringify({ name: 'esr-like', version: '1.0.0', type: 'module', exports: './index.js' }),
+      'index.d.ts': 'export declare function escape(input: string): string;\n',
+      'tsconfig.json': SYNTH_TSCONFIG,
+    });
+    const snapshot = await extract({ projectPath: dir });
+    expect(Object.keys(snapshot.entrypoints['.'])).toContain('escape');
+  }, 15_000);
+
+  // A subpath-only exports map (no `.` root) declares no public root surface. A
+  // stray root index.d.ts must NOT be analyzed as the '.' entry — doing so would
+  // report an API consumers cannot import. The conventional-root fallback is gated
+  // on this, so resolution fails loudly instead of fabricating a root.
+  it('does not analyze a root index.d.ts when exports is subpath-only with no "." root', async () => {
+    const dir = makeLayout({
+      'package.json': JSON.stringify({
+        name: 'subpath-only',
+        version: '1.0.0',
+        exports: { './feature': './feature.js' },
+      }),
+      'index.d.ts': 'export declare const notActuallyExported: number;\n',
+      'tsconfig.json': SYNTH_TSCONFIG,
+    });
+    await expect(extract({ projectPath: dir })).rejects.toThrow(/Could not find an entry file/);
+  }, 15_000);
+
+  // `exports` may be a fallback array (`[conditions, "./x.js"]`). The walker visits
+  // each alternative, so a `.d.ts` reachable through any element resolves.
+  it('resolves a fallback array exports value', async () => {
+    const dir = makeLayout({
+      'package.json': JSON.stringify({
+        name: 'array-exports',
+        version: '1.0.0',
+        exports: [{ types: './types/main.d.ts', default: './index.js' }, './index.js'],
+      }),
+      'types/main.d.ts': 'export declare function fromArray(): boolean;\n',
+      'tsconfig.json': SYNTH_TSCONFIG,
+    });
+    const snapshot = await extract({ projectPath: dir });
+    expect(Object.keys(snapshot.entrypoints['.'])).toContain('fromArray');
+  }, 15_000);
 });
 
 // The live test hits the npm registry, so it is opt-in to keep offline CI green.

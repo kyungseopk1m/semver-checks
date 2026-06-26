@@ -18,6 +18,7 @@ import type {
   ApiEnumMember,
   ApiClassSymbol,
   ApiVariableSymbol,
+  ApiObjectMembers,
   SerializedType,
 } from './api-snapshot.js';
 
@@ -39,7 +40,11 @@ export function extractFromPath(projectPath: string, entry?: string | string[]):
       const msg = typeof msgText === 'string' ? msgText : msgText.getMessageText();
       return `  ${file}:${line} - ${msg}`;
     }).join('\n');
-    process.stderr.write(`[semver-checks] ${diagnostics.length} TypeScript error(s) found:\n${msgs}\n`);
+    process.stderr.write(
+      `[semver-checks] ${diagnostics.length} TypeScript error(s) in the analyzed project:\n${msgs}\n` +
+      `  The API snapshot may be incomplete, so the recommended bump can under-report breaking changes.\n` +
+      `  Fix the type errors (or point --entry at a clean entry) for a reliable result.\n`,
+    );
   }
 
   const entryFiles = resolveEntries(project, projectPath, entry);
@@ -112,7 +117,13 @@ function typesCandidatesFromExportsValue(value: unknown): string[] {
       if (isDtsPath(v)) out.push(v);
       return;
     }
-    if (v && typeof v === 'object' && !Array.isArray(v)) {
+    // An `exports` value can be a fallback array (e.g. `[{ types, default }, "./x.js"]`).
+    // Walk each alternative; the .d.ts-first ordering below picks the best candidate.
+    if (Array.isArray(v)) {
+      for (const item of v) visit(item);
+      return;
+    }
+    if (v && typeof v === 'object') {
       const obj = v as Record<string, unknown>;
       if (typeof obj['types'] === 'string' && isDtsPath(obj['types'] as string)) out.push(obj['types'] as string);
       for (const cond of PRIORITY_CONDS) if (obj[cond] !== undefined) visit(obj[cond]);
@@ -151,6 +162,10 @@ function resolveEntries(
 
   // Auto-detect from package.json
   let rootCandidates: string[] = [];
+  // True when `exports` is a subpath map that deliberately omits a `.` root entry.
+  // Such a package has no public root surface, so the conventional-root fallback
+  // below must NOT fabricate one from a stray root index.d.ts.
+  let exportsSubpathsWithoutRoot = false;
   try {
     const pkg = JSON.parse(fs.readFileSync(path.join(projectPath, 'package.json'), 'utf-8'));
     const exportsField = pkg.exports;
@@ -191,7 +206,19 @@ function resolveEntries(
     // fields — and try them all. Crucially the top-level fields are appended as
     // fallbacks rather than short-circuited: a package whose `.` export points its
     // `import.types` at a `.d.mts` still resolves via its `.d.ts` `types` field.
-    const main = pkg.exports?.['.'];
+    //
+    // The root export value is `exports['.']` for a subpath map, but a bare string
+    // (`"exports": "./index.js"`) or a flat conditions object
+    // (`"exports": { "types": "./index.d.ts", "default": "./index.js" }`) IS itself
+    // the '.' value — the common modern-ESM shape (p-limit, execa, ...). Reading
+    // only `exports['.']` there is `undefined`, so the `types` condition sitting in
+    // that object was never looked at.
+    const hasSubpathKeys =
+      exportsField !== null && typeof exportsField === 'object' && !Array.isArray(exportsField) &&
+      Object.keys(exportsField).some((k) => k.startsWith('.'));
+    exportsSubpathsWithoutRoot =
+      hasSubpathKeys && !Object.prototype.hasOwnProperty.call(exportsField, '.');
+    const main = hasSubpathKeys ? (exportsField as Record<string, unknown>)['.'] : exportsField;
     const gathered = [
       ...(main !== undefined ? typesCandidatesFromExportsValue(main) : []),
       ...(typeof pkg.types === 'string' && isDtsPath(pkg.types) ? [pkg.types] : []),
@@ -220,7 +247,31 @@ function resolveEntries(
   const fromDecl = resolveRawDecl(project, projectPath, rootCandidates);
   if (fromDecl) return { '.': fromDecl };
 
-  throw new Error(`Could not find entry file. Use --entry to specify.`);
+  // Conventional root declaration. Packages with no `exports`/`types` fields (older
+  // single-file libs like chalk 4.x's `{ "main": "source" }`, or a bare-string
+  // `"exports": "./index.js"`) still ship an `index.d.ts` at the root. The
+  // synthesized tsconfig already loaded it, so a direct lookup resolves it.
+  // Skipped when `exports` is a subpath map without a `.` root: that package has no
+  // public root entry, so a root index.d.ts is an internal file, not the surface.
+  const fromConventionalDecl = exportsSubpathsWithoutRoot
+    ? undefined
+    : project.getSourceFile(path.join(projectPath, 'index.d.ts')) ??
+      project.getSourceFile(path.join(projectPath, 'index.d.mts')) ??
+      project.getSourceFile(path.join(projectPath, 'index.d.cts'));
+  if (fromConventionalDecl) return { '.': fromConventionalDecl };
+
+  const looked = [
+    'package.json "exports"/"types"',
+    'src/index.ts',
+    'index.ts',
+    'index.d.ts',
+    ...(rootCandidates.length ? [`declared types (${rootCandidates.join(', ')})`] : []),
+  ];
+  throw new Error(
+    `Could not find an entry file under ${projectPath}.\n` +
+      `  Looked for: ${looked.join(', ')}.\n` +
+      `  Pass one explicitly, e.g. --entry src/index.ts`,
+  );
 }
 
 // Collect exported declarations from a source file OR a namespace/module body.
@@ -630,11 +681,15 @@ function convertFunctionSignatures(node: Node): ApiFunctionSignature[] {
   }];
 }
 
-function convertInterface(name: string, node: Node): ApiInterfaceSymbol {
-  if (!Node.isInterfaceDeclaration(node)) return { kind: 'interface', name, properties: [], methods: [], typeParameters: [] };
-
+// Extract the object-type member set shared by interfaces and object-literal
+// type aliases. `node` is any TypeElementMemberedNode (InterfaceDeclaration or
+// TypeLiteralNode); both expose the same getProperties()/getMethods()/
+// getCall|Construct|IndexSignatures() accessors. Get/set accessors only exist on
+// interfaces (type literals cannot declare them), so those calls are guarded.
+function extractObjectMembers(node: Node): ApiObjectMembers {
+  const memberNode = node as any;
   // EDGE-4: use node as context for getText()
-  const properties: ApiInterfaceProperty[] = node.getProperties().map((p) => ({
+  const properties: ApiInterfaceProperty[] = memberNode.getProperties().map((p: any) => ({
     name: p.getName(),
     type: serializeType(p.getType(), node, p.getTypeNode()),
     isOptional: p.hasQuestionToken(),
@@ -644,9 +699,10 @@ function convertInterface(name: string, node: Node): ApiInterfaceSymbol {
   // Interfaces may declare get/set accessors too (since TS 4.3). Model them as
   // properties, mirroring the class extraction: get-only is readonly, get+set is
   // mutable, and a distinct write (setter) type is preserved so a set-only
-  // narrowing surfaces even when the getter is unchanged.
+  // narrowing surfaces even when the getter is unchanged. Object-literal type
+  // aliases cannot have accessors, so these accessors are simply empty there.
   const ifaceAccessors = new Map<string, ApiInterfaceProperty>();
-  for (const g of node.getGetAccessors()) {
+  for (const g of memberNode.getGetAccessors?.() ?? []) {
     ifaceAccessors.set(g.getName(), {
       name: g.getName(),
       type: serializeType(g.getReturnType(), node, g.getReturnTypeNode()),
@@ -654,7 +710,7 @@ function convertInterface(name: string, node: Node): ApiInterfaceSymbol {
       isReadonly: true,
     });
   }
-  for (const s of node.getSetAccessors()) {
+  for (const s of memberNode.getSetAccessors?.() ?? []) {
     const param = s.getParameters()[0];
     const setterType: SerializedType = param
       ? serializeType(param.getType(), node, param.getTypeNode())
@@ -676,7 +732,7 @@ function convertInterface(name: string, node: Node): ApiInterfaceSymbol {
 
   // Group methods by name to merge overload signatures (getMethods() returns one node per overload)
   const methodMap = new Map<string, ApiInterfaceMethod>();
-  for (const m of node.getMethods()) {
+  for (const m of memberNode.getMethods()) {
     const methodName = m.getName();
     const existing = methodMap.get(methodName);
     if (existing) {
@@ -695,16 +751,25 @@ function convertInterface(name: string, node: Node): ApiInterfaceSymbol {
   }
   const methods: ApiInterfaceMethod[] = [...methodMap.values()];
 
-  // Call / construct / index signatures are part of the interface's public
-  // shape; getProperties()/getMethods() do not surface them, so removing or
-  // changing one would otherwise be invisible (a silent patch).
-  const callSignatures = node.getCallSignatures().map((s) => convertSignatureFromNode(s));
-  const constructSignatures = node.getConstructSignatures().map((s) => convertSignatureFromNode(s));
-  const indexSignatures: ApiIndexSignature[] = node.getIndexSignatures().map((ix) => ({
+  // Call / construct / index signatures are part of the object's public shape;
+  // getProperties()/getMethods() do not surface them, so removing or changing one
+  // would otherwise be invisible (a silent patch).
+  const callSignatures = memberNode.getCallSignatures().map((s: Node) => convertSignatureFromNode(s));
+  const constructSignatures = memberNode.getConstructSignatures().map((s: Node) => convertSignatureFromNode(s));
+  const indexSignatures: ApiIndexSignature[] = memberNode.getIndexSignatures().map((ix: any) => ({
     keyType: ix.getKeyTypeNode()?.getText() ?? normalizeTypeText(ix.getKeyType().getText()),
     valueType: serializeType(ix.getReturnType(), node, ix.getReturnTypeNode()),
     isReadonly: ix.isReadonly(),
   }));
+
+  return { properties, methods, callSignatures, constructSignatures, indexSignatures };
+}
+
+function convertInterface(name: string, node: Node): ApiInterfaceSymbol {
+  if (!Node.isInterfaceDeclaration(node)) return { kind: 'interface', name, properties: [], methods: [], typeParameters: [] };
+
+  const { properties, methods, callSignatures, constructSignatures, indexSignatures } =
+    extractObjectMembers(node);
 
   // Heritage (`extends Base, Other`): inherited members are NOT flattened into
   // `properties`/`methods`, so record the clause text. A type-alias <-> interface
@@ -728,13 +793,26 @@ function convertInterface(name: string, node: Node): ApiInterfaceSymbol {
 function convertTypeAlias(name: string, node: Node): ApiTypeAliasSymbol {
   if (!Node.isTypeAliasDeclaration(node)) return { kind: 'type-alias', name, type: { text: 'unknown' }, typeParameters: [] };
 
-  return {
+  const result: ApiTypeAliasSymbol = {
     kind: 'type-alias',
     name,
     // EDGE-4: use node as context for getText()
     type: serializeType(node.getType(), node, node.getTypeNode()),
     typeParameters: convertTypeParams(node),
   };
+
+  // A bare object-literal alias (`type X = { ... }`) is structurally an
+  // interface. Capture its members so the classifier can diff it member-by-member
+  // — an added required property then surfaces as a proven `required-property-added`
+  // instead of an opaque whole-text `type-alias-changed`. Only a direct
+  // TypeLiteral qualifies: unions, intersections, conditionals, mapped types, and
+  // function-type aliases are NOT decomposed and keep their text comparison.
+  const typeNode = node.getTypeNode();
+  if (typeNode && Node.isTypeLiteral(typeNode)) {
+    result.objectMembers = extractObjectMembers(typeNode);
+  }
+
+  return result;
 }
 
 function convertEnum(name: string, node: Node): ApiEnumSymbol {

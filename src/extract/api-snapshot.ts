@@ -75,11 +75,29 @@ export interface ApiInterfaceSymbol {
   heritage?: string[];
 }
 
+// The member set of an object-literal type (`{ a: string; f(): void }`), shared
+// by interfaces and by object-literal type aliases. Capturing it lets a
+// `type X = { ... }` alias be diffed member-by-member like an interface instead
+// of comparing the whole serialized text, so an added required property is a
+// proven `required-property-added` rather than an opaque `type-alias-changed`.
+export interface ApiObjectMembers {
+  properties: ApiInterfaceProperty[];
+  methods: ApiInterfaceMethod[];
+  callSignatures: ApiFunctionSignature[];
+  constructSignatures: ApiFunctionSignature[];
+  indexSignatures: ApiIndexSignature[];
+}
+
 export interface ApiTypeAliasSymbol {
   kind: 'type-alias';
   name: string;
   type: SerializedType;
   typeParameters: ApiTypeParameter[];
+  // Present only when the alias is a bare object-literal type (`type X = { ... }`).
+  // Absent for non-object aliases (union / conditional / mapped / intersection /
+  // function type) and for snapshots produced before 0.7.0. When both the old and
+  // new alias carry it, the classifier decomposes the alias into its members.
+  objectMembers?: ApiObjectMembers;
 }
 
 export interface ApiEnumMember {
