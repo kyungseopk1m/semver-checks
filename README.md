@@ -29,15 +29,22 @@ Tools like `semantic-release` and `changesets` rely on developers writing correc
 
 semver-checks **analyzes your TypeScript public API directly** using [ts-morph](https://github.com/dsherret/ts-morph) and recommends the correct SemVer bump based on what actually changed in the type signatures — not what the commit message says.
 
-This is not hypothetical. Run it across real releases and it flags breaking type changes that shipped as minors or patches — for example, `p-limit` 6.1.0 added a required property to its exported `LimitFunction` type and was published as a *minor*; semver-checks flags it MAJOR. It is most dependable on **structural changes** — removed or renamed exports, narrowed signatures, added required parameters and properties — which it detects reliably. Equivalence-preserving type rewrites are a known weak spot it can over-report; see [Accuracy & Limitations](#accuracy--limitations) for exactly where to trust it and where not to.
+This is not hypothetical. Run it across real releases and it flags breaking type changes that shipped as minors or patches — for example, `p-limit` 6.1.0 added a required property to its exported `LimitFunction` type and was published as a _minor_; semver-checks flags it MAJOR. It is most dependable on **structural changes** — removed or renamed exports, narrowed signatures, added required parameters and properties — which it detects reliably. Equivalence-preserving type rewrites are a known weak spot it can over-report; see [Accuracy & Limitations](#accuracy--limitations) for exactly where to trust it and where not to.
 
 ```typescript
 // v1.0.0
-export interface Config { host: string; port: number; }
+export interface Config {
+  host: string;
+  port: number;
+}
 
 // Developer writes: "fix: add missing timeout config"
 // Published as patch — but this is a MAJOR change:
-export interface Config { host: string; port: number; timeout: number; }
+export interface Config {
+  host: string;
+  port: number;
+  timeout: number;
+}
 //                                                    ^^^^^^^^^^^^^^^^ required-property-added
 ```
 
@@ -57,14 +64,14 @@ semver-checks is complementary to your existing release workflow. Use it as a **
 
 semver-checks grades every breaking change by **confidence**, so the CI gate stays trustworthy:
 
-- **proven** — the break follows from a structural fact (a member added/removed, an optionality/readonly/static transition, an enum or overload change) or from a *resolved* type relation the analyzer decided is genuinely unrelated. `--strict` exits 1 on these, and only these — safe to leave on in CI.
-- **heuristic** — a conservative MAJOR the analyzer could *not* prove (a type-text difference it couldn't resolve, or a one-directional change in an invariant position where a safe reading exists). These surface for human review but do **not** fail `--strict`; opt in with `--strict-review` if you want every MAJOR to gate.
+- **proven** — the break follows from a structural fact (a member added/removed, an optionality/readonly/static transition, an enum or overload change) or from a _resolved_ type relation the analyzer decided is genuinely unrelated. `--strict` exits 1 on these, and only these — safe to leave on in CI.
+- **heuristic** — a conservative MAJOR the analyzer could _not_ prove (a type-text difference it couldn't resolve, or a one-directional change in an invariant position where a safe reading exists). These surface for human review but do **not** fail `--strict`; opt in with `--strict-review` if you want every MAJOR to gate.
 
-This is the design's center of gravity: the equivalence-preserving rewrites and input-union widenings that make text-based type-semver tools cry wolf land in *heuristic*, off the default gate, while real under-bumps stay *proven* and on it. It is neither *sound* (zero false positives) nor *complete* (catches everything), so a `proven` MAJOR is a strong signal, not a theorem — but the surfaces in [Known limitations](#known-limitations) are isolated to `heuristic`, not silently mixed into the gate.
+This is the design's center of gravity: the equivalence-preserving rewrites and input-union widenings that make text-based type-semver tools cry wolf land in _heuristic_, off the default gate, while real under-bumps stay _proven_ and on it. It is neither _sound_ (zero false positives) nor _complete_ (catches everything), so a `proven` MAJOR is a strong signal, not a theorem — but the surfaces in [Known limitations](#known-limitations) are isolated to `heuristic`, not silently mixed into the gate.
 
 It is most reliable on **conventional, single-entry packages with an explicitly-typed public surface**: added / removed / renamed exports, function and method signature changes, added required parameters and properties, and removed members are detected dependably and reported as `proven`.
 
-**Measured.** Across 44 adjacent real-world npm release pairs (`.d.ts` ↔ `.d.ts`, seven API shapes, the author's published bump as the oracle), 37 were analyzable. Of those, 19 matched the published bump exactly, 9 were *stricter* than the published bump, and 9 were *looser*. The graded gate splits the 9 stricter rows cleanly: `--strict` fires on 4 of them — real breaks the author shipped under-bumped, e.g. `p-limit` 6.1.0 and `ky` 1.14.0 each added a required property to an exported type yet released as a minor (`tsc` confirms a `TS2741` for implementers), and `commander` 12.1.0 removed a public method — while the other 5 (the equivalence rewrites, input-union widenings, and return-only generics on the surfaces below) demote to review-only and pass the gate. Most of the looser results are releases bumped for runtime-only reasons with no public *type* change. Reproduce the scorecard with [`scripts/accuracy-probe.mjs`](scripts/accuracy-probe.mjs) (after `npm run build`), or spot-check your own dependencies:
+**Measured.** Across 44 adjacent real-world npm release pairs (`.d.ts` ↔ `.d.ts`, seven API shapes, the author's published bump as the oracle), 37 were analyzable. Of those, 19 matched the published bump exactly, 9 were _stricter_ than the published bump, and 9 were _looser_. The graded gate splits the 9 stricter rows cleanly: `--strict` fires on 4 of them — real breaks the author shipped under-bumped, e.g. `p-limit` 6.1.0 and `ky` 1.14.0 each added a required property to an exported type yet released as a minor (`tsc` confirms a `TS2741` for implementers), and `commander` 12.1.0 removed a public method — while the other 5 (the equivalence rewrites, input-union widenings, and return-only generics on the surfaces below) demote to review-only and pass the gate. Most of the looser results are releases bumped for runtime-only reasons with no public _type_ change. Reproduce the scorecard with [`scripts/accuracy-probe.mjs`](scripts/accuracy-probe.mjs) (after `npm run build`), or spot-check your own dependencies:
 
 ```bash
 npx semver-checks compare <pkg>@<previous> <pkg>@<latest>
@@ -72,14 +79,14 @@ npx semver-checks compare <pkg>@<previous> <pkg>@<latest>
 
 ### Known limitations
 
-| Area | What happens | Why |
-|------|--------------|-----|
-| **Equivalence-preserving refactors** | Replacing a type with an equivalent one — an alias swap like `Exclude<…>` → `SetDifference<…>`, or `{ [P in K]: T }` → `Pick<T, K>` — is reported as a `type-alias-changed`, but as a **review-only (heuristic)** MAJOR, off the `--strict` gate. | Type aliases and variables are compared as normalized text, not by resolving both types and checking assignability; an unresolved comparison is graded `heuristic`. |
-| **Input-position widening in aliases** | Widening a union used as an *input* (e.g. adding `bigint` to a parameter-only union) is reported MAJOR, though it accepts strictly more — graded **heuristic** (the relation is one-directional in an invariant position), so `--strict` does not gate on it. | Variance is analyzed for function parameters and returns, but not inside a `type` alias body. |
-| **Type parameters added to functions** | Adding a return-only type parameter (`fn(): string` → `fn<T extends string>(): T`) is reported MAJOR, though existing call sites still infer the same result — graded **heuristic** (a generic added to a callable), off the gate. | The "required generic added" rule treats a callable-context addition as review-only; in a type/interface/class context, where the argument is always written explicitly, it stays `proven`. |
-| **Dual-format / multi-subpath double counting** | A package exposing the same symbols under several `exports` subpaths (`.` plus a JS wrapper like `./esm.mjs`, or `.` plus `./lite`) reports each change once per subpath. | Each `.`-prefixed subpath is analyzed independently; identical changes across subpaths are not yet de-duplicated. |
-| **Deeply recursive conditional types** | Extremely type-heavy libraries (e.g. `type-fest`) can exhaust memory during extraction. | Declaration extraction has no depth/size bound on deeply recursive conditional / mapped types. |
-| **Non-standard entry layouts** | A few packages whose types live only beside a JS target — no `types` condition, no top-level `types`, no root `index.d.ts` — can't be auto-resolved; pass `--entry`. | Sibling-`.d.ts`-of-JS-target resolution is not implemented. |
+| Area                                            | What happens                                                                                                                                                                                                                                                  | Why                                                                                                                                                                                         |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Equivalence-preserving refactors**            | Replacing a type with an equivalent one — an alias swap like `Exclude<…>` → `SetDifference<…>`, or `{ [P in K]: T }` → `Pick<T, K>` — is reported as a `type-alias-changed`, but as a **review-only (heuristic)** MAJOR, off the `--strict` gate.             | Type aliases and variables are compared as normalized text, not by resolving both types and checking assignability; an unresolved comparison is graded `heuristic`.                         |
+| **Input-position widening in aliases**          | Widening a union used as an _input_ (e.g. adding `bigint` to a parameter-only union) is reported MAJOR, though it accepts strictly more — graded **heuristic** (the relation is one-directional in an invariant position), so `--strict` does not gate on it. | Variance is analyzed for function parameters and returns, but not inside a `type` alias body.                                                                                               |
+| **Type parameters added to functions**          | Adding a return-only type parameter (`fn(): string` → `fn<T extends string>(): T`) is reported MAJOR, though existing call sites still infer the same result — graded **heuristic** (a generic added to a callable), off the gate.                            | The "required generic added" rule treats a callable-context addition as review-only; in a type/interface/class context, where the argument is always written explicitly, it stays `proven`. |
+| **Dual-format / multi-subpath double counting** | A package exposing the same symbols under several `exports` subpaths (`.` plus a JS wrapper like `./esm.mjs`, or `.` plus `./lite`) reports each change once per subpath.                                                                                     | Each `.`-prefixed subpath is analyzed independently; identical changes across subpaths are not yet de-duplicated.                                                                           |
+| **Deeply recursive conditional types**          | Extremely type-heavy libraries (e.g. `type-fest`) can exhaust memory during extraction.                                                                                                                                                                       | Declaration extraction has no depth/size bound on deeply recursive conditional / mapped types.                                                                                              |
+| **Non-standard entry layouts**                  | A few packages whose types live only beside a JS target — no `types` condition, no top-level `types`, no root `index.d.ts` — can't be auto-resolved; pass `--entry`.                                                                                          | Sibling-`.d.ts`-of-JS-target resolution is not implemented.                                                                                                                                 |
 
 When a type can't be resolved in isolation (imported types, bare generics, anything involving `any`), semver-checks falls back to the conservative MAJOR verdict by design — see [Does it have false positives?](#does-it-have-false-positives).
 
@@ -183,117 +190,131 @@ semver-checks — Recommended bump: MAJOR
 ## Programmatic API
 
 ```typescript
-import { compare, extract } from 'semver-checks';
+import { compare, extract } from "semver-checks";
 
 const report = await compare({
-  oldSource: { type: 'git', ref: 'v1.0.0' },
-  newSource: { type: 'path', path: '.' },
+  oldSource: { type: "git", ref: "v1.0.0" },
+  newSource: { type: "path", path: "." },
 });
 
 console.log(report.recommended); // 'major' | 'minor' | 'patch'
-console.log(report.changes);     // ApiChange[]
-console.log(report.summary);     // { major: 2, minor: 1, patch: 0 }
+console.log(report.changes); // ApiChange[]
+console.log(report.summary); // { major: 2, minor: 1, patch: 0 }
 ```
 
 ```typescript
 interface CompareOptions {
   oldSource: SourceRef;
   newSource: SourceRef;
-  entry?: string; // Optional: specify entry point (e.g., 'src/index.ts')
+  entry?: string | string[]; // Optional: specify one or more entry points
   installDeps?: boolean; // Optional: install deps before analyzing local path sources
 }
 
 type SourceRef =
-  | { type: 'path'; path: string }
-  | { type: 'git'; ref: string; cwd?: string }
-  | { type: 'npm'; spec: string }; // e.g. { type: 'npm', spec: 'lodash@4.17.21' }
+  | { type: "path"; path: string }
+  | { type: "git"; ref: string; cwd?: string }
+  | { type: "npm"; spec: string }; // e.g. { type: 'npm', spec: 'lodash@4.17.21' }
 
 interface SemverReport {
-  recommended: 'major' | 'minor' | 'patch';
+  recommended: "major" | "minor" | "patch";
   changes: ApiChange[];
-  summary: { major: number; minor: number; patch: number };
+  summary: {
+    major: number;
+    minor: number;
+    patch: number;
+    majorProven: number;
+    majorReview: number;
+  };
 }
 
 interface ApiChange {
   kind: ChangeKind;
-  severity: 'major' | 'minor' | 'patch';
+  severity: "major" | "minor" | "patch";
   symbolPath: string;
   message: string;
   oldValue?: string;
   newValue?: string;
+  confidence?: "proven" | "heuristic";
 }
 ```
 
 You can also extract a snapshot independently:
 
 ```typescript
-import { extract } from 'semver-checks';
+import { extract } from "semver-checks";
 
-const snapshot = await extract({ projectPath: '.' });
+const snapshot = await extract({ projectPath: "." });
 // Snapshots are keyed by export subpath ('.' is the root entry; additional
 // subpaths come from the package.json "exports" map).
-console.log(Object.keys(snapshot.entrypoints['.'])); // root entry's symbol names
+console.log(Object.keys(snapshot.entrypoints["."])); // root entry's symbol names
 ```
 
 ## Change Rules
 
 ### Breaking changes (MAJOR)
 
-| Rule | Description |
-|------|---|
-| `export-removed` | A public export was removed |
-| `required-param-added` | A required parameter was added to a function |
-| `param-removed` | A parameter was removed |
-| `param-type-changed` | A parameter's type changed |
-| `return-type-changed` | A function's return type changed |
-| `property-removed` | An interface property was removed |
-| `required-property-added` | A required property was added to an interface |
-| `property-type-changed` | An interface property's type changed |
-| `interface-property-became-required` | An optional interface property became required |
-| `interface-property-became-readonly` | An interface property changed from mutable to readonly |
-| `interface-method-removed` | An interface method was removed |
-| `required-interface-method-added` | A required interface method was added |
-| `interface-method-signature-changed` | An interface method's signature changed |
-| `enum-member-removed` | An enum member was removed |
-| `enum-member-value-changed` | An enum member's value changed |
-| `class-constructor-changed` | A class constructor's signature changed |
-| `class-method-removed` | A public class method was removed |
-| `class-method-signature-changed` | A public class method's signature changed |
-| `class-method-became-static` | A class method changed from instance to static |
-| `class-method-became-instance` | A class method changed from static to instance |
-| `class-property-removed` | A public class property was removed |
-| `class-property-type-changed` | A public class property's type changed |
-| `class-property-became-static` | A class property changed from instance to static |
-| `class-property-became-instance` | A class property changed from static to instance |
-| `class-property-became-required` | An optional class property became required |
-| `required-class-property-added` | A required class property was added |
-| `class-property-became-readonly` | A public class property changed from mutable to readonly |
-| `generic-param-required` | A required generic parameter was added |
-| `generic-param-removed` | A generic parameter was removed |
-| `generic-constraint-changed` | A generic parameter's constraint changed |
-| `overload-removed` | A function overload was removed |
-| `type-alias-changed` | A type alias definition changed |
-| `variable-type-changed` | An exported variable's type changed |
+| Rule                                    | Description                                               |
+| --------------------------------------- | --------------------------------------------------------- |
+| `export-removed`                        | A public export was removed                               |
+| `entrypoint-removed`                    | A public export subpath was removed                       |
+| `required-param-added`                  | A required parameter was added to a function              |
+| `param-removed`                         | A parameter was removed                                   |
+| `param-type-changed`                    | A parameter's type changed                                |
+| `return-type-changed`                   | A function's return type changed                          |
+| `property-removed`                      | An interface property was removed                         |
+| `required-property-added`               | A required property was added to an interface             |
+| `property-type-changed`                 | An interface property's type changed                      |
+| `interface-property-became-required`    | An optional interface property became required            |
+| `interface-property-became-readonly`    | An interface property changed from mutable to readonly    |
+| `interface-method-removed`              | An interface method was removed                           |
+| `required-interface-method-added`       | A required interface method was added                     |
+| `interface-method-signature-changed`    | An interface method's signature changed                   |
+| `enum-member-removed`                   | An enum member was removed                                |
+| `enum-member-value-changed`             | An enum member's value changed                            |
+| `class-constructor-changed`             | A class constructor's signature changed                   |
+| `class-method-removed`                  | A public class method was removed                         |
+| `class-method-signature-changed`        | A public class method's signature changed                 |
+| `class-method-became-static`            | A class method changed from instance to static            |
+| `class-method-became-instance`          | A class method changed from static to instance            |
+| `class-property-removed`                | A public class property was removed                       |
+| `class-property-type-changed`           | A public class property's type changed                    |
+| `class-property-became-static`          | A class property changed from instance to static          |
+| `class-property-became-instance`        | A class property changed from static to instance          |
+| `class-property-became-required`        | An optional class property became required                |
+| `required-class-property-added`         | A required class property was added                       |
+| `class-property-became-readonly`        | A public class property changed from mutable to readonly  |
+| `generic-param-required`                | A required generic parameter was added                    |
+| `generic-param-removed`                 | A generic parameter was removed                           |
+| `generic-constraint-changed`            | A generic parameter's constraint changed                  |
+| `generic-param-default-changed`         | A generic parameter's default type changed or was removed |
+| `overload-removed`                      | A function overload was removed                           |
+| `interface-call-signature-changed`      | An interface's call signatures changed                    |
+| `interface-construct-signature-changed` | An interface's construct signatures changed               |
+| `index-signature-changed`               | An interface's index signatures changed                   |
+| `type-alias-changed`                    | A type alias definition changed                           |
+| `variable-type-changed`                 | An exported variable's type changed                       |
 
 ### New features (MINOR)
 
-| Rule | Description |
-|------|---|
-| `export-added` | A new public export was added |
-| `optional-param-added` | An optional parameter was added |
-| `optional-property-added` | An optional property was added to an interface |
-| `interface-method-added` | An optional interface method was added |
-| `interface-property-became-optional` | A required interface property became optional |
-| `interface-property-became-mutable` | An interface property changed from readonly to mutable |
-| `enum-member-added` | An enum member was added |
-| `overload-added` | A function overload was added |
-| `generic-param-with-default` | A generic parameter with a default was added |
-| `class-method-added` | A public class method was added |
-| `class-property-added` | An optional public class property was added |
-| `class-property-became-optional` | A required class property became optional |
-| `class-property-became-mutable` | A public class property changed from readonly to mutable |
-| `param-type-widened` | A parameter's type was widened — existing callers still type-check (contravariant) |
-| `return-type-narrowed` | A function's return type was narrowed — existing consumers still type-check (covariant) |
+| Rule                                 | Description                                                                             |
+| ------------------------------------ | --------------------------------------------------------------------------------------- |
+| `export-added`                       | A new public export was added                                                           |
+| `entrypoint-added`                   | A new public export subpath was added                                                   |
+| `optional-param-added`               | An optional parameter was added                                                         |
+| `optional-property-added`            | An optional property was added to an interface                                          |
+| `interface-method-added`             | An optional interface method was added                                                  |
+| `interface-property-became-optional` | A required interface property became optional                                           |
+| `interface-property-became-mutable`  | An interface property changed from readonly to mutable                                  |
+| `enum-member-added`                  | An enum member was added                                                                |
+| `overload-added`                     | A function overload was added                                                           |
+| `generic-param-with-default`         | A generic parameter with a default was added                                            |
+| `generic-param-default-added`        | A default was added to an existing generic parameter                                    |
+| `class-method-added`                 | A public class method was added                                                         |
+| `class-property-added`               | An optional public class property was added                                             |
+| `class-property-became-optional`     | A required class property became optional                                               |
+| `class-property-became-mutable`      | A public class property changed from readonly to mutable                                |
+| `param-type-widened`                 | A parameter's type was widened — existing callers still type-check (contravariant)      |
+| `return-type-narrowed`               | A function's return type was narrowed — existing consumers still type-check (covariant) |
 
 ## CLI Reference
 
@@ -303,21 +324,23 @@ console.log(Object.keys(snapshot.entrypoints['.'])); // root entry's symbol name
 semver-checks compare <old> [new] [options]
 ```
 
-| Option | Short | Description | Default |
-|--------|-------|---|---|
-| `--entry <path>` | `-e` | Entry file path (e.g., `src/index.ts`); repeat or comma-separate for multiple entries | Auto-detect |
-| `--format <type>` | `-f` | `text`, `json`, `markdown`, or `github` | `text` |
-| `--strict` | `-s` | Exit 1 if a **confident (proven)** breaking change is found — safe to gate CI on | `false` |
-| `--strict-review` |  | Exit 1 if **any** breaking change is found, including review-only (heuristic) ones | `false` |
-| `--install-deps` |  | Install dependencies before analyzing local path inputs | `false` |
-| `--old-as <kind>` |  | Force `<old>` to be interpreted as `path`, `ref` (or `git`), or `npm` | Auto-detect |
-| `--new-as <kind>` |  | Force `[new]` to be interpreted as `path`, `ref` (or `git`), or `npm` | Auto-detect |
+| Option            | Short | Description                                                                           | Default     |
+| ----------------- | ----- | ------------------------------------------------------------------------------------- | ----------- |
+| `--entry <path>`  | `-e`  | Entry file path (e.g., `src/index.ts`); repeat or comma-separate for multiple entries | Auto-detect |
+| `--format <type>` | `-f`  | `text`, `json`, `markdown`, or `github`                                               | `text`      |
+| `--strict`        | `-s`  | Exit 1 if a **confident (proven)** breaking change is found — safe to gate CI on      | `false`     |
+| `--strict-review` |       | Exit 1 if **any** breaking change is found, including review-only (heuristic) ones    | `false`     |
+| `--install-deps`  |       | Install dependencies before analyzing local path inputs                               | `false`     |
+| `--old-as <kind>` |       | Force `<old>` to be interpreted as `path`, `ref` (or `git`), or `npm`                 | Auto-detect |
+| `--new-as <kind>` |       | Force `[new]` to be interpreted as `path`, `ref` (or `git`), or `npm`                 | Auto-detect |
 
 **Arguments:**
+
 - `<old>`: an npm spec (`pkg@version`), a git ref (tag, branch, commit SHA), or a local directory path for the old version
 - `[new]`: npm spec, git ref, or path for the new version; defaults to `.` (current directory)
 
 **Output formats:**
+
 - `text` — colored human-readable summary (default)
 - `json` — the structured `SemverReport`
 - `markdown` — a Markdown summary suitable for a PR comment or `$GITHUB_STEP_SUMMARY`
@@ -338,26 +361,27 @@ semver-checks compare <old> [new] [options]
 semver-checks snapshot [path] [options]
 ```
 
-| Option | Short | Description |
-|--------|-------|---|
-| `--ref <ref>` | `-r` | Use a git ref instead of a local path |
-| `--npm <spec>` |  | Snapshot a published npm package (e.g. `lodash@4.17.21`) |
-| `--entry <path>` | `-e` | Entry file path; repeat or comma-separate for multiple entries |
-| `--install-deps` |  | Install dependencies before analyzing a local path |
+| Option           | Short | Description                                                    |
+| ---------------- | ----- | -------------------------------------------------------------- |
+| `--ref <ref>`    | `-r`  | Use a git ref instead of a local path                          |
+| `--npm <spec>`   |       | Snapshot a published npm package (e.g. `lodash@4.17.21`)       |
+| `--entry <path>` | `-e`  | Entry file path; repeat or comma-separate for multiple entries |
+| `--install-deps` |       | Install dependencies before analyzing a local path             |
 
 **Arguments:**
+
 - `[path]`: project path; defaults to `.` (current directory)
 
 ### Global options
 
-| Option | Description |
-|--------|-------------|
+| Option  | Description                                     |
+| ------- | ----------------------------------------------- |
 | `--mcp` | Start semver-checks as an MCP server over stdio |
 
 ### Environment variables
 
-| Variable | Description |
-|----------|---|
+| Variable                  | Description                                                                                 |
+| ------------------------- | ------------------------------------------------------------------------------------------- |
 | `SEMVER_CHECKS_VERBOSE=1` | Print warnings for skipped symbols, type resolution failures, and dependency install issues |
 
 ## MCP Server
@@ -403,40 +427,32 @@ Relative paths and git refs are resolved from the MCP server process's current w
 
 ### Available Tools
 
-| Tool | Description |
-|------|-------------|
-| `semver_compare` | Compare two versions and get a SemVer recommendation + change list |
-| `semver_snapshot` | Extract the public API surface of a project as a JSON snapshot |
-| `semver_diff` | Diff two previously extracted snapshots |
+| Tool              | Description                                                        |
+| ----------------- | ------------------------------------------------------------------ |
+| `semver_compare`  | Compare two versions and get a SemVer recommendation + change list |
+| `semver_snapshot` | Extract the public API surface of a project as a JSON snapshot     |
 
 #### `semver_compare`
 
-| Argument | Type | Required | Description |
-|----------|------|----------|-------------|
-| `old` | string | Yes | Filesystem path or git ref (tag, branch, SHA) |
-| `new` | string | | Filesystem path or git ref. Defaults to `.` |
-| `entry` | string | | Entry file (e.g. `src/index.ts`). Auto-detected if omitted |
-| `oldAs` | `"path"` \| `"git"` | | Force interpretation of `old` |
-| `newAs` | `"path"` \| `"git"` | | Force interpretation of `new` |
-| `installDeps` | boolean | | Install dependencies before analysis |
+| Argument      | Type                | Required | Description                                                |
+| ------------- | ------------------- | -------- | ---------------------------------------------------------- |
+| `old`         | string              | Yes      | Filesystem path or git ref (tag, branch, SHA)              |
+| `new`         | string              |          | Filesystem path or git ref. Defaults to `.`                |
+| `entry`       | string              |          | Entry file (e.g. `src/index.ts`). Auto-detected if omitted |
+| `oldAs`       | `"path"` \| `"git"` |          | Force interpretation of `old`                              |
+| `newAs`       | `"path"` \| `"git"` |          | Force interpretation of `new`                              |
+| `installDeps` | boolean             |          | Install dependencies before analysis                       |
 
 `oldAs` and `newAs` accept only `"path"` or `"git"` in MCP mode.
 
 #### `semver_snapshot`
 
-| Argument | Type | Required | Description |
-|----------|------|----------|-------------|
-| `path` | string | | Filesystem path or git ref. Defaults to `.` |
-| `entry` | string | | Entry file |
-| `asGitRef` | boolean | | Treat `path` as a git ref |
-| `installDeps` | boolean | | Install dependencies before analysis |
-
-#### `semver_diff`
-
-| Argument | Type | Required | Description |
-|----------|------|----------|-------------|
-| `oldSnapshot` | object | Yes | Snapshot JSON from `semver_snapshot` |
-| `newSnapshot` | object | Yes | Snapshot JSON from `semver_snapshot` |
+| Argument      | Type    | Required | Description                                 |
+| ------------- | ------- | -------- | ------------------------------------------- |
+| `path`        | string  |          | Filesystem path or git ref. Defaults to `.` |
+| `entry`       | string  |          | Entry file                                  |
+| `asGitRef`    | boolean |          | Treat `path` as a git ref                   |
+| `installDeps` | boolean |          | Install dependencies before analysis        |
 
 ## CI Integration
 
@@ -458,25 +474,25 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
       - run: npm ci
 
       - uses: kyungseopk1m/semver-checks@v0.7.0
         with:
-          old: 'your-package@latest'   # the published version to compare against
-          format: 'github'             # inline ::error:: / ::warning:: annotations
-          strict: 'true'               # fail the PR on a confident (proven) breaking change
+          old: "your-package@latest" # the published version to compare against
+          format: "github" # inline ::error:: / ::warning:: annotations
+          strict: "true" # fail the PR on a confident (proven) breaking change
 ```
 
-| Input | Description | Default |
-|-------|-------------|---------|
-| `old` | Old version — an npm spec (`pkg@latest`), git ref, or path | _(required)_ |
-| `new` | New version — git ref or path | `.` |
-| `entry` | Entry file (auto-detected from `package.json` when omitted) | _(auto)_ |
-| `format` | `text`, `json`, `markdown`, or `github` | `github` |
-| `strict` | Fail the step (exit 1) on a **confident (proven)** breaking change | `false` |
-| `strict-review` | Fail the step (exit 1) on **any** breaking change, including review-only (heuristic) ones | `false` |
-| `version` | semver-checks version to run via `npx` | _(matches the action ref)_ |
+| Input           | Description                                                                               | Default                    |
+| --------------- | ----------------------------------------------------------------------------------------- | -------------------------- |
+| `old`           | Old version — an npm spec (`pkg@latest`), git ref, or path                                | _(required)_               |
+| `new`           | New version — git ref or path                                                             | `.`                        |
+| `entry`         | Entry file (auto-detected from `package.json` when omitted)                               | _(auto)_                   |
+| `format`        | `text`, `json`, `markdown`, or `github`                                                   | `github`                   |
+| `strict`        | Fail the step (exit 1) on a **confident (proven)** breaking change                        | `false`                    |
+| `strict-review` | Fail the step (exit 1) on **any** breaking change, including review-only (heuristic) ones | `false`                    |
+| `version`       | semver-checks version to run via `npx`                                                    | _(matches the action ref)_ |
 
 A full example that also posts a Markdown summary as a sticky PR comment lives in [`examples/github-actions.yml`](examples/github-actions.yml).
 
@@ -485,49 +501,32 @@ A full example that also posts a Markdown summary as a sticky PR comment lives i
 Run the CLI directly — for example, compare the published release to the working tree:
 
 ```yaml
-      - name: Check for breaking changes
-        run: npx semver-checks compare your-package@latest --format github --strict
+- name: Check for breaking changes
+  run: npx semver-checks compare your-package@latest --format github --strict
 ```
 
 Or compare against a git tag:
 
 ```yaml
-      - name: Check for breaking changes
-        run: npx semver-checks compare v$(node -p "require('./package.json').version") HEAD --strict
-```
-
-### With snapshot caching
-
-To avoid re-extracting the baseline on every run, cache the snapshot file:
-
-```yaml
-- name: Restore baseline snapshot
-  id: cache
-  uses: actions/cache@v4
-  with:
-    path: .semver-baseline.json
-    key: semver-${{ github.event.pull_request.base.sha }}
-
-- name: Generate baseline snapshot
-  if: steps.cache.outputs.cache-hit != 'true'
-  run: npx semver-checks snapshot --ref ${{ github.event.pull_request.base.sha }} > .semver-baseline.json
+- name: Check for breaking changes
+  run: npx semver-checks compare v$(node -p "require('./package.json').version") HEAD --strict
 ```
 
 ## Comparison with Other Tools
 
-| | semver-checks | semantic-release | changesets | npm-check-updates |
-|---|---|---|---|---|
-| Input | TypeScript AST | Commit messages | Manual YAML | package.json |
-| Detection | 48 typed rules | Keyword matching | Developer-declared | Version range only |
-| Recommendation | Automatic | Based on message format | Manual per change | Dependency updates only |
+|                | semver-checks   | semantic-release        | changesets         | npm-check-updates       |
+| -------------- | --------------- | ----------------------- | ------------------ | ----------------------- |
+| Input          | TypeScript AST  | Commit messages         | Manual YAML        | package.json            |
+| Detection      | Typed API rules | Keyword matching        | Developer-declared | Version range only      |
+| Recommendation | Automatic       | Based on message format | Manual per change  | Dependency updates only |
 
-semver-checks is **not** a replacement for release tooling — it's a verification layer. Use it alongside `semantic-release` or `changesets` to ensure the declared bump actually matches the code changes.
+semver-checks is a verification layer, not a release tool. Use it alongside `semantic-release` or `changesets` to check whether the declared bump matches the API changes.
 
 ## How It Works
 
 1. **Extract**: Parse old and new TypeScript source files using ts-morph, building a typed API snapshot (functions, interfaces, enums, classes, type aliases, variables, namespaces)
 2. **Diff**: Compare the two snapshots symbol by symbol — detect additions, removals, and signature changes
-3. **Classify**: Apply the 48 classification rules to each diff, assigning `major`, `minor`, or `patch` severity
+3. **Classify**: Assign each diff a `major`, `minor`, or `patch` severity
 4. **Report**: Return a structured `SemverReport` with the recommended bump and per-change details
 
 For git ref comparisons, the ref is extracted to a temporary directory via `git archive`, dependencies are installed there if needed, and the directory is cleaned up after extraction. For npm specs, the published tarball is downloaded with `npm pack` and extracted to a temporary directory (no dependency install — the tarball already bundles its build output), then cleaned up. Local path comparisons do not install dependencies unless you opt in with `--install-deps` or `installDeps: true`.
@@ -536,13 +535,11 @@ For git ref comparisons, the ref is extracted to a temporary directory via `git 
 
 ### Will semver-checks catch every semver violation?
 
-No — and it does not try to be sound or complete. It catches API surface changes that are mechanically detectable from TypeScript's static type system: removed exports, signature changes, type changes, optionality changes, and so on. It does not detect behavioral changes, documentation changes, or changes hidden behind conditional compilation. It also has known blind spots and over-reporting patterns on complex surfaces — see [Accuracy & Limitations](#accuracy--limitations). When a package ships *distinct* ESM and CJS declaration files for the same entry point (e.g. divergent `import.types` and `require.types`), only one surface (the ESM one) is analyzed, so a breaking change confined to the other surface can be missed. Use it as a review signal, not a silent gate.
+No. It catches API surface changes that are mechanically detectable from TypeScript's static type system: removed exports, signature changes, type changes, optionality changes, and similar structural changes. It does not detect behavioral changes, documentation changes, or changes hidden behind conditional compilation. When a package ships _distinct_ ESM and CJS declaration files for the same entry point (for example, divergent `import.types` and `require.types`), only one surface is analyzed, so a break confined to the other surface can be missed. See [Accuracy & Limitations](#accuracy--limitations).
 
 ### Does it have false positives?
 
-Yes — by design it errs toward over-reporting MAJOR rather than missing a break, and on complex surfaces that means some safe changes are flagged. Parameter and return type changes go through a structural assignability check — a synthesized TypeScript program decides whether a change is a widening or a narrowing — so a widened parameter or a narrowed return type is classified as minor instead of a false major, and structurally equivalent rewrites like `readonly T[]` vs `ReadonlyArray<T>` are treated as no-ops. Converting a type alias to an interface (or back) with the same shape is also recognised as a no-op rather than a false "export removed" (an interface that `extends` a base stays conservatively major, since inherited members aren't captured).
-
-But type aliases and variables are still compared as normalized serialized text, not by resolving the types: top-level union/intersection reordering is normalized (`string | number` ≡ `number | string`), yet an equivalence-preserving rewrite (an alias swapped for an equal one, a union widened in input position) still reports as a false MAJOR. Adding a return-only type parameter to a function, and packages that expose the same symbols under multiple `exports` subpaths, are also over-reported. The concrete patterns and their causes are listed under [Known limitations](#known-limitations). When a type can't be resolved in isolation (imported types, bare generics, or anything involving `any`), the tool falls back to the conservative major verdict.
+Yes. It errs toward over-reporting MAJOR rather than missing a break, but the default CI gate only fails on `proven` breaks. Parameter and return type changes go through a structural assignability check, so widened parameters, narrowed returns, and equivalent rewrites such as `readonly T[]` vs `ReadonlyArray<T>` avoid false majors. Type aliases and variables still have conservative cases because they are compared as normalized serialized text, not fully resolved types. The concrete patterns are listed under [Known limitations](#known-limitations).
 
 ### Does it support default exports?
 
@@ -557,7 +554,7 @@ npx semver-checks compare your-package@latest          # published latest vs wor
 npx semver-checks compare your-package@1.0.0 your-package@2.0.0  # two published releases
 ```
 
-Because a published tarball ships compiled `.d.ts` files while your working tree ships `.ts` source, type *representation* can differ slightly between the two sides (TypeScript materializes some inferred types in declarations). Removals, additions, and signature changes are detected reliably; a handful of equivalent-but-reworded types may show up as a noisy diff. Comparing two published releases (`.d.ts` vs `.d.ts`) avoids that asymmetry.
+Because a published tarball ships compiled `.d.ts` files while your working tree ships `.ts` source, type _representation_ can differ slightly between the two sides (TypeScript materializes some inferred types in declarations). Removals, additions, and signature changes are detected reliably; a handful of equivalent-but-reworded types may show up as a noisy diff. Comparing two published releases (`.d.ts` vs `.d.ts`) avoids that asymmetry.
 
 ### Can I use it without a tsconfig.json?
 
@@ -570,6 +567,7 @@ semver-checks will print a warning to stderr listing up to 5 errors and continue
 ### How is the entry point determined?
 
 semver-checks looks for the entry file in this order:
+
 1. The `--entry` flag if provided
 2. The declaration under `exports['.']` in `package.json` — every condition is walked (`types`, `require`/`import`/`node`/`browser`/`module`/`default`, nested, and fallback arrays), and `.d.ts`/`.d.mts`/`.d.cts` are all accepted. A bare-string `"exports": "./index.js"` or a flat conditions object `"exports": { "types": "./index.d.ts", "default": "./index.js" }` (no `.` subpath key) is treated as the `.` entry, so its `types` condition is read. A subpath-only map with no `.` key is left without a root entry (no fabricated root)
 3. The top-level `types` or `typings` field in `package.json`
@@ -581,7 +579,7 @@ When a project ships an `"exports"` map with several subpaths, each subpath is r
 
 ### Does it work with monorepos?
 
-Yes. Point `--entry` at the package's specific entry file, or run the CLI from the package's subdirectory.
+Yes. Point `--entry` at the package's entry file, or run the CLI from that package's directory.
 
 ## Requirements
 
@@ -595,16 +593,15 @@ semver-checks ships both CommonJS and ES module builds:
 
 ```javascript
 // ESM
-import { compare } from 'semver-checks';
+import { compare } from "semver-checks";
 
 // CJS
-const { compare } = require('semver-checks');
+const { compare } = require("semver-checks");
 ```
 
 ## Contributing
 
 Contributions are welcome. Please read [CONTRIBUTING.md](.github/CONTRIBUTING.md) before submitting a pull request.
-
 
 ## License
 

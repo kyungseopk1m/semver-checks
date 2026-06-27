@@ -7,30 +7,30 @@ branding:
 
 inputs:
   old:
-    description: 'Old version to compare against — an npm spec (e.g. my-pkg@latest), a git ref, or a path.'
+    description: "Old version: npm spec (for example, my-pkg@latest), git ref, or path."
     required: true
   new:
-    description: 'New version — a git ref or path. Defaults to the checked-out working tree.'
+    description: "New version: git ref or path. Defaults to the checked-out working tree."
     required: false
     default: '.'
   entry:
-    description: 'Entry file (e.g. src/index.ts). Auto-detected from package.json when omitted.'
+    description: "Entry file (for example, src/index.ts). Auto-detected from package.json when omitted."
     required: false
     default: ''
   format:
-    description: 'Output format: text, json, markdown, or github (inline PR annotations).'
+    description: "Output format: text, json, markdown, or github for inline PR annotations."
     required: false
     default: 'github'
   strict:
-    description: 'Fail the step (exit 1) on a confident (proven) breaking change. Safe to gate CI on.'
+    description: "Fail the step on a confident (proven) breaking change. Safe to gate CI on."
     required: false
     default: 'false'
   strict-review:
-    description: 'Fail the step (exit 1) on any breaking change, including review-only (heuristic) ones.'
+    description: "Fail the step on any breaking change, including review-only (heuristic) ones."
     required: false
     default: 'false'
   version:
-    description: 'semver-checks version to run via npx. Defaults to the version matching the action ref you pinned (e.g. @v0.7.0 runs semver-checks@0.7.0).'
+    description: "semver-checks version to run via npx. Defaults to the pinned action version (for example, @v0.7.0 runs semver-checks@0.7.0)."
     required: false
     default: ''
 
