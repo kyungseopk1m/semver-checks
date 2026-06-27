@@ -1279,4 +1279,15 @@ describe('graded confidence', () => {
     expect(change?.confidence).toBe('proven');
     expect(report.recommended).toBe('major');
   });
+
+  it('treats an overloaded method rewritten as an intersection-of-functions property as NO CHANGE', () => {
+    // An overloaded method and the equivalent intersection-of-call-signatures
+    // property are mutually assignable. This only resolves if the serialized
+    // intersection keeps its per-function parentheses — without them the text
+    // re-parses as one function returning an intersection and the variance probe
+    // bails to a conservative (heuristic) major.
+    const report = compareFixture('method-overload-to-intersection-property-noop');
+    expect(report.changes).toHaveLength(0);
+    expect(report.recommended).toBe('patch');
+  });
 });

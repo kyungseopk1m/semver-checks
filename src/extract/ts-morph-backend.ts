@@ -395,21 +395,63 @@ function canonicalizeTypeText(text: string): string {
 
   const unionParts = splitTopLevel(trimmed, '|');
   if (unionParts.length > 1 && canNormalizeBinaryParts(unionParts)) {
-    return unionParts
-      .map((part) => canonicalizeTypeText(part))
-      .sort()
-      .join(' | ');
+    return unionParts.map(canonicalizeBinaryMember).sort().join(' | ');
   }
 
   const intersectionParts = splitTopLevel(trimmed, '&');
   if (intersectionParts.length > 1 && canNormalizeBinaryParts(intersectionParts)) {
-    return intersectionParts
-      .map((part) => canonicalizeTypeText(part))
-      .sort()
-      .join(' & ');
+    return intersectionParts.map(canonicalizeBinaryMember).sort().join(' & ');
   }
 
   return trimmed;
+}
+
+// Canonicalize one member of a union/intersection. A function or constructor type
+// member MUST keep its parentheses: `=>` binds looser than `|`/`&` on its right, so
+// an unparenthesized `((a) => X) & ((b) => Y)` would re-serialize to
+// `(a) => X & (b) => Y`, which re-parses as `(a) => (X & (b) => Y)` — a single
+// function returning an intersection, a different type. `stripOuterParens` (inside
+// the recursive call) drops those parens, so re-add them for arrow-typed members.
+function canonicalizeBinaryMember(part: string): string {
+  const canonical = canonicalizeTypeText(part);
+  return hasTopLevelArrow(canonical) ? `(${canonical})` : canonical;
+}
+
+// True when `text` has a `=>` at bracket depth 0 — i.e. it is itself a function or
+// constructor type, not one that merely contains an arrow nested inside `{}`/`<>`/`()`.
+function hasTopLevelArrow(text: string): boolean {
+  let depthParen = 0;
+  let depthBrace = 0;
+  let depthBracket = 0;
+  let depthAngle = 0;
+  let inString: '"' | '\'' | '`' | null = null;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    const prev = i > 0 ? text[i - 1] : '';
+    if (inString) {
+      if (ch === inString && prev !== '\\') inString = null;
+      continue;
+    }
+    if (ch === '"' || ch === '\'' || ch === '`') {
+      inString = ch;
+      continue;
+    }
+    // The `>` of an arrow follows `=` and closes no `<`, so check it before
+    // treating `>` as a generic close.
+    if (ch === '>' && prev === '=') {
+      if (depthParen === 0 && depthBrace === 0 && depthBracket === 0 && depthAngle === 0) return true;
+      continue;
+    }
+    if (ch === '(') depthParen++;
+    else if (ch === ')') depthParen--;
+    else if (ch === '{') depthBrace++;
+    else if (ch === '}') depthBrace--;
+    else if (ch === '[') depthBracket++;
+    else if (ch === ']') depthBracket--;
+    else if (ch === '<') depthAngle++;
+    else if (ch === '>') depthAngle = Math.max(0, depthAngle - 1);
+  }
+  return false;
 }
 
 function canNormalizeBinaryParts(parts: string[]): boolean {
