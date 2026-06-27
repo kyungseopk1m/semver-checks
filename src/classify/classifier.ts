@@ -1,5 +1,5 @@
 import { Project, Node } from 'ts-morph';
-import type { ApiSnapshot, ApiSymbol, ApiFunctionSymbol, ApiInterfaceSymbol, ApiInterfaceProperty, ApiEnumSymbol, ApiClassSymbol, ApiTypeAliasSymbol, ApiVariableSymbol, ApiNamespaceSymbol, ApiTypeParameter, ApiFunctionSignature, ApiIndexSignature } from '../extract/api-snapshot.js';
+import type { ApiSnapshot, ApiSymbol, ApiFunctionSymbol, ApiInterfaceSymbol, ApiInterfaceProperty, ApiInterfaceMethod, ApiEnumSymbol, ApiClassSymbol, ApiTypeAliasSymbol, ApiVariableSymbol, ApiNamespaceSymbol, ApiTypeParameter, ApiFunctionSignature, ApiIndexSignature } from '../extract/api-snapshot.js';
 import type { ApiChange, Confidence } from '../types.js';
 import { compareTypeText, type TypeRelation } from './variance.js';
 import { computeLiteralSpans, isInsideLiteral } from './literal-spans.js';
@@ -319,6 +319,16 @@ function signatureMemberText(sig: ApiFunctionSignature): string {
   return `${tps}(${params}): ${sig.returnType.text}`;
 }
 
+// Render a method's signatures as a callable object type — `{ (a: string): void }`,
+// or an overload set as `{ (a: string): void; (a: number): void }`. This is the
+// type a method *member* would have if written as a function-typed property, so a
+// shorthand-vs-property refactor (`f(): void` <-> `f: () => void`, which TypeScript
+// treats as mutually assignable) can be compared as types rather than read as a
+// remove-and-re-add of two different member kinds.
+function methodAsPropertyText(m: ApiInterfaceMethod): string {
+  return `{ ${m.signatures.map(signatureMemberText).join('; ')} }`;
+}
+
 // Reconstruct an interface as the equivalent object-type text so it can be
 // compared structurally against a type alias. The output need not be byte-perfect
 // TypeScript: if it fails to parse, the variance probe yields an undecidable
@@ -436,7 +446,14 @@ function classifySymbolChanges(name: string, oldSym: ApiSymbol, newSym: ApiSymbo
           ? ([newSym as ApiTypeAliasSymbol, oldSym as ApiInterfaceSymbol] as const)
           : null;
     if (taIfacePair && typeAliasInterfaceEquivalent(taIfacePair[0], taIfacePair[1])) {
-      return [];
+      // The shapes match, but a concurrent type-parameter constraint/default change
+      // (`<T extends string>` -> `<T extends number>`) is still breaking and lives
+      // only in classifyTypeParamChanges. Read the params straight off old/new so
+      // the diff stays old->new regardless of which side is the alias. Generics are
+      // written explicitly in both forms, so this is a 'type' context.
+      const oldTPs = (oldSym as ApiTypeAliasSymbol | ApiInterfaceSymbol).typeParameters;
+      const newTPs = (newSym as ApiTypeAliasSymbol | ApiInterfaceSymbol).typeParameters;
+      return classifyTypeParamChanges(name, oldTPs, newTPs, 'type');
     }
     return [{
       kind: 'export-removed',
@@ -879,10 +896,21 @@ function classifyInterfaceChanges(name: string, oldIf: ApiInterfaceSymbol, newIf
   const containerRename = buildTypeParamRenameMap(oldIf.typeParameters, newIf.typeParameters);
   const oldProps = new Map(oldIf.properties.map((p) => [p.name, p]));
   const newProps = new Map(newIf.properties.map((p) => [p.name, p]));
+  const oldMethods = new Map(oldIf.methods.map((m) => [m.name, m]));
+  const newMethods = new Map(newIf.methods.map((m) => [m.name, m]));
+
+  // A member written as a function-typed property on one side and as a method on
+  // the other (`f: () => void` <-> `f(): void`) is the same member in a different
+  // syntactic form, not a removal plus an unrelated addition. Collect those names
+  // so the four remove/add loops skip them and the reconciliation pass below
+  // compares them as types instead of emitting two spurious structural majors.
+  const crossForm = new Set<string>();
+  for (const n of oldProps.keys()) if (newMethods.has(n)) crossForm.add(n);
+  for (const n of oldMethods.keys()) if (newProps.has(n)) crossForm.add(n);
 
   // Removed properties
   for (const [propName, prop] of oldProps) {
-    if (!newProps.has(propName)) {
+    if (!newProps.has(propName) && !crossForm.has(propName)) {
       changes.push({
         kind: 'property-removed',
         severity: 'major',
@@ -895,7 +923,7 @@ function classifyInterfaceChanges(name: string, oldIf: ApiInterfaceSymbol, newIf
 
   // Added properties
   for (const [propName, prop] of newProps) {
-    if (!oldProps.has(propName)) {
+    if (!oldProps.has(propName) && !crossForm.has(propName)) {
       if (!prop.isOptional) {
         changes.push({
           kind: 'required-property-added',
@@ -982,12 +1010,74 @@ function classifyInterfaceChanges(name: string, oldIf: ApiInterfaceSymbol, newIf
     }
   }
 
-  // Methods
-  const oldMethods = new Map(oldIf.methods.map((m) => [m.name, m]));
-  const newMethods = new Map(newIf.methods.map((m) => [m.name, m]));
+  // Reconcile members that switched between property and method form. A method is
+  // normalized to its callable-object text so the two forms compare as types: an
+  // equivalent pair (the `f: () => void` <-> `f(): void` refactor) is a no-op, and
+  // a genuine difference surfaces as a single property-type-changed rather than the
+  // remove + re-add the disjoint property/method maps would otherwise produce.
+  const viewOf = (p?: ApiInterfaceProperty, m?: ApiInterfaceMethod) =>
+    p
+      ? { typeText: p.type.text, writeText: p.writeType?.text, isOptional: p.isOptional, isReadonly: p.isReadonly }
+      : { typeText: methodAsPropertyText(m!), writeText: undefined as string | undefined, isOptional: m!.isOptional, isReadonly: false };
+  for (const memberName of crossForm) {
+    const oldView = viewOf(oldProps.get(memberName), oldMethods.get(memberName));
+    const newView = viewOf(newProps.get(memberName), newMethods.get(memberName));
+    const ifaceCtx = { typeParameters: oldIf.typeParameters };
+    const read = invariantTextCompare(oldView.typeText, newView.typeText, containerRename, ifaceCtx);
+    const write = invariantTextCompare(
+      oldView.writeText ?? oldView.typeText,
+      newView.writeText ?? newView.typeText,
+      containerRename,
+      ifaceCtx,
+    );
+    if (!read.equivalent || !write.equivalent) {
+      changes.push({
+        kind: 'property-type-changed',
+        severity: 'major',
+        symbolPath: `${name}.${memberName}`,
+        message: `Member '${memberName}' changed between property and method form in '${name}'`,
+        oldValue: oldView.typeText,
+        newValue: newView.typeText,
+        ...maybeHeuristic(propTypeConfidence(read, write)),
+      });
+    }
+    if (oldView.isOptional && !newView.isOptional) {
+      changes.push({
+        kind: 'interface-property-became-required',
+        severity: 'major',
+        symbolPath: `${name}.${memberName}`,
+        message: `Member '${memberName}' became required in interface '${name}'`,
+      });
+    }
+    if (!oldView.isOptional && newView.isOptional) {
+      changes.push({
+        kind: 'interface-property-became-optional',
+        severity: 'minor',
+        symbolPath: `${name}.${memberName}`,
+        message: `Member '${memberName}' became optional in interface '${name}'`,
+      });
+    }
+    if (!oldView.isReadonly && newView.isReadonly) {
+      changes.push({
+        kind: 'interface-property-became-readonly',
+        severity: 'major',
+        symbolPath: `${name}.${memberName}`,
+        message: `Member '${memberName}' became readonly in interface '${name}'`,
+      });
+    }
+    if (oldView.isReadonly && !newView.isReadonly) {
+      changes.push({
+        kind: 'interface-property-became-mutable',
+        severity: 'minor',
+        symbolPath: `${name}.${memberName}`,
+        message: `Member '${memberName}' became mutable in interface '${name}'`,
+      });
+    }
+  }
 
+  // Methods (maps built above to compute the cross-form set)
   for (const [methodName] of oldMethods) {
-    if (!newMethods.has(methodName)) {
+    if (!newMethods.has(methodName) && !crossForm.has(methodName)) {
       changes.push({
         kind: 'interface-method-removed',
         severity: 'major',
@@ -998,7 +1088,7 @@ function classifyInterfaceChanges(name: string, oldIf: ApiInterfaceSymbol, newIf
   }
 
   for (const [methodName] of newMethods) {
-    if (!oldMethods.has(methodName)) {
+    if (!oldMethods.has(methodName) && !crossForm.has(methodName)) {
       const newMethod = newMethods.get(methodName);
       if (!newMethod) continue;
       changes.push({

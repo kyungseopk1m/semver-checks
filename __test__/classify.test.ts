@@ -610,6 +610,17 @@ describe('false-positive reduction (real-world refactors)', () => {
     expect(report.recommended).toBe('major');
   });
 
+  it('keeps type-alias -> interface MAJOR when a type-parameter constraint narrows', () => {
+    // Same member shape, but `<T extends string>` -> `<T extends number>` is a real
+    // break (`Box<"a">` no longer type-checks). The kind-change shortcut must still
+    // run the type-parameter diff instead of returning no changes.
+    const report = compareFixture('type-alias-to-interface-constraint-narrowed');
+    const change = report.changes.find((c) => c.kind === 'generic-constraint-changed' && c.symbolPath === 'Box');
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('major');
+    expect(report.recommended).toBe('major');
+  });
+
   it('treats a structurally equivalent generic default rewrite as NO CHANGE', () => {
     const report = compareFixture('generic-default-equivalent-rewrite');
     // ReadonlyArray<string> <-> readonly string[] are mutually assignable.
@@ -1243,5 +1254,29 @@ describe('graded confidence', () => {
     const report = compareFixture('object-alias-required-prop-added');
     expect(report.changes.every((c) => c.confidence === 'proven' || c.confidence === 'heuristic')).toBe(true);
     expect(report.summary.majorProven + report.summary.majorReview).toBe(report.summary.major);
+  });
+
+  it('treats a function-property <-> method shorthand switch as NO CHANGE', () => {
+    // `{ onClick: () => void }` and `{ onClick(): void }` are mutually assignable —
+    // a no-op refactor. The disjoint property/method maps would otherwise read it as
+    // property-removed + required-method-added (two PROVEN majors), the worst kind
+    // of false confidence: `--strict` failing CI on a non-breaking change. The
+    // object-literal alias decomposition routes every `type X = { ... }` through
+    // this path, so the reconciliation must hold for aliases too.
+    const report = compareFixture('method-property-shorthand-noop');
+    expect(report.changes).toHaveLength(0);
+    expect(report.recommended).toBe('patch');
+  });
+
+  it('still reports a property <-> method switch MAJOR when the signatures are incompatible', () => {
+    // The reconciliation must not become a blanket false negative: a param narrowed
+    // across the form switch (`(id: string) => void` -> `(id: number): void`) is a
+    // genuine break and stays a proven major.
+    const report = compareFixture('method-property-shorthand-incompatible');
+    const change = report.changes.find((c) => c.kind === 'property-type-changed' && c.symbolPath === 'Handlers.run');
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('major');
+    expect(change?.confidence).toBe('proven');
+    expect(report.recommended).toBe('major');
   });
 });

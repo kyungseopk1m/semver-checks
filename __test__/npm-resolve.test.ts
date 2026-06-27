@@ -274,6 +274,25 @@ describe('conditional exports entry resolution', () => {
     await expect(extract({ projectPath: dir })).rejects.toThrow(/Could not find an entry file/);
   }, 15_000);
 
+  // Same guard, source layout: an internal `src/index.ts` must not be fabricated
+  // into the '.' root either. Otherwise a subpath-only package with an unbuilt
+  // dist/ would be analyzed from a non-exported internal surface, and across
+  // versions a stray spurious entrypoint-added/removed would fall out.
+  it('does not analyze src/index.ts when exports is subpath-only with no "." root', async () => {
+    const dir = makeLayout({
+      'package.json': JSON.stringify({
+        name: 'subpath-only-src',
+        version: '1.0.0',
+        exports: { './feature': './dist/feature.js' },
+      }),
+      'src/index.ts': 'export const INTERNAL_ONLY = 1;\n',
+      'tsconfig.json': SYNTH_TSCONFIG,
+    });
+    // The error must name the real cause (no "." root) rather than claim it looked
+    // at src/index.ts — which the subpath-only guard deliberately skipped.
+    await expect(extract({ projectPath: dir })).rejects.toThrow(/maps subpaths but declares no "\." root/);
+  }, 15_000);
+
   // `exports` may be a fallback array (`[conditions, "./x.js"]`). The walker visits
   // each alternative, so a `.d.ts` reachable through any element resolves.
   it('resolves a fallback array exports value', async () => {

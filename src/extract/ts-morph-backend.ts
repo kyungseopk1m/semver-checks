@@ -236,10 +236,14 @@ function resolveEntries(
 
   // Fallback to real source before the declared .d.ts: a working tree with a
   // stale or unbuilt dist/ would otherwise be analyzed from its outdated
-  // declarations, silently masking source-only API changes.
-  const fallback =
-    project.getSourceFile(path.join(projectPath, 'src', 'index.ts')) ??
-    project.getSourceFile(path.join(projectPath, 'index.ts'));
+  // declarations, silently masking source-only API changes. Skipped when `exports`
+  // is a subpath map without a `.` root — that package has no public root entry, so
+  // an internal `src/index.ts` must not be fabricated into one (it would invent a
+  // non-exported surface, and across versions a spurious entrypoint-added/removed).
+  const fallback = exportsSubpathsWithoutRoot
+    ? undefined
+    : project.getSourceFile(path.join(projectPath, 'src', 'index.ts')) ??
+      project.getSourceFile(path.join(projectPath, 'index.ts'));
   if (fallback) return { '.': fallback };
 
   // Last resort: the declared types entry itself. Published npm tarballs ship
@@ -259,6 +263,17 @@ function resolveEntries(
       project.getSourceFile(path.join(projectPath, 'index.d.mts')) ??
       project.getSourceFile(path.join(projectPath, 'index.d.cts'));
   if (fromConventionalDecl) return { '.': fromConventionalDecl };
+
+  // Subpath-only `exports` deliberately skipped the root source/declaration
+  // fallbacks above, so listing them as "looked for" would misreport what happened.
+  // Explain the actual cause (no `.` root) and the two real ways forward instead.
+  if (exportsSubpathsWithoutRoot) {
+    throw new Error(
+      `Could not find an entry file under ${projectPath}.\n` +
+        `  package.json "exports" maps subpaths but declares no "." root, so there is no public root entry to analyze.\n` +
+        `  Point --entry at the intended source (e.g. --entry src/index.ts), or check that the subpath build output exists.`,
+    );
+  }
 
   const looked = [
     'package.json "exports"/"types"',
