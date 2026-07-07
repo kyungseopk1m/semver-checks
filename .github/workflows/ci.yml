@@ -28,3 +28,13 @@ jobs:
 
       - name: Package quality check
         run: npm run check
+
+      # Dogfood: run semver-checks on itself against the last published release.
+      # Informational smoke run only — no --strict, and continue-on-error, so a
+      # legitimate MAJOR (or a registry/network hiccup) never blocks CI. It logs
+      # the recommended bump and is a crash canary on the tool's own public API;
+      # it does not gate, so it cannot by itself prevent a regression.
+      - name: Dogfood (self semver check)
+        continue-on-error: true
+        timeout-minutes: 5
+        run: node bin/semver-checks.js compare semver-checks@latest .
