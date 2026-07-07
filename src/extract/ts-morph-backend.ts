@@ -607,6 +607,12 @@ function countAnyKeywords(text: string): number {
 }
 
 function serializeType(type: Type, contextNode: Node, annotationNode?: Node): SerializedType {
+  // getText() lets tsc expand the type; pathologically recursive conditional /
+  // mapped types (type-fest) can exhaust the heap here. A heap OOM can't be
+  // caught in-process, so there is no cheap in-process guard — the robust fix is
+  // to run extraction in a child process with a bounded --max-old-space-size and
+  // degrade an OOM exit to an ERROR verdict. Not yet done: it affects only a few
+  // extremely type-heavy packages. Limitation documented in README (Accuracy).
   const computed = normalizeTypeText(type.getText(contextNode));
   if (annotationNode) {
     const intrinsic = (type.compilerType as { intrinsicName?: string }).intrinsicName;
