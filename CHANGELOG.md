@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Breaking
+
+- **`engines.node` is `^20.0.0 || >=22.0.0`** (was `>=18.0.0`): the declared range was not true of the installed tree. `ts-morph` 28 pulls in `brace-expansion@5.0.8`, whose own `engines.node` is `20 || >=22`, so an install on Node 18, 19, or 21 warned `EBADENGINE` and failed outright under `engine-strict`. The new range is that constraint exactly, not a rounded-off `>=20`: Node 21 really is excluded, and a declared range that is nearly true is the thing this release is fixing. Node 18 reached end of life in April 2025 and Node 21 in June 2024, so no supported runtime is dropped.
+
+### Fixed
+
+- **ts-morph 24 to 28** (bundled TypeScript 5.6.2 to 6.0.2): no source change was required and the accuracy scorecard is unchanged row for row. The parser now understands the syntax added through TypeScript 6.0.
+
 ## [0.7.0] - 2026-06-27
 
 This release makes the gate trustworthy enough to leave on in CI. Every breaking change now carries a **confidence** — `proven` (a structural fact or a resolved type relation) or `heuristic` (a conservative MAJOR the analyzer could not prove safe) — and `--strict` gates on `proven` only. The equivalence-preserving rewrites and input-union widenings that made text-based type-semver tools cry wolf now land in `heuristic`, off the default gate, while real under-bumps stay `proven` and on it. It also lands the entry-resolution and diagnostics work accumulated since 0.6.1, plus a reproducible accuracy probe. The full regression battery stays green; no breaking-change detection was weakened.

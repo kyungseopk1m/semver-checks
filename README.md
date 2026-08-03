@@ -1,7 +1,7 @@
 [![npm version](https://img.shields.io/npm/v/semver-checks.svg)](https://www.npmjs.com/package/semver-checks)
 [![CI](https://github.com/kyungseopk1m/semver-checks/actions/workflows/ci.yml/badge.svg)](https://github.com/kyungseopk1m/semver-checks/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Node.js Version](https://img.shields.io/badge/node-%3E%3D18.0.0-green.svg)](https://nodejs.org/)
+[![Node.js Version](https://img.shields.io/badge/node-%5E20.0.0%20%7C%7C%20%3E%3D22.0.0-green.svg)](https://nodejs.org/)
 
 # semver-checks
 
@@ -583,7 +583,7 @@ Yes. Point `--entry` at the package's entry file, or run the CLI from that packa
 
 ## Requirements
 
-- Node.js ≥ 18.0.0
+- Node.js `^20.0.0 || >=22.0.0` (Node 21 is excluded by a transitive dependency and is itself end of life)
 - For local path / git-ref inputs: a `tsconfig.json` and TypeScript source files (`.ts`/`.tsx`) in the analyzed project
 - For npm specs: nothing extra — the tarball's bundled `.d.ts` declarations are analyzed, and a `tsconfig.json` is synthesized if absent
 
