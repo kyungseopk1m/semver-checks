@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Interface method optionality is classified**: a method that goes from `m?(): void` to `m(): void` is now an `interface-property-became-required` MAJOR (every implementer must supply it, `TS2739`), and the reverse is an `interface-property-became-optional` MINOR. The property loop and the property/method cross-form reconciliation both compared optionality already; a member that reached only the method loop was a silent `patch`. Both kinds are reused as-is, so the change adds no new `ChangeKind`. **Interfaces only** — a class method's optionality is not extracted, so `declare class C { m?(): void }` becoming `m(): void` remains undetected.
 - **Deprecated-compiler-option diagnostics no longer raise the incomplete-snapshot alarm**: TypeScript grades a deprecated compiler *option* as an Error (5101, 5107), and since TypeScript 6.0 that fires on the perfectly ordinary `"moduleResolution": "node"`, `target: es5`, and `module: umd` that thousands of published tsconfigs still carry. Those two codes are filtered out; every diagnostic that says something about whether the declarations actually parsed still surfaces the warning.
 
 ### Breaking

@@ -401,6 +401,35 @@ describe('rest modifier changes', () => {
   });
 });
 
+describe('interface method optionality changes', () => {
+  // A method-shaped member never reaches the property loop or the cross-form
+  // reconciliation, so without an explicit optionality comparison in the method
+  // loop this transition was a silent patch.
+  it('detects optional-to-required method as MAJOR', () => {
+    const report = compareFixture('interface-method-became-required');
+    // Exactly one: a method-shaped member must not also be picked up by the property
+    // or cross-form loop and reported twice.
+    const matches = report.changes.filter(
+      (c) => c.kind === 'interface-property-became-required' && c.symbolPath === 'Handler.onEvent',
+    );
+    expect(matches).toHaveLength(1);
+    const change = matches[0];
+    expect(change?.severity).toBe('major');
+    expect(report.recommended).toBe('major');
+  });
+
+  it('detects required-to-optional method as MINOR', () => {
+    const report = compareFixture('interface-method-became-optional');
+    const matches = report.changes.filter(
+      (c) => c.kind === 'interface-property-became-optional' && c.symbolPath === 'Handler.onEvent',
+    );
+    expect(matches).toHaveLength(1);
+    const change = matches[0];
+    expect(change?.severity).toBe('minor');
+    expect(report.recommended).toBe('minor');
+  });
+});
+
 describe('interface property optionality changes', () => {
   it('detects optional-to-required property as MAJOR', () => {
     const report = compareFixture('interface-property-optional-to-required');

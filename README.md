@@ -264,7 +264,7 @@ console.log(Object.keys(snapshot.entrypoints["."])); // root entry's symbol name
 | `property-removed`                      | An interface property was removed                         |
 | `required-property-added`               | A required property was added to an interface             |
 | `property-type-changed`                 | An interface property's type changed                      |
-| `interface-property-became-required`    | An optional interface property became required            |
+| `interface-property-became-required`    | An optional interface property or method became required  |
 | `interface-property-became-readonly`    | An interface property changed from mutable to readonly    |
 | `interface-method-removed`              | An interface method was removed                           |
 | `required-interface-method-added`       | A required interface method was added                     |
@@ -303,7 +303,7 @@ console.log(Object.keys(snapshot.entrypoints["."])); // root entry's symbol name
 | `optional-param-added`               | An optional parameter was added                                                         |
 | `optional-property-added`            | An optional property was added to an interface                                          |
 | `interface-method-added`             | An optional interface method was added                                                  |
-| `interface-property-became-optional` | A required interface property became optional                                           |
+| `interface-property-became-optional` | A required interface property or method became optional                                 |
 | `interface-property-became-mutable`  | An interface property changed from readonly to mutable                                  |
 | `enum-member-added`                  | An enum member was added                                                                |
 | `overload-added`                     | A function overload was added                                                           |

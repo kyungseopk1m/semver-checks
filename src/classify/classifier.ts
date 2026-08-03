@@ -1123,6 +1123,28 @@ function classifyInterfaceChanges(name: string, oldIf: ApiInterfaceSymbol, newIf
         newValue: String(newMethod.signatures.length),
       });
     }
+    // Optionality transitions, mirroring the property loop above. A method that
+    // becomes required forces every implementer of the interface to supply it
+    // (TS2739); becoming optional only relaxes the contract. The property loop and
+    // the cross-form loop both classify this, so a method-shaped member reaching
+    // only this loop would otherwise be a silent patch.
+    if (oldMethod.isOptional && !newMethod.isOptional) {
+      changes.push({
+        kind: 'interface-property-became-required',
+        severity: 'major',
+        symbolPath: `${name}.${methodName}`,
+        message: `Method '${methodName}' became required in interface '${name}'`,
+      });
+    }
+    if (!oldMethod.isOptional && newMethod.isOptional) {
+      changes.push({
+        kind: 'interface-property-became-optional',
+        severity: 'minor',
+        symbolPath: `${name}.${methodName}`,
+        message: `Method '${methodName}' became optional in interface '${name}'`,
+      });
+    }
+
     const pairCount = Math.min(oldMethod.signatures.length, newMethod.signatures.length);
     const allSigChanges: ApiChange[] = [];
     for (let i = 0; i < pairCount; i++) {
