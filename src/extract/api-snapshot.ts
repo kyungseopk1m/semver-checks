@@ -69,9 +69,14 @@ export interface ApiInterfaceSymbol {
   indexSignatures?: ApiIndexSignature[];
   // `extends` heritage clause text(s), e.g. `["Base", "Other<T>"]`. Inherited
   // members are not flattened into `properties`/`methods`, so this records that
-  // the interface's full shape is larger than its own members — consumed when
-  // deciding whether a type-alias <-> interface conversion is truly shape-equal.
-  // Optional for backward compatibility with snapshots produced before 0.6.1.
+  // the interface's full shape is larger than its own members. Two consumers:
+  // deciding whether a type-alias <-> interface conversion is truly shape-equal,
+  // and diffing the clause itself (a dropped or swapped base moves no own-member).
+  // Checker-resolved text, like every other type text here, so it is already
+  // canonical; `heritageComparisonKey` in the classifier adds only what is specific
+  // to a list of bases (set semantics and the container's alpha-rename).
+  // Optional for backward compatibility with snapshots produced before 0.6.1;
+  // absent is "unknown", not "no bases", and the diff skips the comparison.
   heritage?: string[];
 }
 

@@ -52,6 +52,7 @@ export type ChangeKind =
   | 'interface-call-signature-changed'
   | 'interface-construct-signature-changed'
   | 'index-signature-changed'
+  | 'interface-heritage-changed'
   // MINOR
   | 'entrypoint-added'
   | 'generic-param-default-added'

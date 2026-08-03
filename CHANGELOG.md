@@ -7,15 +7,23 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - **Interface method optionality is classified**: a method that goes from `m?(): void` to `m(): void` is now an `interface-property-became-required` MAJOR (every implementer must supply it, `TS2739`), and the reverse is an `interface-property-became-optional` MINOR. The property loop and the property/method cross-form reconciliation both compared optionality already; a member that reached only the method loop was a silent `patch`. Both kinds are reused as-is, so the change adds no new `ChangeKind`. **Interfaces only** — a class method's optionality is not extracted, so `declare class C { m?(): void }` becoming `m(): void` remains undetected.
+- **`interface-heritage-changed`**: a dropped, added, or swapped `extends` base is reported as a review-only (`heuristic`) MAJOR. Inherited members are not flattened into the interface's own members, so `interface C extends B {}` becoming `interface C {}` changes the real shape without moving a single own-member and was previously reported as no change at all. Graded `heuristic` because the clause text alone does not resolve the direction: removing a base breaks consumers, adding one breaks implementers. A base is resolved through the compiler like every other type in a snapshot, so reformatting, reordering independent bases, alpha-renaming the container's type parameters, listing the same base twice, and rewriting a base's type arguments into an equivalent spelling (`Base<string[]>` vs `Base<Array<string>>`, a reordered union, a generic default written out) are all no-ops. **Interfaces only** — a class's `extends` clause is still not extracted, so changing one remains undetected.
 - **Deprecated-compiler-option diagnostics no longer raise the incomplete-snapshot alarm**: TypeScript grades a deprecated compiler *option* as an Error (5101, 5107), and since TypeScript 6.0 that fires on the perfectly ordinary `"moduleResolution": "node"`, `target: es5`, and `module: umd` that thousands of published tsconfigs still carry. Those two codes are filtered out; every diagnostic that says something about whether the declarations actually parsed still surfaces the warning.
 
 ### Breaking
 
+- **`ChangeKind` gains `interface-heritage-changed`**: additive for code that reads a report, breaking for code that exhaustively switches over the union or narrows it in a type position.
 - **`engines.node` is `^20.0.0 || >=22.0.0`** (was `>=18.0.0`): the declared range was not true of the installed tree. `ts-morph` 28 pulls in `brace-expansion@5.0.8`, whose own `engines.node` is `20 || >=22`, so an install on Node 18, 19, or 21 warned `EBADENGINE` and failed outright under `engine-strict`. The new range is that constraint exactly, not a rounded-off `>=20`: Node 21 really is excluded, and a declared range that is nearly true is the thing this release is fixing. Node 18 reached end of life in April 2025 and Node 21 in June 2024, so no supported runtime is dropped.
 
 ### Fixed
 
 - **ts-morph 24 to 28** (bundled TypeScript 5.6.2 to 6.0.2): no source change was required and the accuracy scorecard is unchanged row for row. The parser now understands the syntax added through TypeScript 6.0.
+
+### New `ChangeKind` values
+
+| Kind                         | Severity | Description                             |
+| ---------------------------- | -------- | --------------------------------------- |
+| `interface-heritage-changed` | MAJOR    | An interface's `extends` clause changed |
 
 ## [0.7.0] - 2026-06-27
 

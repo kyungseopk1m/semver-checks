@@ -888,6 +888,24 @@ function renameForSignature(
   return combineRenames(containerRename, null, new Set(sig.typeParameters.map((tp) => tp.name)));
 }
 
+// Heritage clause text arrives canonical: the extractor resolves it through the
+// checker rather than slicing source, so author formatting and the equivalent
+// spellings of a type are already gone and no text rewriting belongs here. What is
+// left is what only a list of bases needs. Bases are compared as a set, because
+// listing one twice is the same shape as listing it once and a pure reorder of
+// independent bases changes nothing, and the new side is alpha-renamed onto the old
+// container's scope so `C<T> extends Base<T>` and `C<S> extends Base<S>` agree.
+//
+// Class heritage, when it is extracted, should share this helper and must go through
+// `serializeType` at extraction rather than re-deriving a raw-text comparison.
+function heritageComparisonKey(list: string[], rename: Map<string, string> | null): string {
+  return [...new Set(list.map((h) => renameTypeText(h, rename)))].sort().join(', ');
+}
+
+function heritageDisplay(list: string[]): string {
+  return list.join(', ') || '(none)';
+}
+
 function classifyInterfaceChanges(name: string, oldIf: ApiInterfaceSymbol, newIf: ApiInterfaceSymbol): ApiChange[] {
   const changes: ApiChange[] = [];
   // Container-level rename so a generic-only rewrite (`interface Box<T>` vs
@@ -1222,6 +1240,35 @@ function classifyInterfaceChanges(name: string, oldIf: ApiInterfaceSymbol, newIf
       newValue: newIndex.join(' | ') || '(none)',
       confidence: 'heuristic',
     });
+  }
+
+  // Heritage (`extends Base, Other`). Inherited members are NOT flattened into
+  // `properties`/`methods`, so dropping or swapping a base changes the interface's
+  // real shape without moving a single own-member — a silent patch otherwise.
+  // See `heritageComparisonKey` for what counts as a difference.
+  //
+  // Both sides must actually carry the field. It is optional for backward
+  // compatibility with snapshots written before it existed, and `diff` is a public
+  // export fed by persisted `semver_snapshot` output — reading an absent field as
+  // "no bases" would report a removed heritage clause for every interface that has
+  // one, on every comparison against such a snapshot.
+  if (oldIf.heritage !== undefined && newIf.heritage !== undefined) {
+    const oldKey = heritageComparisonKey(oldIf.heritage, null);
+    const newKey = heritageComparisonKey(newIf.heritage, containerRename);
+    if (oldKey !== newKey) {
+      changes.push({
+        kind: 'interface-heritage-changed',
+        severity: 'major',
+        symbolPath: name,
+        message: `Heritage clause of interface '${name}' changed`,
+        oldValue: heritageDisplay(oldIf.heritage),
+        newValue: heritageDisplay(newIf.heritage),
+        // A bare clause-text difference: removing a base breaks consumers, adding one
+        // breaks implementers, and a swap could be either. Nothing here resolves the
+        // direction, so the major is review-only per the graded-confidence contract.
+        confidence: 'heuristic',
+      });
+    }
   }
 
   // Generic param changes

@@ -430,6 +430,111 @@ describe('interface method optionality changes', () => {
   });
 });
 
+describe('interface heritage changes', () => {
+  // Inherited members are not flattened into properties/methods, so a dropped
+  // `extends` clause moves no own-member and would otherwise report nothing.
+  it('detects a removed extends clause as MAJOR (review-only)', () => {
+    const report = compareFixture('interface-heritage-removed');
+    const change = report.changes.find(
+      (c) => c.kind === 'interface-heritage-changed' && c.symbolPath === 'Node',
+    );
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('major');
+    expect(change?.confidence).toBe('heuristic');
+    expect(change?.oldValue).toBe('Base');
+    expect(change?.newValue).toBe('(none)');
+    expect(report.recommended).toBe('major');
+  });
+
+  it('does not fire on an interface that never had a heritage clause', () => {
+    const report = compareFixture('interface-heritage-removed');
+    expect(report.changes.some((c) => c.kind === 'interface-heritage-changed' && c.symbolPath === 'Base')).toBe(false);
+  });
+
+  // Canonicalization is the whole reason this classification is safe to ship, and it
+  // runs on two axes. The syntactic one bites in practice: `compare pkg@latest .` puts
+  // compiler-printed `.d.ts` on one side and hand-written source on the other, so a
+  // reformat is all it takes. The semantic one is what makes heritage behave like
+  // every other type position instead of like a text field: `Unioned`, `Arrayed` and
+  // `Defaulting` are the spellings a syntactic printer alone still reads as a swapped
+  // base.
+  it('does not fire on formatting, ordering, alpha-renaming, a duplicated base, or an equivalent spelling', () => {
+    const report = compareFixture('interface-heritage-noop');
+    // Assert the premise. An empty `changes` filter is also what a fixture that lost
+    // its `extends` clauses would produce, and the assertion would then be inert.
+    const oldSnap = extractFromPath(fixtureDir('interface-heritage-noop', 'old'), 'index.ts');
+    const withBases = Object.entries(oldSnap.entrypoints['.'])
+      .filter(([, symbol]) => ((symbol as { heritage?: string[] }).heritage?.length ?? 0) > 0)
+      .map(([symbolName]) => symbolName);
+    expect(withBases).toEqual([
+      'Reformatted',
+      'Reordered',
+      'Renamed',
+      'Duplicated',
+      'Quoted',
+      'Interpolated',
+      'Unioned',
+      'Arrayed',
+      'Defaulting',
+    ]);
+    expect(report.changes.filter((c) => c.kind === 'interface-heritage-changed')).toEqual([]);
+  });
+
+  // The other edge of the same canonicalization: spacing inside a string literal type
+  // is part of the type. These three are what a naive quote-splitting normalizer
+  // swallows — a plain literal, one with an escaped quote, and a backtick holding a
+  // bare `"`. The distinction survives only as far as it does anywhere else in a
+  // snapshot: a run of whitespace inside the literal is squeezed by
+  // `normalizeTypeText`, so `"a,  b"` and `"a, b"` compare equal here exactly as they
+  // do in a property annotation.
+  it('fires when only the whitespace inside a string literal type argument differs', () => {
+    const report = compareFixture('interface-heritage-string-literal');
+    const fired = report.changes
+      .filter((c) => c.kind === 'interface-heritage-changed')
+      .map((c) => c.symbolPath)
+      .sort();
+    expect(fired).toEqual(['Backtick', 'Escaped', 'Tagged']);
+    expect(report.recommended).toBe('major');
+  });
+
+  // `heritage` is optional for backward compatibility and `diff` is a public export
+  // fed by persisted `semver_snapshot` output, so one side can genuinely lack the
+  // field. Reading absent as "no bases" would report a removed clause for every
+  // interface that has one. No fixture can reach this state, because the extractor
+  // always writes the array, so the snapshot is edited directly.
+  describe('against a snapshot that predates the field', () => {
+    function snapshot(strip: boolean) {
+      const dir = fixtureDir('interface-heritage-removed', 'old');
+      ensureFixtureTsConfig(dir);
+      const snap = extractFromPath(dir, 'index.ts');
+      if (strip) {
+        for (const symbol of Object.values(snap.entrypoints['.'])) {
+          delete (symbol as { heritage?: string[] }).heritage;
+        }
+      }
+      return snap;
+    }
+
+    it('stays silent when the old side has no heritage field', () => {
+      const report = diff(snapshot(true), snapshot(false));
+      expect(report.changes.filter((c) => c.kind === 'interface-heritage-changed')).toEqual([]);
+    });
+
+    it('stays silent when the new side has no heritage field', () => {
+      const report = diff(snapshot(false), snapshot(true));
+      expect(report.changes.filter((c) => c.kind === 'interface-heritage-changed')).toEqual([]);
+    });
+
+    it('has a live comparison to suppress in the first place', () => {
+      // The premise of both: `Node extends Base` is present, so dropping the field on
+      // either side is a difference the classifier would otherwise report.
+      const snap = snapshot(false);
+      expect((snap.entrypoints['.']['Node'] as { heritage?: string[] }).heritage).toEqual(['Base']);
+      expect(diff(snapshot(true), snapshot(true)).changes).toEqual([]);
+    });
+  });
+});
+
 describe('interface property optionality changes', () => {
   it('detects optional-to-required property as MAJOR', () => {
     const report = compareFixture('interface-property-optional-to-required');

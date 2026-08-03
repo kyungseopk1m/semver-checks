@@ -857,7 +857,20 @@ function convertInterface(name: string, node: Node): ApiInterfaceSymbol {
   // `properties`/`methods`, so record the clause text. A type-alias <-> interface
   // conversion can't be proven shape-equal from own members alone when the
   // interface inherits a base (the base may add required members).
-  const heritage = node.getExtends().map((e) => e.getText());
+  // Resolve the clause through the checker rather than slicing its source text, the
+  // same path every other type text in a snapshot takes. Raw source would put author
+  // formatting into the comparison, and `compare pkg@latest .` has printer-emitted
+  // `.d.ts` on one side and hand-written source on the other. Syntactic printing fixes
+  // that much but leaves heritage as the one position in the codebase where the
+  // checker's normalizations do not apply: `Base<string | number>` vs
+  // `Base<number | string>`, `Base<string[]>` vs `Base<Array<string>>` and an
+  // explicitly-written generic default are the same type everywhere else and would
+  // read as a swapped base here. A string literal type argument still carries its own
+  // spacing, to the same extent it does anywhere else in a snapshot: `"a, b"` and
+  // `"a,b"` stay distinct, while a run of whitespace inside the literal collapses,
+  // because `normalizeTypeText` squeezes runs everywhere and a property annotation
+  // loses that distinction too.
+  const heritage = node.getExtends().map((e) => serializeType(e.getType(), node, e).text);
 
   return {
     kind: 'interface',
