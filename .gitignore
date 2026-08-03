@@ -3,3 +3,6 @@ dist/
 coverage/
 *.tgz
 .DS_Store
+
+# Local agent state, never part of the package
+.omc/
