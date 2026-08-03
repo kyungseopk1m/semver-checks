@@ -26,6 +26,10 @@ All notable changes to this project will be documented in this file.
 | ---------------------------- | -------- | --------------------------------------- |
 | `interface-heritage-changed` | MAJOR    | An interface's `extends` clause changed |
 
+### Changed
+
+- **The dogfood CI step no longer swallows its own failures**: `continue-on-error: true` is removed from the self-check. It deliberately runs without `--strict` — this repo does ship majors, and gating on them would block every pull request on a major-prep branch — so the only non-zero exit it can produce is a crash, an unresolvable entry, or a registry failure. The step is a real canary on the tool's own public API now rather than an unread log line.
+
 ## [0.7.0] - 2026-06-27
 
 This release makes the gate trustworthy enough to leave on in CI. Every breaking change now carries a **confidence** — `proven` (a structural fact or a resolved type relation) or `heuristic` (a conservative MAJOR the analyzer could not prove safe) — and `--strict` gates on `proven` only. The equivalence-preserving rewrites and input-union widenings that made text-based type-semver tools cry wolf now land in `heuristic`, off the default gate, while real under-bumps stay `proven` and on it. It also lands the entry-resolution and diagnostics work accumulated since 0.6.1, plus a reproducible accuracy probe. The full regression battery stays green; no breaking-change detection was weakened.
