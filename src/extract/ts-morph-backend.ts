@@ -1,4 +1,4 @@
-import { Project, Type, Node, SyntaxKind, DiagnosticCategory } from 'ts-morph';
+import { Project, Type, Node, SyntaxKind, DiagnosticCategory, ts } from 'ts-morph';
 import type { SourceFile, ModuleDeclaration } from 'ts-morph';
 import path from 'path';
 import fs from 'fs';
@@ -39,6 +39,13 @@ import type {
 // option) and 5109/5110 (module / moduleResolution mismatch) are equally file-less
 // and DO signal broken resolution, so they must keep reaching the warning.
 const DEPRECATED_OPTION_CODES = new Set([5101, 5107]);
+
+// Reused across the whole extraction: creating a printer per node is pure overhead.
+const TYPE_NODE_PRINTER = ts.createPrinter({ removeComments: true });
+
+function printTypeNode(node: Node): string {
+  return TYPE_NODE_PRINTER.printNode(ts.EmitHint.Unspecified, node.compilerNode, node.getSourceFile().compilerNode);
+}
 
 export function extractFromPath(projectPath: string, entry?: string | string[]): ApiSnapshot {
   const project = new Project({
@@ -635,7 +642,13 @@ function serializeType(type: Type, contextNode: Node, annotationNode?: Node): Se
   const computed = normalizeTypeText(type.getText(contextNode));
   if (annotationNode) {
     const intrinsic = (type.compilerType as { intrinsicName?: string }).intrinsicName;
-    const source = normalizeTypeText(annotationNode.getText());
+    // Print the annotation rather than slicing its source. This is the one place a
+    // snapshot can end up holding text the checker did not produce, and slicing put
+    // author formatting into it: `M<string,number>` and `M< string, number >` are the
+    // same unresolvable type but differ as characters, and `normalizeTypeText` only
+    // collapses runs of whitespace, so the space after a comma survives and reads as
+    // a changed type. `normalizeTypeText` still runs, for the `import("...")` strip.
+    const source = normalizeTypeText(printTypeNode(annotationNode));
     // `error` intrinsic catches the top-level case; a higher `any` count in the
     // computed text catches a collapsed `any` that leaked in from a nested
     // unresolved symbol, even when the source already has a genuine `any` field.

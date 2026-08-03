@@ -497,6 +497,28 @@ describe('interface heritage changes', () => {
     expect(report.recommended).toBe('major');
   });
 
+  // An unresolvable base is the one path where the snapshot holds text the checker did
+  // not produce, and it is reachable in ordinary use: `compare pkg@latest .` analyzes a
+  // published tarball whose peer/optional types are simply not installed. The fallback
+  // has to print the clause rather than slice it, or the formatting axis this
+  // classification depends on reopens for exactly the packages hardest to analyze. It
+  // also still has to tell two different unresolvable bases apart, which is why the
+  // fallback exists at all rather than letting both collapse to `any`.
+  it('separates reformatting from a real swap when the base is unresolvable', () => {
+    const report = compareFixture('interface-heritage-unresolved-base');
+    const fired = report.changes.filter((c) => c.kind === 'interface-heritage-changed');
+    expect(fired.map((c) => c.symbolPath)).toEqual(['Swapped']);
+    expect(fired[0]?.oldValue).toBe('MissingA');
+    expect(fired[0]?.newValue).toBe('MissingB');
+
+    // Assert the premise: the bases really are unresolvable, so the fallback ran. If
+    // the fixture ever resolves, this test silently stops covering the fallback.
+    const snap = extractFromPath(fixtureDir('interface-heritage-unresolved-base', 'old'), 'index.ts');
+    expect((snap.entrypoints['.']['Node'] as { heritage?: string[] }).heritage).toEqual([
+      'Missing<string, number>',
+    ]);
+  });
+
   // `heritage` is optional for backward compatibility and `diff` is a public export
   // fed by persisted `semver_snapshot` output, so one side can genuinely lack the
   // field. Reading absent as "no bases" would report a removed clause for every

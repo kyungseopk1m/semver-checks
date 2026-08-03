@@ -18,6 +18,7 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 
 - **ts-morph 24 to 28** (bundled TypeScript 5.6.2 to 6.0.2): no source change was required and the accuracy scorecard is unchanged row for row. The parser now understands the syntax added through TypeScript 6.0.
+- **Reformatting an unresolved type is no longer a change**: when a type can't be resolved, extraction falls back to the source annotation (0.7.0) so two different unresolved types stay distinguishable. That fallback sliced the characters out of the file, which put author formatting into the comparison — `M<string,number>` and `M< string, number >` are the same unresolvable type but compared as different, and whitespace normalization only squeezes runs, so the space after a comma survived. The annotation is printed through the compiler now. Two different unresolved types still compare as different; only the formatting axis is removed. This is most visible on `compare pkg@latest .`, where a published tarball's peer or optional types are simply not installed.
 
 ### New `ChangeKind` values
 
