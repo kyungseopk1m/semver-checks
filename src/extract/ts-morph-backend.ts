@@ -925,6 +925,14 @@ function convertTypeAlias(name: string, node: Node): ApiTypeAliasSymbol {
 
 function convertEnum(name: string, node: Node): ApiEnumSymbol {
   if (!Node.isEnumDeclaration(node)) return { kind: 'enum', name, members: [] };
+  // `getValue()` is undefined for a member whose value the compiler does not treat as
+  // a constant. That is not a gap to fill in: in an ambient enum (`declare enum`) a
+  // member written without an initializer is a *computed* member, so the declaration
+  // asserts no numeric value for it at all — `declare enum E { A }` does not promise
+  // `E.A === 0`, and assigning it to `0` is a TS2322. Auto-numbering it here would
+  // invent facts the declaration never stated. Declaration emit writes the values out
+  // explicitly (`export enum E { A, B }` emits `declare enum E { A = 0, B = 1 }`), so
+  // a published surface carries them and they resolve through `getValue()` normally.
   const members: ApiEnumMember[] = node.getMembers().map((m) => {
     const rawValue = m.getValue();
     return {
