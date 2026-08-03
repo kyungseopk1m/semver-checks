@@ -1,0 +1,10 @@
+{
+  "name": "dual-surface-prefers-dts",
+  "version": "1.0.0",
+  "exports": {
+    ".": {
+      "import": { "types": "./esm.d.mts", "default": "./esm.mjs" },
+      "require": { "types": "./index.d.ts", "default": "./index.cjs" }
+    }
+  }
+}

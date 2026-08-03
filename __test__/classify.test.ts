@@ -1237,6 +1237,17 @@ describe('exports map / multiple entrypoints', () => {
     expect(report.recommended).toBe('major');
   });
 
+  it('analyzes the .d.ts surface when a package ships both .d.ts and .d.mts', () => {
+    // Which declaration file wins decides the whole analysis for a dual-format
+    // package: the other surface is not analyzed at all, so a break confined to it
+    // is missed (see the FAQ). The `.d.ts`-first ordering is deliberate — the
+    // default tsconfig include always loads `.d.ts`, whereas `.d.mts` loading
+    // depends on the include globs — and nothing else pins it.
+    const snap = extractFromPath(fixtureDir('dual-surface-prefers-dts', 'old'));
+    expect(Object.keys(snap.entrypoints)).toEqual(['.']);
+    expect(Object.keys(snap.entrypoints['.'])).toEqual(['fromCjsSurface']);
+  });
+
   it('keeps single-entry fixtures working through entrypoints[\'.\']', () => {
     // Regression guard: a fixture with no exports map still resolves to '.'.
     const oldSnap = extractFromPath(fixtureDir('export-added', 'old'), 'index.ts');
