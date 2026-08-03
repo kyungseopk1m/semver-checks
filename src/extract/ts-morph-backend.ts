@@ -22,6 +22,24 @@ import type {
   SerializedType,
 } from './api-snapshot.js';
 
+// TypeScript grades a deprecated *compiler option* as an Error: 5101 "Option X is
+// deprecated" and 5107 "Option 'moduleResolution=node10' is deprecated". Since TS 6.0
+// those fire on the perfectly ordinary `"moduleResolution": "node"` (and `target: es5`,
+// `module: umd`, ...) that thousands of published tsconfigs still carry. Neither says
+// anything about whether the declarations parsed, so surfacing them as "the API
+// snapshot may be incomplete" is a false alarm.
+//
+// Deliberately NOT listed: 5102 / 5108, the "has been removed" successors. 5107's own
+// text says the option "will stop functioning in TypeScript 7.0" — at which point the
+// option really is gone and resolution really can be broken, so that diagnostic should
+// reach the warning rather than having been pre-silenced here. Add them only against a
+// reproduction showing the snapshot is fine.
+//
+// Filtering by code rather than by "has no source file" is deliberate: 5023 (unknown
+// option) and 5109/5110 (module / moduleResolution mismatch) are equally file-less
+// and DO signal broken resolution, so they must keep reaching the warning.
+const DEPRECATED_OPTION_CODES = new Set([5101, 5107]);
+
 export function extractFromPath(projectPath: string, entry?: string | string[]): ApiSnapshot {
   const project = new Project({
     tsConfigFilePath: path.join(projectPath, 'tsconfig.json'),
@@ -31,7 +49,8 @@ export function extractFromPath(projectPath: string, entry?: string | string[]):
   // P1: Warn on TypeScript errors so users aren't silently misled by ts-morph's
   // error-recovery mode. Limit to 5 messages to avoid flooding stderr.
   const diagnostics = project.getPreEmitDiagnostics()
-    .filter((d) => d.getCategory() === DiagnosticCategory.Error);
+    .filter((d) => d.getCategory() === DiagnosticCategory.Error)
+    .filter((d) => !DEPRECATED_OPTION_CODES.has(d.getCode()));
   if (diagnostics.length > 0) {
     const msgs = diagnostics.slice(0, 5).map((d) => {
       const file = d.getSourceFile()?.getFilePath() ?? 'unknown';

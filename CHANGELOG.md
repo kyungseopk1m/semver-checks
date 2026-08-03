@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Deprecated-compiler-option diagnostics no longer raise the incomplete-snapshot alarm**: TypeScript grades a deprecated compiler *option* as an Error (5101, 5107), and since TypeScript 6.0 that fires on the perfectly ordinary `"moduleResolution": "node"`, `target: es5`, and `module: umd` that thousands of published tsconfigs still carry. Those two codes are filtered out; every diagnostic that says something about whether the declarations actually parsed still surfaces the warning.
+
 ### Breaking
 
 - **`engines.node` is `^20.0.0 || >=22.0.0`** (was `>=18.0.0`): the declared range was not true of the installed tree. `ts-morph` 28 pulls in `brace-expansion@5.0.8`, whose own `engines.node` is `20 || >=22`, so an install on Node 18, 19, or 21 warned `EBADENGINE` and failed outright under `engine-strict`. The new range is that constraint exactly, not a rounded-off `>=20`: Node 21 really is excluded, and a declared range that is nearly true is the thing this release is fixing. Node 18 reached end of life in April 2025 and Node 21 in June 2024, so no supported runtime is dropped.

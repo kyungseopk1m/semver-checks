@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -1289,5 +1289,46 @@ describe('graded confidence', () => {
     const report = compareFixture('method-overload-to-intersection-property-noop');
     expect(report.changes).toHaveLength(0);
     expect(report.recommended).toBe('patch');
+  });
+});
+
+describe('TypeScript diagnostic reporting', () => {
+  // ts-morph analyzes in error-recovery mode, so a project that does not type-check
+  // still yields a snapshot — just a possibly incomplete one. The stderr warning is
+  // the only thing standing between that and a silent under-report (it is what
+  // surfaces an unparseable `.d.ts`, e.g. `import defer` on an older parser).
+  function stderrDuringExtract(fixture: string, side: 'old' | 'new', entry?: string): string {
+    const dir = fixtureDir(fixture, side);
+    ensureFixtureTsConfig(dir);
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      extractFromPath(dir, entry);
+      return spy.mock.calls.map((c) => String(c[0])).join('');
+    } finally {
+      spy.mockRestore();
+    }
+  }
+
+  it('warns on stderr when the analyzed project has TypeScript errors', () => {
+    const written = stderrDuringExtract('unresolved-type-unchanged', 'old', 'index.ts');
+    expect(written).toContain('TypeScript error(s) in the analyzed project');
+    expect(written).toContain('can under-report breaking changes');
+  });
+
+  it('stays silent on a clean project', () => {
+    // Guards the deprecated-compiler-option filter: the fixture tsconfig uses
+    // `moduleResolution: node`, which TypeScript >= 6.0 reports as an *Error*
+    // (TS5107) even though nothing about the declarations is wrong. Without the
+    // filter this fires the "snapshot may be incomplete" alarm on every ordinary
+    // package that still carries a node10 tsconfig.
+    //
+    // Assert the precondition rather than trusting it: this test goes quietly
+    // vacuous the moment someone modernizes the shared fixture template, and the
+    // template is shared by every fixture in this suite.
+    const template = JSON.parse(fs.readFileSync(path.join(FIXTURES, 'tsconfig.fixture.json'), 'utf8'));
+    expect(template.compilerOptions.moduleResolution).toBe('node');
+
+    const written = stderrDuringExtract('export-added', 'old', 'index.ts');
+    expect(written).toBe('');
   });
 });
