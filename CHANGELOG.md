@@ -2,7 +2,9 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [0.8.0] - 2026-08-04
+
+This release closes what the analyzer was silently missing on interface declarations, and stops a formatting-only difference from reading as a break. A method whose optionality flips and an `extends` clause that gains, loses or swaps a base were each reported as no change at all; both are classified now, and both resolve their types through the checker rather than through source text, which is what keeps a reformat from counting as a swapped base. The same correction reaches the unresolved-type fallback 0.7.0 shipped, where slicing the annotation out of the file made `M<string,number>` and `M< string, number >` compare as different types. `engines.node` moves with ts-morph 28 and now states the installed tree's real constraint rather than a range that had stopped being true. The accuracy scorecard is unchanged row for row and the regression battery stays green.
 
 ### Added
 
@@ -376,6 +378,7 @@ Initial release.
 
 ---
 
+[0.8.0]: https://github.com/kyungseopk1m/semver-checks/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/kyungseopk1m/semver-checks/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/kyungseopk1m/semver-checks/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/kyungseopk1m/semver-checks/compare/v0.5.0...v0.6.0
