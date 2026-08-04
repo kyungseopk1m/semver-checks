@@ -10,15 +10,30 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
+    strategy:
+      # One failing version must not hide the others: which ones broke is the
+      # whole signal here.
+      fail-fast: false
+      matrix:
+        # engines.node is "^20.0.0 || >=22.0.0", so this covers its lower bound
+        # and the current LTS lines. 21 is absent on purpose: engines excludes it
+        # (a transitive dependency does too) and it is end of life.
+        node-version: ['20', '22', '24']
+
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
 
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
         with:
-          node-version: '22'
+          node-version: ${{ matrix.node-version }}
 
+      # --engine-strict is what makes the matrix a contract test rather than a
+      # smoke test. Without it npm downgrades an engines mismatch to an
+      # EBADENGINE warning and installs anyway, so a declared range that no
+      # longer matches the tree (which is exactly what 0.8.0 had to correct)
+      # would pass all three legs unnoticed.
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --engine-strict
 
       - name: Run tests
         run: npm test
@@ -26,7 +41,10 @@ jobs:
       - name: Build
         run: npm run build
 
+      # Node-independent, and pinned to the version publish.yml uses so the
+      # packaging check runs where the package is actually built for release.
       - name: Package quality check
+        if: matrix.node-version == '22'
         run: npm run check
 
       # Dogfood: run semver-checks on itself against the last published release.
@@ -35,6 +53,9 @@ jobs:
       # non-zero exit is 2 — a crash, an unresolvable entry, or a registry failure
       # — so the step is a real crash canary on the tool's own public API rather
       # than a bump gate. It does not, and should not, prevent a legitimate MAJOR.
+      # One version only: it downloads the published tarball from the registry,
+      # and running that once per matrix leg buys nothing but flakiness.
       - name: Dogfood (self semver check)
+        if: matrix.node-version == '22'
         timeout-minutes: 5
         run: node bin/semver-checks.js compare semver-checks@latest .
