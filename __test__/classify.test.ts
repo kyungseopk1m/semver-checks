@@ -352,6 +352,71 @@ describe('overload changes', () => {
     expect(change).toBeDefined();
     expect(report.recommended).toBe('major');
   });
+
+  // TypeScript resolves an overloaded call against the FIRST matching
+  // signature in declaration order, and ReturnType<T> resolves against the
+  // LAST signature, so reordering overloads is a breaking change even though
+  // each signature's text is unchanged. Do not "fix" this to a no-op again;
+  // see semver-checks history for the disjoint-overload consumer repro.
+  it('detects a pure overload reorder as MAJOR (declaration order changes call resolution)', () => {
+    const report = compareFixture('overload-reorder-is-major');
+    // A pure reorder is compared position-by-position, so each overload is
+    // diffed against the swapped-in sibling at its old slot: both surface as a
+    // param type change plus its matching return type change.
+    expect(report.changes.filter((c) => c.kind === 'param-type-changed' && c.symbolPath === 'parse.input')).toHaveLength(2);
+    expect(report.changes.filter((c) => c.kind === 'return-type-changed' && c.symbolPath === 'parse')).toHaveLength(2);
+    expect(report.changes).toHaveLength(4);
+    expect(report.recommended).toBe('major');
+  });
+
+  it('detects a pure interface method overload reorder as MAJOR (declaration order changes call resolution)', () => {
+    const report = compareFixture('interface-method-overload-reorder-is-major');
+    expect(report.changes.filter((c) => c.kind === 'interface-method-signature-changed' && c.symbolPath === 'Parser.parse')).toHaveLength(1);
+    expect(report.changes.filter((c) => c.kind === 'param-type-changed' && c.symbolPath === 'Parser.parse.input')).toHaveLength(2);
+    expect(report.changes.filter((c) => c.kind === 'return-type-changed' && c.symbolPath === 'Parser.parse')).toHaveLength(2);
+    expect(report.changes).toHaveLength(5);
+    expect(report.recommended).toBe('major');
+  });
+
+  // The disjoint case above (string/number) only changes ReturnType<T>: a call
+  // with a concrete argument still matches the same overload regardless of
+  // order. Here the parameter types overlap ('string' is assignable to
+  // 'unknown'), so a string argument resolves against whichever overload
+  // comes first, TypeScript's first-match rule actually picks a different
+  // overload (and a different return type) after the swap, not just its
+  // declared ReturnType<T>.
+  it('detects an overlapping-signature overload reorder as MAJOR (a concrete call resolves to a different overload)', () => {
+    const report = compareFixture('overload-reorder-overlapping-is-major');
+    expect(report.changes.filter((c) => c.kind === 'param-type-widened' && c.symbolPath === 'overlap.x')).toHaveLength(1);
+    expect(report.changes.filter((c) => c.kind === 'param-type-changed' && c.symbolPath === 'overlap.x')).toHaveLength(1);
+    expect(report.changes.filter((c) => c.kind === 'return-type-changed' && c.symbolPath === 'overlap')).toHaveLength(2);
+    expect(report.changes).toHaveLength(4);
+    expect(report.recommended).toBe('major');
+  });
+
+  // Regular .ts class methods can't exercise this: getMethods() returns only
+  // the merged implementation node, collapsing overloads to one signature (see
+  // "ambient constructor overload extraction" above for the same ts-morph
+  // quirk on constructors). An ambient `declare class` has no implementation
+  // node, so each overload stays its own node and a reorder is observable.
+  it('detects a class method overload reorder as MAJOR (ambient declaration, declaration order changes call resolution)', () => {
+    const report = compareFixture('class-method-overload-reorder-is-major');
+    expect(report.changes.filter((c) => c.kind === 'class-method-signature-changed' && c.symbolPath === 'Parser.parse')).toHaveLength(1);
+    expect(report.changes.filter((c) => c.kind === 'param-type-widened' && c.symbolPath === 'Parser.parse.x')).toHaveLength(1);
+    expect(report.changes.filter((c) => c.kind === 'param-type-changed' && c.symbolPath === 'Parser.parse.x')).toHaveLength(1);
+    expect(report.changes.filter((c) => c.kind === 'return-type-changed' && c.symbolPath === 'Parser.parse')).toHaveLength(2);
+    expect(report.changes).toHaveLength(5);
+    expect(report.recommended).toBe('major');
+  });
+
+  it('detects a constructor overload reorder as MAJOR (declaration order changes call resolution)', () => {
+    const report = compareFixture('class-constructor-overload-reorder-is-major');
+    expect(report.changes.filter((c) => c.kind === 'class-constructor-changed' && c.symbolPath === 'Widget.constructor')).toHaveLength(2);
+    expect(report.changes.filter((c) => c.kind === 'param-type-widened' && c.symbolPath === 'Widget.constructor.x')).toHaveLength(1);
+    expect(report.changes.filter((c) => c.kind === 'param-type-changed' && c.symbolPath === 'Widget.constructor.x')).toHaveLength(1);
+    expect(report.changes).toHaveLength(4);
+    expect(report.recommended).toBe('major');
+  });
 });
 
 describe('function-type variable edge cases', () => {
@@ -644,6 +709,302 @@ describe('constructor overload changes', () => {
   });
 });
 
+describe('constructor visibility changes', () => {
+  it('detects a constructor narrowed to private as MAJOR', () => {
+    const report = compareFixture('class-constructor-became-private');
+    const change = report.changes.find((c) => c.kind === 'class-constructor-visibility-narrowed' && c.symbolPath === 'Singleton.constructor');
+    expect(change).toBeDefined();
+    expect(change?.oldValue).toBe('public');
+    expect(change?.newValue).toBe('private');
+    expect(report.recommended).toBe('major');
+  });
+
+  it('detects a constructor narrowed to protected as MAJOR', () => {
+    const report = compareFixture('class-constructor-became-protected');
+    const change = report.changes.find((c) => c.kind === 'class-constructor-visibility-narrowed');
+    expect(change).toBeDefined();
+    expect(change?.newValue).toBe('protected');
+    expect(report.recommended).toBe('major');
+  });
+
+  it('detects a private constructor widened to public as MINOR, not breaking', () => {
+    const report = compareFixture('class-constructor-private-to-public');
+    const change = report.changes.find((c) => c.kind === 'class-constructor-visibility-widened');
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('minor');
+    expect(report.recommended).not.toBe('major');
+  });
+
+  it('detects a protected constructor widened to public as MINOR, not breaking', () => {
+    const report = compareFixture('class-constructor-protected-to-public');
+    const change = report.changes.find((c) => c.kind === 'class-constructor-visibility-widened');
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('minor');
+    expect(report.recommended).not.toBe('major');
+  });
+
+  it('treats private-to-protected as a widening (MINOR): protected is reachable from subclasses', () => {
+    const report = compareFixture('class-constructor-private-to-protected');
+    const change = report.changes.find((c) => c.kind === 'class-constructor-visibility-widened');
+    expect(change).toBeDefined();
+    expect(change?.oldValue).toBe('private');
+    expect(change?.newValue).toBe('protected');
+    expect(report.recommended).not.toBe('major');
+  });
+
+  it('treats protected-to-private as a narrowing (MAJOR): subclass call sites break', () => {
+    const report = compareFixture('class-constructor-protected-to-private');
+    const change = report.changes.find((c) => c.kind === 'class-constructor-visibility-narrowed');
+    expect(change).toBeDefined();
+    expect(change?.oldValue).toBe('protected');
+    expect(change?.newValue).toBe('private');
+    expect(report.recommended).toBe('major');
+  });
+
+  it('treats explicit `public constructor` and unmodified `constructor` as equivalent (no changes)', () => {
+    const report = compareFixture('class-constructor-explicit-public-noop');
+    expect(report.changes).toHaveLength(0);
+  });
+
+  it('detects the private-constructor-plus-static-factory pattern as MAJOR (previously under-reported as MINOR)', () => {
+    const report = compareFixture('class-constructor-private-with-static-create');
+    const change = report.changes.find((c) => c.kind === 'class-constructor-visibility-narrowed');
+    expect(change).toBeDefined();
+    expect(report.recommended).toBe('major');
+  });
+
+  it('detects an implicit (public) constructor replaced by an explicit private one as MAJOR', () => {
+    const report = compareFixture('class-constructor-implicit-to-private');
+    const change = report.changes.find((c) => c.kind === 'class-constructor-visibility-narrowed');
+    expect(change).toBeDefined();
+    expect(change?.oldValue).toBe('public');
+    expect(change?.newValue).toBe('private');
+    expect(report.recommended).toBe('major');
+  });
+
+  // A class with no explicit constructor AND a heritage clause (`extends`, in
+  // any form) has its real constructor inherited from a base we deliberately
+  // do not resolve (see hasHeritageClause / constructorUnknown in the
+  // extractor): reading the ancestor's declaration node directly can't account
+  // for the derived class's actual type arguments and has no node to read at
+  // all for a class-expression or mixin base. So `Derived` here is UNKNOWN on
+  // the old side (no explicit constructor, extends ProtectedBase) and known on
+  // the new side (explicit constructor) -- an asymmetric pair, which the
+  // classifier skips outright rather than emit a one-sided diff. `no changes`
+  // is the same expectation the old inheritance-resolving code produced, but
+  // for a different reason: this used to be a *proven* no-op (Derived's
+  // effective constructor really does match ProtectedBase's), it's now a
+  // silence born of not knowing, not of having checked.
+  it('skips the comparison when one side has no explicit constructor and a heritage clause (no changes)', () => {
+    const report = compareFixture('class-constructor-inherited-visibility-noop');
+    expect(report.changes).toHaveLength(0);
+  });
+
+  // An implicit constructor and an explicit `public constructor() {}` are
+  // identical from every external call site (`new Foo()` compiles either way),
+  // so neither direction should register as an overload added/removed. Neither
+  // fixture class has a heritage clause, so this is the *proven* no-op case
+  // (constructorUnknown is never set), unlike the inherited-* fixtures below.
+  it('treats no explicit constructor and an explicit public zero-arg constructor as equivalent (no changes)', () => {
+    const report = compareFixture('class-constructor-implicit-public-noop');
+    expect(report.changes).toHaveLength(0);
+  });
+
+  it('treats an explicit public zero-arg constructor and no explicit constructor as equivalent (no changes)', () => {
+    const report = compareFixture('class-constructor-explicit-to-implicit-noop');
+    expect(report.changes).toHaveLength(0);
+  });
+
+  // Same asymmetric-UNKNOWN shape as the visibility-noop case above, this time
+  // over the constructor signature: Derived has no explicit constructor on
+  // either side but Base's does differ (constructor 1 vs constructor 2 has a
+  // parameter). Old Derived is UNKNOWN either way (it extends Base with no
+  // explicit constructor on both sides), so this one is symmetric-UNKNOWN, not
+  // asymmetric -- included here because it exercises the same "no explicit
+  // constructor + extends" skip path from the signature-comparison side.
+  it('skips the comparison when one side has no explicit constructor and a heritage clause matching the base signature (no changes)', () => {
+    const report = compareFixture('class-constructor-inherited-signature-noop');
+    expect(report.changes).toHaveLength(0);
+  });
+
+  // Base's own constructor changes (value: string -> number); Derived has no
+  // explicit constructor on either side, so Derived is UNKNOWN both before and
+  // after and the classifier skips its comparison -- it does NOT walk up to
+  // Base to re-check Derived's effective signature (that inheritance-tracking
+  // is exactly what this release removed, see hasHeritageClause). Base itself
+  // has no heritage clause, so Base's own constructor is fully known and its
+  // change still surfaces normally.
+  it('reports the base class constructor change directly, without propagating it to a derived class with no explicit constructor', () => {
+    const report = compareFixture('class-constructor-inherited-signature-changed');
+    const baseChange = report.changes.find((c) => c.kind === 'class-constructor-changed' && c.symbolPath === 'Base.constructor');
+    expect(baseChange).toBeDefined();
+    expect(baseChange?.oldValue).toBe('value: string');
+    expect(baseChange?.newValue).toBe('value: number');
+    expect(report.changes.some((c) => c.symbolPath === 'Derived.constructor')).toBe(false);
+    expect(report.changes).toHaveLength(2); // class-constructor-changed + its param-type-changed sub-change
+    expect(report.recommended).toBe('major');
+  });
+
+  // Same shape through an extra layer: Root has no constructor and no
+  // heritage clause (known, implicit public); Mid has an explicit constructor
+  // and extends Root, so Mid is fully known and its own signature change
+  // (value: string -> number) surfaces directly; Leaf has no explicit
+  // constructor and extends Mid, so Leaf is UNKNOWN on both sides and its
+  // comparison is skipped -- it is not resolved through Mid.
+  it('reports the intermediate class constructor change directly, without propagating it to a derived class with no explicit constructor', () => {
+    const report = compareFixture('class-constructor-multi-level-inherited-signature-changed');
+    const midChange = report.changes.find((c) => c.kind === 'class-constructor-changed' && c.symbolPath === 'Mid.constructor');
+    expect(midChange).toBeDefined();
+    expect(midChange?.oldValue).toBe('value: string');
+    expect(midChange?.newValue).toBe('value: number');
+    expect(report.changes.some((c) => c.symbolPath === 'Leaf.constructor')).toBe(false);
+    expect(report.changes).toHaveLength(2); // class-constructor-changed + its param-type-changed sub-change
+    expect(report.recommended).toBe('major');
+  });
+
+  // Both visibility and signature together, same asymmetric-UNKNOWN shape as
+  // the visibility-noop case: old Derived has no explicit constructor
+  // (UNKNOWN, extends Base), new Derived has a matching explicit one (known).
+  it('skips the comparison when one side has no explicit constructor and a heritage clause matching both the base visibility and signature (no changes)', () => {
+    const report = compareFixture('class-constructor-inherited-visibility-and-signature-noop');
+    expect(report.changes).toHaveLength(0);
+  });
+
+  // Overload set changes on Base (a: number -> a: boolean); Derived has no
+  // explicit constructor on either side (UNKNOWN both sides, extends Base) so
+  // its comparison is skipped -- Derived's effective overload set is not
+  // resolved through Base. Base has no heritage clause, so its own overload
+  // change is fully known and surfaces normally.
+  it('reports the base class constructor overload change directly, without propagating it to a derived class with no explicit constructor', () => {
+    const report = compareFixture('class-constructor-inherited-overload-changed');
+    const baseChange = report.changes.find((c) => c.kind === 'class-constructor-changed' && c.symbolPath === 'Base.constructor');
+    expect(baseChange).toBeDefined();
+    expect(report.changes.some((c) => c.symbolPath === 'Derived.constructor')).toBe(false);
+    expect(report.changes).toHaveLength(2); // class-constructor-changed + its param-type-changed sub-change
+    expect(report.recommended).toBe('major');
+  });
+
+  // A generic base's constructor can't be read off its declaration node without
+  // instantiating it at the derived class's actual type argument (`Base<T>`'s
+  // node only ever says `x: T`, never `x: string` or `x: number`), so Derived
+  // is UNKNOWN here regardless of which type argument it supplies. Base's own
+  // constructor is unchanged (still `x: T` on both sides), so this is silent
+  // end to end. Confirmed with tsc below: `new Derived("s")` compiles against
+  // old, fails TS2345 against new -- this is a real breaking change we choose
+  // not to report rather than risk a wrong one.
+  it('skips a generic base whose type argument changes (no changes; a real break goes unreported by design)', () => {
+    const report = compareFixture('class-constructor-generic-base-typearg-changed');
+    expect(report.changes).toHaveLength(0);
+  });
+
+  // Companion case: the type ARGUMENT is unchanged (`Base<string>` both sides),
+  // only the base's type PARAMETER name changes (T -> U). Derived is UNKNOWN
+  // either way (no explicit constructor, extends Base), so this is silent for
+  // the same "can't resolve" reason as the case above -- not because the
+  // classifier proved the rename harmless. Before this release, the recursive
+  // resolver copied Base's `x: T` text onto Derived and compared it against
+  // `x: U` using Derived's own (empty) type parameter scope, which can't
+  // recognize the T->U rename, producing a false MAJOR.
+  it('skips a generic base whose type parameter is merely renamed (no changes; previously a false MAJOR)', () => {
+    const report = compareFixture('class-constructor-generic-base-typeparam-renamed');
+    expect(report.changes).toHaveLength(0);
+  });
+
+  // A class-expression base has no ClassDeclaration node to read a
+  // constructor off at all. Derived (no explicit constructor, extends Base)
+  // is UNKNOWN regardless of what Base's own constructor looks like.
+  it('skips a class-expression base (no changes)', () => {
+    const report = compareFixture('class-constructor-class-expression-base');
+    expect(report.changes).toHaveLength(0);
+  });
+
+  // Same reasoning through a mixin: `extends Mixin(Root)` is a call
+  // expression, not a name, so there is no declaration node to walk to.
+  // Derived (no explicit constructor) is UNKNOWN even though `Root`, the
+  // mixin's actual base, is fully resolvable on its own.
+  it('skips a mixin (call-expression) base (no changes)', () => {
+    const report = compareFixture('class-constructor-mixin-base');
+    expect(report.changes).toHaveLength(0);
+  });
+
+  // Asymmetric UNKNOWN, general case (not tied to a specific matching
+  // visibility/signature like the noop fixtures above): old Derived has an
+  // explicit constructor (known), new Derived has none and only extends Base
+  // (UNKNOWN). Comparing them would read as the constructor overload/signature
+  // vanishing. The guard must check EITHER side, so Derived produces nothing;
+  // Base has no heritage clause of its own, so its real constructor change
+  // still surfaces normally.
+  it('skips when the old side has an explicit constructor and the new side has only a heritage clause (no changes on Derived)', () => {
+    const report = compareFixture('class-constructor-asymmetric-explicit-to-heritage-only');
+    const baseChange = report.changes.find((c) => c.kind === 'class-constructor-changed' && c.symbolPath === 'Base.constructor');
+    expect(baseChange).toBeDefined();
+    expect(report.changes.some((c) => c.symbolPath === 'Derived.constructor')).toBe(false);
+    expect(report.changes).toHaveLength(2); // class-constructor-changed + its param-type-changed sub-change
+    expect(report.recommended).toBe('major');
+  });
+
+  // Mirror image: old Derived has only a heritage clause (UNKNOWN), new
+  // Derived has an explicit constructor (known). Proves the guard is
+  // symmetric -- it is not enough to check only oldCls or only newCls.
+  it('skips when the old side has only a heritage clause and the new side has an explicit constructor (no changes on Derived)', () => {
+    const report = compareFixture('class-constructor-asymmetric-heritage-only-to-explicit');
+    const baseChange = report.changes.find((c) => c.kind === 'class-constructor-changed' && c.symbolPath === 'Base.constructor');
+    expect(baseChange).toBeDefined();
+    expect(report.changes.some((c) => c.symbolPath === 'Derived.constructor')).toBe(false);
+    expect(report.changes).toHaveLength(2); // class-constructor-changed + its param-type-changed sub-change
+    expect(report.recommended).toBe('major');
+  });
+
+  // A heritage clause does not, by itself, make a constructor unknown -- only
+  // the ABSENCE of an explicit constructor does. Derived here has an explicit
+  // constructor on both sides (and extends Base), so it's fully known and a
+  // real visibility narrowing is still caught, same as the extends-less case
+  // above (class-constructor-implicit-to-private).
+  it('detects a visibility narrowing on a derived class that has an explicit constructor on both sides as MAJOR', () => {
+    const report = compareFixture('class-constructor-heritage-both-explicit-narrowed');
+    const change = report.changes.find((c) => c.kind === 'class-constructor-visibility-narrowed' && c.symbolPath === 'Derived.constructor');
+    expect(change).toBeDefined();
+    expect(change?.oldValue).toBe('public');
+    expect(change?.newValue).toBe('private');
+    expect(report.changes).toHaveLength(1);
+    expect(report.recommended).toBe('major');
+  });
+
+  // `implements` is not `extends`: it says nothing about the constructor
+  // (interfaces have no runtime construct behavior to inherit), so a class
+  // with only an `implements` clause and no explicit constructor is exactly
+  // as determinable as one with no heritage clause at all -- known, implicit,
+  // public, zero-arg. If `implements` were mistaken for heritage here, this
+  // would wrongly go UNKNOWN and stay silent instead of catching the
+  // narrowing.
+  it('does not treat an implements-only clause as a heritage clause (still detects the narrowing)', () => {
+    const report = compareFixture('class-constructor-implements-only-narrowed');
+    const change = report.changes.find((c) => c.kind === 'class-constructor-visibility-narrowed' && c.symbolPath === 'Widget.constructor');
+    expect(change).toBeDefined();
+    expect(change?.oldValue).toBe('public');
+    expect(change?.newValue).toBe('private');
+    expect(report.changes).toHaveLength(1);
+    expect(report.recommended).toBe('major');
+  });
+});
+
+describe('ambient constructor overload extraction', () => {
+  // Ambient declarations (`declare class`, .d.ts) have no constructor
+  // implementation node, so ts-morph's getConstructors() already returns one
+  // node per overload. Calling getOverloads() on each of those nodes again
+  // (as done for the implemented case, where getConstructors() collapses to a
+  // single implementation node) re-returns the whole overload group each time
+  // and silently doubles the extracted signature count.
+  it('extracts each ambient constructor overload exactly once (no duplication)', () => {
+    const dir = fixtureDir('class-constructor-ambient-overloads', 'old');
+    ensureFixtureTsConfig(dir);
+    const snap = extractFromPath(dir, 'index.ts');
+    const foo = snap.entrypoints['.']['Foo'] as { constructorSignatures: Array<{ parameters: Array<{ type: { text: string } }> }> };
+    expect(foo.constructorSignatures).toHaveLength(2);
+    expect(foo.constructorSignatures.map((s) => s.parameters[0]?.type.text)).toEqual(['string', 'number']);
+  });
+});
+
 describe('interface method overload extraction', () => {
   it('detects interface method overload removed as MAJOR', () => {
     const report = compareFixture('interface-method-overload-removed');
@@ -808,10 +1169,14 @@ describe('false-positive reduction (real-world refactors)', () => {
 describe('static and instance same-name coexistence', () => {
   it('detects class method changes without collapsing static and instance methods', () => {
     const report = compareFixture('class-method-static-instance-coexistence');
-    expect(report.changes.some((c) => c.kind === 'class-method-signature-changed')).toBe(true);
-    expect(report.changes.some((c) => c.kind === 'param-type-changed')).toBe(true);
+    // Only the instance `parse` changed; the static `parse` overload is
+    // untouched in the fixture, so pinning symbolPath (not just kind) proves
+    // the two same-named members weren't merged into one comparison.
+    expect(report.changes.filter((c) => c.kind === 'class-method-signature-changed' && c.symbolPath === 'Parser.parse')).toHaveLength(1);
+    expect(report.changes.filter((c) => c.kind === 'param-type-changed' && c.symbolPath === 'Parser.parse.input')).toHaveLength(1);
     expect(report.changes.some((c) => c.kind === 'class-method-added')).toBe(false);
     expect(report.changes.some((c) => c.kind === 'class-method-removed')).toBe(false);
+    expect(report.changes).toHaveLength(2);
     expect(report.recommended).toBe('major');
   });
 
@@ -940,6 +1305,10 @@ describe('advanced type structure comparison (regression + alpha-rename)', () =>
 
   it('treats a generic conditional return-type change in a function as breaking', () => {
     const report = compareFixture('function-generic-conditional-return-changed');
+    const change = report.changes.find((c) => c.kind === 'return-type-changed' && c.symbolPath === 'f');
+    expect(change).toBeDefined();
+    expect(change?.oldValue).toBe('A extends "B" ? 1 : 0');
+    expect(change?.newValue).toBe('A extends "Z" ? 1 : 0');
     expect(report.recommended).toBe('major');
   });
 

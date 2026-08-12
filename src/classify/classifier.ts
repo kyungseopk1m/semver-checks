@@ -1656,47 +1656,84 @@ function classifyClassChanges(name: string, oldCls: ApiClassSymbol, newCls: ApiC
   const classTPs = { old: oldCls.typeParameters, new: newCls.typeParameters };
   const containerRename = buildTypeParamRenameMap(oldCls.typeParameters, newCls.typeParameters);
 
-  // Constructor changes
-  const oldCtors = oldCls.constructorSignatures;
-  const newCtors = newCls.constructorSignatures;
-  if (newCtors.length < oldCtors.length) {
-    changes.push({
-      kind: 'overload-removed',
-      severity: 'major',
-      symbolPath: `${name}.constructor`,
-      message: `Constructor overload was removed from '${name}'`,
-      oldValue: String(oldCtors.length),
-      newValue: String(newCtors.length),
-    });
-  }
-  if (newCtors.length > oldCtors.length) {
-    changes.push({
-      kind: 'overload-added',
-      severity: 'minor',
-      symbolPath: `${name}.constructor`,
-      message: `Constructor overload was added to '${name}'`,
-      oldValue: String(oldCtors.length),
-      newValue: String(newCtors.length),
-    });
-  }
-  const ctorPairCount = Math.min(oldCtors.length, newCtors.length);
-  for (let i = 0; i < ctorPairCount; i++) {
-    const ctorSubChanges = compareFunctionSignature(`${name}.constructor`, oldCtors[i], newCtors[i], classTPs, containerRename);
-    if (ctorSubChanges.length > 0) {
-      const oldCtorParams = oldCtors[i].parameters.map((p) => `${p.name}: ${p.type.text}`).join(', ');
-      const newCtorParams = newCtors[i].parameters.map((p) => `${p.name}: ${p.type.text}`).join(', ');
+  // Constructor changes. Skipped entirely when either side's constructor is
+  // unknown (no explicit constructor on a class with a heritage clause -- see
+  // constructorUnknown on ApiClassSymbol / hasHeritageClause in the
+  // extractor): comparing a real signature/visibility against a placeholder
+  // for an unresolved inherited one produces false diffs, and checking only
+  // one side would produce an asymmetric false diff whenever the old and new
+  // snapshots differ in whether they could resolve it.
+  if (!oldCls.constructorUnknown && !newCls.constructorUnknown) {
+    const oldCtors = oldCls.constructorSignatures;
+    const newCtors = newCls.constructorSignatures;
+    if (newCtors.length < oldCtors.length) {
       changes.push({
-        kind: 'class-constructor-changed',
-        // Wrapper severity mirrors its sub-changes: a constructor whose only
-        // change is a safe param widening must not be forced to major.
-        severity: ctorSubChanges.some((c) => c.severity === 'major') ? 'major' : 'minor',
+        kind: 'overload-removed',
+        severity: 'major',
         symbolPath: `${name}.constructor`,
-        message: `Constructor of class '${name}' changed`,
-        oldValue: oldCtorParams,
-        newValue: newCtorParams,
-        ...maybeWrapper(ctorSubChanges),
+        message: `Constructor overload was removed from '${name}'`,
+        oldValue: String(oldCtors.length),
+        newValue: String(newCtors.length),
       });
-      changes.push(...ctorSubChanges);
+    }
+    if (newCtors.length > oldCtors.length) {
+      changes.push({
+        kind: 'overload-added',
+        severity: 'minor',
+        symbolPath: `${name}.constructor`,
+        message: `Constructor overload was added to '${name}'`,
+        oldValue: String(oldCtors.length),
+        newValue: String(newCtors.length),
+      });
+    }
+    // Accessibility: a constructor narrowed to `private`/`protected` stops `new
+    // ClassName()` from compiling at every external call site, regardless of
+    // whether the parameter list itself changed. Missing values (snapshots
+    // predating this field, or a class with no explicit constructor and no
+    // heritage clause) default to 'public', matching the implicit-constructor
+    // semantics above.
+    const visibilityRank = { public: 0, protected: 1, private: 2 } as const;
+    const oldVisibility = oldCls.constructorVisibility ?? 'public';
+    const newVisibility = newCls.constructorVisibility ?? 'public';
+    if (visibilityRank[newVisibility] > visibilityRank[oldVisibility]) {
+      changes.push({
+        kind: 'class-constructor-visibility-narrowed',
+        severity: 'major',
+        symbolPath: `${name}.constructor`,
+        message: `Constructor of class '${name}' visibility narrowed from '${oldVisibility}' to '${newVisibility}'`,
+        oldValue: oldVisibility,
+        newValue: newVisibility,
+      });
+    } else if (visibilityRank[newVisibility] < visibilityRank[oldVisibility]) {
+      changes.push({
+        kind: 'class-constructor-visibility-widened',
+        severity: 'minor',
+        symbolPath: `${name}.constructor`,
+        message: `Constructor of class '${name}' visibility widened from '${oldVisibility}' to '${newVisibility}'`,
+        oldValue: oldVisibility,
+        newValue: newVisibility,
+      });
+    }
+
+    const ctorPairCount = Math.min(oldCtors.length, newCtors.length);
+    for (let i = 0; i < ctorPairCount; i++) {
+      const ctorSubChanges = compareFunctionSignature(`${name}.constructor`, oldCtors[i], newCtors[i], classTPs, containerRename);
+      if (ctorSubChanges.length > 0) {
+        const oldCtorParams = oldCtors[i].parameters.map((p) => `${p.name}: ${p.type.text}`).join(', ');
+        const newCtorParams = newCtors[i].parameters.map((p) => `${p.name}: ${p.type.text}`).join(', ');
+        changes.push({
+          kind: 'class-constructor-changed',
+          // Wrapper severity mirrors its sub-changes: a constructor whose only
+          // change is a safe param widening must not be forced to major.
+          severity: ctorSubChanges.some((c) => c.severity === 'major') ? 'major' : 'minor',
+          symbolPath: `${name}.constructor`,
+          message: `Constructor of class '${name}' changed`,
+          oldValue: oldCtorParams,
+          newValue: newCtorParams,
+          ...maybeWrapper(ctorSubChanges),
+        });
+        changes.push(...ctorSubChanges);
+      }
     }
   }
 

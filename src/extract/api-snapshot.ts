@@ -120,6 +120,19 @@ export interface ApiClassSymbol {
   kind: 'class';
   name: string;
   constructorSignatures: ApiFunctionSignature[];
+  // Absent for snapshots produced before this field existed; the classifier
+  // treats a missing value as 'public' (an implicit constructor, or one with
+  // no explicit access modifier, is callable from outside the class).
+  constructorVisibility?: 'public' | 'protected' | 'private';
+  // True only when the constructor genuinely could not be determined: no
+  // explicit constructor on this class AND it has a heritage clause
+  // (`extends`), in any form. `constructorSignatures`/`constructorVisibility`
+  // are still populated with a placeholder in this case, but the classifier
+  // must not compare them -- see classifyClassChanges. Absent (not `false`)
+  // both for a snapshot predating this field and for a class whose
+  // constructor WAS determined, so an old snapshot compares exactly as it did
+  // before this field existed rather than being newly treated as unknown.
+  constructorUnknown?: boolean;
   methods: Array<{ name: string; signatures: ApiFunctionSignature[]; isStatic: boolean }>;
   // `writeType` is the write (setter) type of a get/set accessor pair when it
   // differs from the read (getter) type — a `set`-only narrowing is breaking on

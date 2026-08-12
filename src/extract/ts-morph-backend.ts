@@ -1,5 +1,5 @@
 import { Project, Type, Node, SyntaxKind, DiagnosticCategory, ts } from 'ts-morph';
-import type { SourceFile, ModuleDeclaration } from 'ts-morph';
+import type { SourceFile, ModuleDeclaration, ClassDeclaration } from 'ts-morph';
 import path from 'path';
 import fs from 'fs';
 import type {
@@ -943,18 +943,66 @@ function convertEnum(name: string, node: Node): ApiEnumSymbol {
   return { kind: 'enum', name, members };
 }
 
+// A class with no explicit constructor and no heritage clause is definitely a
+// fresh public zero-arg constructor. One with a heritage clause inherits its
+// base's constructor instead -- but we deliberately don't resolve *which*
+// one: `getBaseClass()` only hands back the ancestor's declaration node as
+// written, with no way to substitute in the derived class's actual type
+// arguments (`class Derived extends Base<string>` needs `Base<T>`'s
+// constructor instantiated at `T = string`, which a declaration node alone
+// can't express), and some bases -- a class expression, a mixin call
+// expression -- have no declaration node to walk to at all. Reading the
+// ancestor's constructor node directly under those conditions produced wrong
+// answers often enough that we now report the constructor as unknown instead
+// and let the classifier skip the comparison; see `constructorUnknown` on
+// ApiClassSymbol. `getExtends()` returns the heritage clause node itself, so
+// its mere presence covers every base expression shape (name, generic
+// instantiation, class expression, mixin call) without inspecting what's
+// inside it. `implements` does not affect the constructor and is not
+// consulted here.
+function hasHeritageClause(node: ClassDeclaration): boolean {
+  return node.getExtends() !== undefined;
+}
+
 function convertClass(name: string, node: Node): ApiClassSymbol {
   if (!Node.isClassDeclaration(node)) return { kind: 'class', name, constructorSignatures: [], methods: [], properties: [], typeParameters: [] };
 
-  // getConstructors() returns only the implementation signature; overload
-  // signatures live on getOverloads(). Extract each overload separately (as we do
-  // for function overloads) so callers see the real public arities — otherwise an
-  // overload's required params look optional via the merged implementation sig.
-  const ctors = node.getConstructors().flatMap((c) => {
-    const overloads = c.getOverloads();
-    const sigNodes = overloads.length > 0 ? overloads : [c];
-    return sigNodes.map((s) => convertFunctionSignatures(s)[0] ?? { parameters: [], returnType: { text: 'void' }, typeParameters: [] });
-  });
+  // getConstructors() returns only the implementation signature when one exists;
+  // overload signatures then live on getOverloads(). Extract each overload
+  // separately (as we do for function overloads) so callers see the real public
+  // arities, otherwise an overload's required params look optional via the
+  // merged implementation sig.
+  // Ambient declarations (`declare class`, .d.ts) have no implementation node,
+  // so getConstructors() already returns every overload as its own node, calling
+  // getOverloads() on each of those would re-return the whole group (including
+  // itself) and double-count. getOverloads() is therefore only consulted when
+  // there's exactly one constructor node, i.e. it might be an implementation
+  // collapsing real overloads; with 0 or 2+ nodes there's nothing to expand.
+  const ownCtorNodes = node.getConstructors();
+  // No explicit constructor, but a heritage clause means the *real* constructor
+  // is inherited from a base we can't safely resolve (see hasHeritageClause).
+  const constructorUnknown = ownCtorNodes.length === 0 && hasHeritageClause(node);
+  const ctorSigNodes = ownCtorNodes.length === 1
+    ? (ownCtorNodes[0].getOverloads().length > 0 ? ownCtorNodes[0].getOverloads() : ownCtorNodes)
+    : ownCtorNodes;
+  // A class with no explicit constructor and no heritage clause still gets one
+  // implicit zero-arg signature here (matching an explicit `constructor() {}`),
+  // so comparing constructorSignatures.length across snapshots doesn't see
+  // "no constructor -> explicit public constructor()" as an added overload.
+  // When constructorUnknown is true this placeholder is never compared (the
+  // classifier skips it outright), so its exact shape doesn't matter.
+  const ctors = ownCtorNodes.length > 0
+    ? ctorSigNodes.map((s) => convertFunctionSignatures(s)[0] ?? { parameters: [], returnType: { text: 'void' }, typeParameters: [] })
+    : [{ parameters: [], returnType: { text: 'void' }, typeParameters: [] }];
+
+  const ownCtorNode = ownCtorNodes[0];
+  const constructorVisibility: ApiClassSymbol['constructorVisibility'] = ownCtorNode
+    ? ownCtorNode.hasModifier(SyntaxKind.PrivateKeyword)
+      ? 'private'
+      : ownCtorNode.hasModifier(SyntaxKind.ProtectedKeyword)
+        ? 'protected'
+        : 'public'
+    : 'public';
 
   // Group methods by name to merge overload signatures (getMethods() returns one node per overload)
   const classMethodMap = new Map<string, { name: string; signatures: ApiFunctionSignature[]; isStatic: boolean }>();
@@ -1069,6 +1117,8 @@ function convertClass(name: string, node: Node): ApiClassSymbol {
     kind: 'class',
     name,
     constructorSignatures: ctors,
+    constructorVisibility,
+    constructorUnknown: constructorUnknown || undefined,
     methods,
     properties,
     typeParameters: convertTypeParams(node),

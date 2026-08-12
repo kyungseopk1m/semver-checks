@@ -53,6 +53,7 @@ export type ChangeKind =
   | 'interface-construct-signature-changed'
   | 'index-signature-changed'
   | 'interface-heritage-changed'
+  | 'class-constructor-visibility-narrowed'
   // MINOR
   | 'entrypoint-added'
   | 'generic-param-default-added'
@@ -70,7 +71,8 @@ export type ChangeKind =
   | 'class-property-became-optional'
   | 'class-property-became-mutable'
   | 'param-type-widened'
-  | 'return-type-narrowed';
+  | 'return-type-narrowed'
+  | 'class-constructor-visibility-widened';
 
 export interface ApiChange {
   kind: ChangeKind;
