@@ -6,7 +6,7 @@ Please read our [Code of Conduct](CODE_OF_CONDUCT.md) before contributing.
 
 ## Development Setup
 
-**Requirements:** Node.js >= 18
+**Requirements:** Node.js `^20.0.0 || >=22.0.0` (see `engines` in `package.json`)
 
 ```bash
 git clone https://github.com/kyungseopk1m/semver-checks.git

@@ -5,7 +5,7 @@
 
 # semver-checks
 
-Catch the version bumps your commit messages miss — by analyzing what actually changed in your TypeScript public API.
+Catch the breaking changes your commit messages miss. semver-checks analyzes what actually changed in your TypeScript public API and recommends the correct semver bump.
 
 ```bash
 npx semver-checks compare v1.0.0 HEAD
@@ -67,7 +67,7 @@ semver-checks grades every breaking change by **confidence**, so the CI gate sta
 - **proven** — the break follows from a structural fact (a member added/removed, an optionality/readonly/static transition, an enum or overload change) or from a _resolved_ type relation the analyzer decided is genuinely unrelated. `--strict` exits 1 on these, and only these — safe to leave on in CI.
 - **heuristic** — a conservative MAJOR the analyzer could _not_ prove (a type-text difference it couldn't resolve, or a one-directional change in an invariant position where a safe reading exists). These surface for human review but do **not** fail `--strict`; opt in with `--strict-review` if you want every MAJOR to gate.
 
-This is the design's center of gravity: the equivalence-preserving rewrites and input-union widenings that make text-based type-semver tools cry wolf land in _heuristic_, off the default gate, while real under-bumps stay _proven_ and on it. It is neither _sound_ (zero false positives) nor _complete_ (catches everything), so a `proven` MAJOR is a strong signal, not a theorem — but the surfaces in [Known limitations](#known-limitations) are isolated to `heuristic`, not silently mixed into the gate.
+This is the design's center of gravity: the equivalence-preserving rewrites and input-union widenings that make text-based type-semver tools cry wolf land in _heuristic_, off the default gate, while real under-bumps stay _proven_ and on it. It is neither _sound_ (zero false positives) nor _complete_ (catches everything), so a `proven` MAJOR is a strong signal, not a theorem. That isolation only covers the over-reporting surfaces in [Known limitations](#known-limitations); the under-report and structural rows in the same table are a different axis, a silent `patch` or an outright failure, not a confidence question.
 
 It is most reliable on **conventional, single-entry packages with an explicitly-typed public surface**: added / removed / renamed exports, function and method signature changes, added required parameters and properties, and removed members are detected dependably and reported as `proven`.
 
@@ -79,6 +79,11 @@ npx semver-checks compare <pkg>@<previous> <pkg>@<latest>
 
 ### Known limitations
 
+Ten known gaps, grouped by direction: three over-report as review-only `heuristic` MAJORs that never fail `--strict` (equivalence-preserving type rewrites, input-position union widening, return-only generics); four under-report as a silent `patch` (shallow class reads, non-ambient class method overload reordering, skipped constructor comparison on generic/mixin subclasses, a handful of declaration-level distinctions); and three are structural rather than a grading question (multi-subpath double counting, memory limits on deeply recursive types, non-standard entry layouts). Full table below.
+
+<details>
+<summary>Full breakdown of all 10 known limitations</summary>
+
 | Area                                            | What happens                                                                                                                                                                                                                                                  | Why                                                                                                                                                                                         |
 | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Equivalence-preserving refactors**            | Replacing a type with an equivalent one — an alias swap like `Exclude<…>` → `SetDifference<…>`, or `{ [P in K]: T }` → `Pick<T, K>` — is reported as a `type-alias-changed`, but as a **review-only (heuristic)** MAJOR, off the `--strict` gate.             | Type aliases and variables are compared as normalized text, not by resolving both types and checking assignability; an unresolved comparison is graded `heuristic`.                         |
@@ -87,8 +92,12 @@ npx semver-checks compare <pkg>@<previous> <pkg>@<latest>
 | **Dual-format / multi-subpath double counting** | A package exposing the same symbols under several `exports` subpaths (`.` plus a JS wrapper like `./esm.mjs`, or `.` plus `./lite`) reports each change once per subpath.                                                                                     | Each `.`-prefixed subpath is analyzed independently; identical changes across subpaths are not yet de-duplicated.                                                                           |
 | **Deeply recursive conditional types**          | Extremely type-heavy libraries (e.g. `type-fest`) can exhaust memory during extraction. Raising the heap — `NODE_OPTIONS=--max-old-space-size=8192 npx semver-checks …` — gets some through; there is no in-process guard, so a hard OOM still aborts.        | Declaration extraction has no depth/size bound on deeply recursive conditional / mapped types.                                                                                              |
 | **Non-standard entry layouts**                  | A few packages whose types live only beside a JS target — no `types` condition, no top-level `types`, no root `index.d.ts` — can't be auto-resolved; pass `--entry`.                                                                                          | Sibling-`.d.ts`-of-JS-target resolution is not implemented.                                                                                                                                 |
-| **Class declarations are read shallowly**       | Changing a class's `extends` base, making a class or one of its members `abstract`, narrowing a constructor to `private` / `protected`, or making a class method required (`m?(): void` → `m(): void`) is reported as **no change at all** — a `patch`. The interface equivalents of the last two _are_ detected. | Only the class's own members, their types, and their static/optional/readonly flags are extracted; heritage, `abstract`, and constructor visibility are not.                                |
+| **Class declarations are read shallowly**       | Changing a class's `extends` base, making a class or one of its members `abstract`, or making a class method required (`m?(): void` → `m(): void`) is reported as **no change at all** — a `patch`. The interface equivalent of the last one _is_ detected. | Only the class's own members, their types, and their static/optional/readonly flags are extracted; heritage and `abstract` are not.                                |
+| **Class method overload reordering is undetected**  | In a plain `.ts` source (not an ambient `.d.ts`/`declare class`), reordering a class method's overload signatures is reported as **no change at all** (a `patch`), even though TypeScript resolves an overloaded call against the first matching signature in declaration order, so the reorder is a real break. Disjoint overloads (where call resolution never actually changes) still break, too: `ReturnType<typeof method>` always resolves to the last signature, so reordering swaps what that utility type produces. | `getMethods()` on a non-ambient class returns one implementation node per method, so overloads are merged into a single signature (e.g. `bar(x: number): void; bar(x: string): void` extracts as one `x: number \| string` signature) before comparison, losing declaration order. Ambient declarations, which have no implementation node, extract each overload separately and detect the reorder. |
+| **Constructor comparison is skipped on generic/mixin subclasses** | A class with no explicit constructor of its own and an `extends` clause has its constructor comparison skipped entirely, rather than judged against the constructor it inherits, whatever shape the base takes (a plain class, a generic instantiation like `extends Base<string>`, a class expression, or a mixin factory). | Declaration nodes alone can't instantiate a base's type arguments, so the inherited constructor can't be resolved reliably for generics, class expressions, or mixins. Rather than risk a wrong answer, the comparison is skipped whenever a class both lacks an explicit constructor and extends something; a class with no `extends` at all still defaults to an implicit `public` zero-arg constructor. |
 | **Some declaration-level distinctions are invisible** | A value export narrowed to a type-only one (`export declare class C` → `declare class C; export type { C }`), an `enum` becoming a `const enum`, and a second interface declaration merged into the first are all reported as no change.                | Exports are resolved to their declarations without recording whether the export itself was type-only, and only the first declaration of a merged symbol is read.                            |
+
+</details>
 
 When a type can't be resolved in isolation (imported types, bare generics, anything involving `any`), semver-checks falls back to the conservative MAJOR verdict by design — see [Does it have false positives?](#does-it-have-false-positives).
 
@@ -274,6 +283,7 @@ console.log(Object.keys(snapshot.entrypoints["."])); // root entry's symbol name
 | `enum-member-removed`                   | An enum member was removed                                |
 | `enum-member-value-changed`             | An enum member's value changed                            |
 | `class-constructor-changed`             | A class constructor's signature changed                   |
+| `class-constructor-visibility-narrowed` | A class constructor's visibility was narrowed (e.g. `public` → `private`) |
 | `class-method-removed`                  | A public class method was removed                         |
 | `class-method-signature-changed`        | A public class method's signature changed                 |
 | `class-method-became-static`            | A class method changed from instance to static            |
@@ -310,6 +320,7 @@ console.log(Object.keys(snapshot.entrypoints["."])); // root entry's symbol name
 | `interface-property-became-mutable`  | An interface property changed from readonly to mutable                                  |
 | `enum-member-added`                  | An enum member was added                                                                |
 | `overload-added`                     | A function overload was added                                                           |
+| `class-constructor-visibility-widened` | A class constructor's visibility was widened (e.g. `private` → `public`)              |
 | `generic-param-with-default`         | A generic parameter with a default was added                                            |
 | `generic-param-default-added`        | A default was added to an existing generic parameter                                    |
 | `class-method-added`                 | A public class method was added                                                         |
@@ -480,7 +491,7 @@ jobs:
           node-version: "20"
       - run: npm ci
 
-      - uses: kyungseopk1m/semver-checks@v0.7.0
+      - uses: kyungseopk1m/semver-checks@v0.9.0
         with:
           old: "your-package@latest" # the published version to compare against
           format: "github" # inline ::error:: / ::warning:: annotations
