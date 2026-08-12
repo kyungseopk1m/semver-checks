@@ -1,0 +1,28 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.kyungseopk1m/semver-checks",
+  "description": "Detect breaking changes in your TypeScript library's public API and recommend the SemVer bump.",
+  "repository": {
+    "url": "https://github.com/kyungseopk1m/semver-checks",
+    "source": "github",
+    "id": "1206920433"
+  },
+  "version": "0.9.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "semver-checks",
+      "version": "0.9.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "--mcp"
+        }
+      ]
+    }
+  ]
+}

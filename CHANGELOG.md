@@ -2,6 +2,37 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.0] - 2026-08-13
+
+This release closes another silent-`patch` gap on class declarations: a constructor narrowed to `private` or `protected` breaks every external `new ClassName()` call site, but until now was not extracted at all, let alone compared. A class with no explicit constructor of its own and no `extends` clause is judged as an implicit `public` zero-arg constructor, matching TypeScript's own default; a class with no explicit constructor but an `extends` clause has its constructor comparison skipped instead of guessed, because a declaration node alone can't instantiate a base's type arguments, so a generic base, a class expression, or a mixin can't be resolved reliably enough to judge. Alongside that, a long-standing double-count in ambient (`declare class` / `.d.ts`) constructor overload extraction is fixed, and the package picks up an `mcpName` field for MCP registry listing plus a few npm discoverability tweaks.
+
+### Breaking
+
+- **`ChangeKind` gains `class-constructor-visibility-narrowed` and `class-constructor-visibility-widened`**, growing the union from 56 to 58 members: additive for code that only reads a report, but breaking for code that exhaustively switches over `ChangeKind` or consumes it through a `Record<ChangeKind, ...>`, since neither compiles until the two new members are handled. In 0.x, a breaking change to the public API ships as a minor, hence 0.9.0 rather than 0.8.1.
+
+### Added
+
+- **Class constructor visibility changes are detected**: comparing a constructor's `public`/`protected`/`private` accessibility, a narrowing (e.g. `public` to `private`, or `protected` to `private`) is reported as `class-constructor-visibility-narrowed` (MAJOR), and a widening (e.g. `private` to `public`, or `private` to `protected`) as `class-constructor-visibility-widened` (MINOR). An explicit `public constructor(...)` and a constructor written with no access modifier at all are treated as identical, not as a change. A class with an explicit constructor has it extracted and compared directly. A class with no explicit constructor and no `extends` clause is judged as a fresh implicit `public` zero-arg constructor. A class with no explicit constructor but an `extends` clause skips constructor comparison entirely, whatever shape the base takes (a plain class, a generic instantiation, a class expression, a mixin): a declaration node can't instantiate a base's type arguments, so guessing at the inherited constructor risks both false positives and false negatives, and silence beats a wrong answer there.
+- **`mcpName` field** (`package.json`) for listing in the MCP registry. `server.json`, which the separate `mcp-publisher` tool reads to publish that listing, lives in the git repository; it is not part of the npm package (not on the `files` whitelist, so it never ships in the tarball).
+- Small npm discoverability pass: `description` now mentions the semver-bump recommendation, and `keywords` gains `types`, `api`, `public-api`, `dts`, and `ci`.
+
+### Fixed
+
+- **Ambient constructor overloads were double-counted**: a `declare class` (or a `.ts` file's own `.d.ts`) has no constructor implementation node, so `getConstructors()` already returns one node per overload. Extraction was unconditionally calling `getOverloads()` on top of that, which re-returns the whole overload group (the node it was called on included) and inflated the extracted signature count. `getOverloads()` is now only consulted when there is exactly one constructor node, i.e. the one case where it might be an implementation collapsing real overloads worth expanding.
+
+### New `ChangeKind` values
+
+| Kind                                     | Severity | Description                                                        |
+| ----------------------------------------- | -------- | -------------------------------------------------------------------- |
+| `class-constructor-visibility-narrowed`   | MAJOR    | A class constructor's visibility was narrowed (e.g. `public` to `private`) |
+| `class-constructor-visibility-widened`    | MINOR    | A class constructor's visibility was widened (e.g. `private` to `public`)  |
+
+### Changed
+
+- **`.github/CONTRIBUTING.md`**: the stated Node requirement now matches `package.json`'s `engines` field (`^20.0.0 || >=22.0.0`) instead of the stale `>= 18`.
+- **`.github/workflows/publish.yml`**: a new step verifies the pushed tag (`refs/tags/vX.Y.Z`) matches `package.json`'s `version` before publishing, failing the workflow on a mismatch instead of publishing the wrong version.
+- **`action.yml`**: the `version` input's description now uses a generic `@vX.Y.Z` example instead of a version number that goes stale every release.
+
 ## [0.8.0] - 2026-08-04
 
 This release closes what the analyzer was silently missing on interface declarations, and stops a formatting-only difference from reading as a break. A method whose optionality flips and an `extends` clause that gains, loses or swaps a base were each reported as no change at all; both are classified now, and both resolve their types through the checker rather than through source text, which is what keeps a reformat from counting as a swapped base. The same correction reaches the unresolved-type fallback 0.7.0 shipped, where slicing the annotation out of the file made `M<string,number>` and `M< string, number >` compare as different types. `engines.node` moves with ts-morph 28 and now states the installed tree's real constraint rather than a range that had stopped being true. The accuracy scorecard is unchanged row for row and the regression battery stays green.
@@ -378,6 +409,7 @@ Initial release.
 
 ---
 
+[0.9.0]: https://github.com/kyungseopk1m/semver-checks/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/kyungseopk1m/semver-checks/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/kyungseopk1m/semver-checks/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/kyungseopk1m/semver-checks/compare/v0.6.0...v0.6.1
