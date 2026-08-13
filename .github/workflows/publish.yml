@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
-      contents: read
+      contents: write
       id-token: write
 
     steps:
@@ -46,3 +46,15 @@ jobs:
         run: npm publish --access=public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create GitHub release
+        run: |
+          tag="${GITHUB_REF#refs/tags/}"
+          awk -v v="${tag#v}" '$0 == "## [" v "]" || index($0, "## [" v "] ") == 1 {f=1;next} /^## \[/{f=0} f' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "No CHANGELOG section found for $tag" >&2
+            exit 1
+          fi
+          gh release create "$tag" --title "$tag" --notes-file release-notes.md
+        env:
+          GH_TOKEN: ${{ github.token }}
