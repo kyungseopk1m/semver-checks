@@ -18,7 +18,7 @@ inputs:
     required: false
     default: ''
   format:
-    description: "Output format: text, json, markdown, or github for inline PR annotations."
+    description: "Output format: text, json, markdown, or github for inline PR annotations. Forced to markdown when comment is true."
     required: false
     default: 'github'
   strict:
@@ -29,6 +29,18 @@ inputs:
     description: "Fail the step on any breaking change, including review-only (heuristic) ones."
     required: false
     default: 'false'
+  declared:
+    description: "Bump this release declares: major, minor, patch, none, or auto to read it from .changeset/*.md and then the package.json versions. Fails the step when the declaration understates a proven breaking change, and takes over from strict."
+    required: false
+    default: ''
+  comment:
+    description: "Post the report to the pull request as a single comment, edited in place on later pushes."
+    required: false
+    default: 'false'
+  token:
+    description: "Token used to post the comment. A composite action cannot read the secrets context, so this has to be passed in."
+    required: false
+    default: ${{ github.token }}
   version:
     description: "semver-checks version to run via npx. Defaults to the pinned action version (for example, @vX.Y.Z runs semver-checks@X.Y.Z)."
     required: false
@@ -45,20 +57,67 @@ runs:
         SEMVER_CHECKS_FORMAT: ${{ inputs.format }}
         SEMVER_CHECKS_STRICT: ${{ inputs.strict }}
         SEMVER_CHECKS_STRICT_REVIEW: ${{ inputs.strict-review }}
+        SEMVER_CHECKS_DECLARED: ${{ inputs.declared }}
+        SEMVER_CHECKS_COMMENT: ${{ inputs.comment }}
+        SEMVER_CHECKS_PR: ${{ github.event.pull_request.number }}
         SEMVER_CHECKS_VERSION: ${{ inputs.version }}
+        GH_TOKEN: ${{ inputs.token }}
       run: |
         set -euo pipefail
-        # Default to the CLI version that matches the pinned action ref, so that
-        # `uses: kyungseopk1m/semver-checks@vX.Y.Z` always runs semver-checks@X.Y.Z
-        # rather than whatever the npm `latest` dist-tag happens to be.
         version="$SEMVER_CHECKS_VERSION"
         if [ -z "$version" ]; then
           version="$(node -p "require('$GITHUB_ACTION_PATH/package.json').version")"
         fi
+        format="$SEMVER_CHECKS_FORMAT"
+        # A comment body has to be Markdown, and running the tool a second time
+        # to also produce annotations would pay for the whole analysis twice to
+        # say the same thing.
+        if [ "$SEMVER_CHECKS_COMMENT" = "true" ]; then format=markdown; fi
         args=(compare "$SEMVER_CHECKS_OLD")
         if [ -n "$SEMVER_CHECKS_NEW" ]; then args+=("$SEMVER_CHECKS_NEW"); fi
         if [ -n "$SEMVER_CHECKS_ENTRY" ]; then args+=(--entry "$SEMVER_CHECKS_ENTRY"); fi
-        args+=(--format "$SEMVER_CHECKS_FORMAT")
+        args+=(--format "$format")
+        if [ -n "$SEMVER_CHECKS_DECLARED" ]; then args+=(--declared "$SEMVER_CHECKS_DECLARED"); fi
         if [ "$SEMVER_CHECKS_STRICT" = "true" ]; then args+=(--strict); fi
         if [ "$SEMVER_CHECKS_STRICT_REVIEW" = "true" ]; then args+=(--strict-review); fi
-        npx --yes "semver-checks@$version" "${args[@]}"
+
+        if [ "$SEMVER_CHECKS_COMMENT" != "true" ]; then
+          exec npx --yes "semver-checks@$version" "${args[@]}"
+        fi
+
+        # The verdict is most worth reading on the run that fails, so the exit
+        # code is held back until the comment has been posted. stderr is kept
+        # out of the report body, but not thrown away: a run that dies leaves
+        # its reason there and nothing on stdout, and the pull request has to
+        # carry that reason rather than an older comment that still reads green.
+        errors="$(mktemp)"
+        set +e
+        out="$(npx --yes "semver-checks@$version" "${args[@]}" 2>"$errors")"
+        code=$?
+        set -e
+        cat "$errors" >&2
+        printf '%s\n' "$out"
+
+        body="$out"
+        if [ -z "$body" ]; then
+          # Fenced with four backticks: the body being wrapped is an error
+          # message, and a three backtick run inside one would close the fence
+          # early and spill the rest of the error into the comment as prose.
+          body="$(printf '## semver-checks\n\nThe run exited %s without producing a report.\n\n````\n%s\n````\n' "$code" "$(cat "$errors")")"
+        fi
+        rm -f "$errors"
+
+        if [ -z "$SEMVER_CHECKS_PR" ]; then
+          echo "::warning::semver-checks: this event carries no pull request number, so there is nothing to comment on"
+        else
+          # --edit-last keeps one comment on the pull request instead of a new
+          # one per push. A refusal here must not turn the run's own verdict into
+          # a failure that came from the comment; gh prints the real cause just
+          # above the warning, and the usual ones are a read-only token on a pull
+          # request from a fork and a gh older than 2.68.0, which has no
+          # --create-if-none.
+          printf '%s\n' "$body" | gh pr comment "$SEMVER_CHECKS_PR" --edit-last --create-if-none --body-file - \
+            || echo "::warning::semver-checks: could not post the pull request comment; see the gh error above. A pull request from a fork gets a read-only token, and --create-if-none needs gh 2.68.0 or newer."
+        fi
+
+        exit $code
