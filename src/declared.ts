@@ -7,13 +7,19 @@ import type { BumpDeclaration, DeclaredBump, SemverBump, SemverReport } from './
 // release ends up declaring.
 const ORDER: Record<DeclaredBump, number> = { none: 0, patch: 1, minor: 2, major: 3 };
 
-// How many fields a caret range stops short of the major one for this package.
-// `^1.2.3` refuses a new major, `^0.5.0` refuses a new minor, and `^0.0.5`
-// refuses a new patch, so a break lands one field lower for every leading zero.
+// Whether a break lands one field lower than it does after 1.0. `^1.2.3`
+// refuses a new major, `^0.5.0` refuses a new minor, so below 1.0 the minor
+// field is where a break has to go.
+//
+// It stops there rather than shifting again at 0.0.x. `^0.0.5` does refuse
+// `0.0.6`, but `~0.0.5` and `0.0.x` both accept it, so a patch is not where a
+// 0.0.x break can be announced: the only bump that puts it out of every range
+// is 0.1.0, which is a minor. Shifting twice would also floor the requirement
+// at `patch`, and a requirement of `patch` is one every declaration covers,
+// which would leave the gate unable to fail for a whole class of package.
 export function caretDepth(version: string | null): number {
   const v = version === null ? null : parseVersion(version);
-  if (v === null || v.major > 0) return 0;
-  return v.minor > 0 ? 1 : 2;
+  return v !== null && v.major === 0 ? 1 : 0;
 }
 
 // Shifts a bump down by that many fields. This belongs on the requirement side
@@ -75,13 +81,16 @@ export function resolveDeclaration(
       : { bump: declared, source: 'the declared bump passed in' };
   if (!found) return null;
 
-  // Read the leading zeroes off the old side, since that is the version
-  // consumers are on and their range is what a bump has to clear. Falling back
-  // to the new side matters: a package.json that cannot be read would otherwise
-  // pass silently for a 1.x package, and every correct 0.x release would be
-  // failed with an instruction to declare a major, which writes 1.0.0.
-  const version = readPackageField(oldPath, 'version') ?? readPackageField(newPath, 'version');
-  if (version === null || parseVersion(version) === null) return null;
+  // Read the leading zero off the old side, since that is the version consumers
+  // are on and their range is what a bump has to clear. Whichever side actually
+  // parses is used, not merely whichever is present: a version field holding
+  // `1.0` is readable and useless, and dead-ending on it would throw away a
+  // declaration the caller stated outright and answer with an error whose
+  // remedy is the thing they already did.
+  const version =
+    [readPackageField(oldPath, 'version'), readPackageField(newPath, 'version')].find(
+      (v) => v !== null && parseVersion(v) !== null,
+    ) ?? null;
 
   return judgeDeclaration(found.bump, found.source, summary, caretDepth(version));
 }
@@ -140,7 +149,7 @@ function readChangesetBump(projectPath: string, pkgName: string, ascend: boolean
       // is what `changeset version` would apply.
       if (bump === null || ORDER[declared] > ORDER[bump]) {
         bump = declared;
-        source = describeChangeset(projectPath, root, file);
+        source = describeChangeset(projectPath, file);
       }
     }
   }
@@ -159,7 +168,9 @@ function readChangesetBump(projectPath: string, pkgName: string, ascend: boolean
 // case where the directory under comparison can be a package inside a larger
 // workspace; an npm tarball does not ship `.changeset`, and a git ref is
 // extracted whole so its own root is the first thing checked. And within a
-// path, the walk stops at the workspace or repository it belongs to.
+// path, the walk does not leave the workspace or repository the package belongs
+// to, so a `.changeset` above that boundary is never reached. One inside it
+// still is, which is the point: that is where a monorepo keeps them.
 function changesetRoot(projectPath: string, ascend: boolean): string | null {
   let dir = path.resolve(projectPath);
   for (;;) {
@@ -184,13 +195,13 @@ function isWorkspaceRoot(dir: string): boolean {
   }
 }
 
-// A changeset in the package's own directory reads as `.changeset/x.md`. One
-// found further up is named with the directory it was found in, so a reader can
-// tell a workspace root's changeset from this package's own.
-function describeChangeset(projectPath: string, root: string, file: string): string {
-  const base = path.dirname(root);
-  const rel = path.relative(base, file);
-  return base === path.resolve(projectPath) ? rel : path.join(base, rel);
+// A changeset in the package's own directory reads as `.changeset/x.md`, and one
+// at a workspace root above it as `../../.changeset/x.md`, so a reader can tell
+// the two apart. Relative on purpose: this string is posted to pull requests,
+// and an absolute path would publish the layout and the account name of
+// whatever machine the run happened on.
+function describeChangeset(projectPath: string, file: string): string {
+  return path.relative(path.resolve(projectPath), file);
 }
 
 function listChangesets(dir: string): string[] {

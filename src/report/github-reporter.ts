@@ -37,7 +37,7 @@ export function githubReport(report: SemverReport): string {
     } else {
       lines.push(
         `::notice title=${escapeProperty('Declared bump')}::${escapeData(
-          `This release declares ${d.declared}, which covers what its API surface did. Read from ${d.source}.`,
+          `This release declares ${d.declared}, which covers the ${d.required} its API surface requires. Read from ${d.source}.`,
         )}`,
       );
     }

@@ -413,7 +413,7 @@ semver-checks compare your-package@latest . --declared auto --format markdown
 
 Or state it yourself: `--declared minor`.
 
-Below `1.0` the requirement shifts down a field rather than the declaration shifting up, once per leading zero, because that is where a caret range stops: `^0.5.0` refuses `0.6.0`, so a break there needs a **minor**; `^0.0.5` matches nothing else at all, so at `0.0.x` a **patch** already announces one.
+Below `1.0` the requirement shifts down a field rather than the declaration shifting up, because that is where a caret range stops: `^0.5.0` refuses `0.6.0`, so a break there needs a **minor**, not a major. It shifts once and no further. `^0.0.5` does refuse `0.0.6`, but `~0.0.5` and `0.0.x` both accept it, so on a `0.0.x` package the only bump that puts a break out of every range is still `0.1.0`.
 
 That has to be decided on the requirement side, because a `0.x` release announces its break as `0.5.0 -> 0.6.0` in version fields *and* as `minor` in a changeset (`changeset version` runs `semver.inc`, so a `major` there would have written `1.0.0`). Reading the two sources differently would give one release two opposite verdicts.
 
@@ -430,7 +430,7 @@ The verdict draws the same graded-confidence line `--strict` and `--strict-revie
 | `major` | a review-only (heuristic) major | ✅ ok | `0` |
 | `none` | nothing on the public surface moved | ✅ ok | `0` |
 
-The table is for a package past `1.0`; below that every row shifts down as described above. The exit codes are the defaults. `--strict-review` promotes ⚠️ review to `1` as well, which is what it is for; the report itself does not repeat the exit code, because it is written before the flags are read.
+The table is for a package past `1.0`; below that a required `major` reads as a required `minor`, as described above. The exit codes are the defaults. `--strict-review` promotes ⚠️ review to `1` as well, which is what it is for; the report itself does not repeat the exit code, because it is written before the flags are read.
 
 `--declared` subsumes `--strict`, whose question it already answers. `--strict-review` keeps its meaning instead of being cancelled: it promotes the ⚠️ review verdict to a failure, so a release that understates a review-only finding fails for whoever asked for that.
 

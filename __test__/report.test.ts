@@ -124,12 +124,12 @@ describe('the declaration verdict', () => {
   it('names the bump, the requirement, and where the declaration came from', () => {
     const md = markdownReport(withDeclaration({}));
     expect(md).toContain('❌ This release declares `minor`, but a proven breaking change requires `major`.');
-    expect(md).toContain('Read from .changeset/wild-pans-shake.md.');
+    expect(md).toContain('Read from `.changeset/wild-pans-shake.md`.');
   });
 
   it('says so when the declaration covers what happened', () => {
     const md = markdownReport(withDeclaration({ declared: 'major', verdict: 'ok' }));
-    expect(md).toContain('✅ This release declares `major`, which covers what its API surface did.');
+    expect(md).toContain('✅ This release declares `major`, which covers the `major` its API surface requires.');
     expect(md).not.toContain('❌');
   });
 

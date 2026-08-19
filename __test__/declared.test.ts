@@ -60,22 +60,30 @@ describe('requiredBump and suggestedBump', () => {
     expect(suggestedBump(summary())).toBe('patch');
   });
 
-  it('shifts every level down one field per leading zero', () => {
-    // `^1.2.3` refuses a new major, `^0.5.0` a new minor, `^0.0.5` a new patch.
+  it('shifts a break down one field below 1.0', () => {
     expect(requiredBump(summary({ majorProven: 1, major: 1 }), 0)).toBe('major');
     expect(requiredBump(summary({ majorProven: 1, major: 1 }), 1)).toBe('minor');
-    expect(requiredBump(summary({ majorProven: 1, major: 1 }), 2)).toBe('patch');
     expect(requiredBump(summary({ minor: 3 }), 1)).toBe('patch');
     expect(suggestedBump(summary({ major: 1, majorReview: 1 }), 1)).toBe('minor');
-    expect(suggestedBump(summary({ minor: 3 }), 2)).toBe('patch');
   });
 
-  it('reads the caret depth off the version', () => {
+  it('stops shifting at one field, so the gate can still fail below 1.0', () => {
+    // Shifting again at 0.0.x would floor the requirement at `patch`, and a
+    // requirement of `patch` is one every declaration covers, so no summary at
+    // all could produce a failing verdict. `~0.0.5` and `0.0.x` accept `0.0.6`
+    // anyway, so a patch is not where a 0.0.x break can be announced.
     expect(caretDepth('1.2.3')).toBe(0);
     expect(caretDepth('0.5.0')).toBe(1);
-    expect(caretDepth('0.0.5')).toBe(2);
+    expect(caretDepth('0.0.5')).toBe(1);
     expect(caretDepth(null)).toBe(0);
     expect(caretDepth('not a version')).toBe(0);
+
+    const verdicts = new Set(
+      (['none', 'patch', 'minor', 'major'] as const).map(
+        (d) => judgeDeclaration(d, 'test', summary({ majorProven: 2, major: 2, minor: 1 }), 1).verdict,
+      ),
+    );
+    expect(verdicts.has('mismatch')).toBe(true);
   });
 });
 
@@ -462,7 +470,9 @@ describe('the walk for a workspace changeset stops somewhere', () => {
     // Named with the directory it came from, so a workspace root's changeset is
     // not mistaken for this package's own.
     expect(found?.source).toContain('near.md');
-    expect(found?.source).toContain(root);
+    // Relative, because this string is posted to pull requests and an absolute
+    // path would publish the layout and account name of the machine that ran.
+    expect(found?.source).toBe(path.join('..', '..', '.changeset', 'near.md'));
   });
 });
 
@@ -503,23 +513,33 @@ describe('when the old package.json cannot be read', () => {
     expect(resolveDeclaration(brokenOld, newSide, 'minor', broke)?.verdict).toBe('ok');
   });
 
-  it('refuses to judge when neither side has a version', () => {
+  it('keeps an explicit declaration when no version parses at all', () => {
+    // Throwing the declaration away here would answer a caller who stated the
+    // bump outright with an error telling them to state the bump outright.
     const a = project('noversion-a', { 'package.json': '{"name":"my-pkg"}' });
     const b = project('noversion-b', { 'package.json': '{"name":"my-pkg"}' });
-    expect(resolveDeclaration(a, b, 'minor', broke)).toBeNull();
+    expect(resolveDeclaration(a, b, 'minor', broke)?.verdict).toBe('mismatch');
+  });
+
+  it('skips a version field that is present but not a version', () => {
+    // `1.0` reads back as a non-null string, so picking the first side that is
+    // merely readable would dead-end on it.
+    const a = project('unparseable-old', { 'package.json': '{"name":"my-pkg","version":"1.0"}' });
+    const b = project('unparseable-new', { 'package.json': pkg('my-pkg', '0.5.0') });
+    expect(resolveDeclaration(a, b, 'minor', broke)?.required).toBe('minor');
   });
 });
 
 describe('0.0.x, where a caret matches nothing else', () => {
   const broke = summary({ majorProven: 1, major: 1 });
 
-  it('accepts a patch as the break announcement it already is', () => {
-    // semver: ^0.0.5 does not match 0.0.6, so the patch field is where a break
-    // lands. Demanding a minor here blocks a correct release.
+  it('still demands a minor, because a patch escapes no range but the caret', () => {
+    // `^0.0.5` refuses `0.0.6`, but `~0.0.5` and `0.0.x` both accept it, so the
+    // only bump that puts a 0.0.x break out of every range is 0.1.0.
     const old = project('zerozero-old', { 'package.json': pkg('my-pkg', '0.0.5') });
     const nw = project('zerozero-new', { 'package.json': pkg('my-pkg', '0.0.6') });
     const d = resolveDeclaration(old, nw, 'auto', broke);
-    expect(d?.required).toBe('patch');
-    expect(d?.verdict).toBe('ok');
+    expect(d?.required).toBe('minor');
+    expect(d?.verdict).toBe('mismatch');
   });
 });

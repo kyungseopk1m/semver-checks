@@ -19,15 +19,15 @@ export function markdownReport(report: SemverReport): string {
   if (d) {
     if (d.verdict === 'mismatch') {
       lines.push(
-        `❌ This release declares \`${d.declared}\`, but a proven breaking change requires \`${d.required}\`. Read from ${d.source}.`,
+        `❌ This release declares \`${d.declared}\`, but a proven breaking change requires \`${d.required}\`. Read from \`${d.source}\`.`,
       );
     } else if (d.verdict === 'review') {
       lines.push(
-        `⚠️ This release declares \`${d.declared}\`, and the changes below argue for \`${d.suggested}\`. Review only: no proven break behind it. Read from ${d.source}.`,
+        `⚠️ This release declares \`${d.declared}\`, and the changes below argue for \`${d.suggested}\`. Review only: no proven break behind it. Read from \`${d.source}\`.`,
       );
     } else {
       lines.push(
-        `✅ This release declares \`${d.declared}\`, which covers what its API surface did. Read from ${d.source}.`,
+        `✅ This release declares \`${d.declared}\`, which covers the \`${d.required}\` its API surface requires. Read from \`${d.source}\`.`,
       );
     }
     lines.push('');

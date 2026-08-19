@@ -51,11 +51,10 @@ function announcedBreak(oldVersion, newVersion) {
   const b = fields(newVersion);
   if (!a || !b) return false;
   if (a[0] !== b[0]) return true;
-  if (a[0] !== 0) return false;
-  if (a[1] !== b[1]) return true;
-  // `^0.0.5` matches nothing else at all, so at 0.0.x even the patch field
-  // announces a break.
-  return a[1] === 0 && a[2] !== b[2];
+  // Below 1.0 the minor field is where a break is announced, and no further
+  // down: `~0.0.5` and `0.0.x` both accept `0.0.6` even though `^0.0.5` does
+  // not, so a 0.0.x patch announces nothing.
+  return a[0] === 0 && a[1] !== b[1];
 }
 
 // Runs the real declaration path against a repository that has no changesets,

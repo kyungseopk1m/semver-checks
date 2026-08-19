@@ -26,7 +26,7 @@ export function textReport(report: SemverReport): string {
       lines.push(`  ${pc.yellow('?')} Declares ${pc.bold(d.declared)}, and the changes below argue for ${pc.bold(d.suggested)}`);
       lines.push(`      ${pc.dim('review only: no proven break behind it')}`);
     } else {
-      lines.push(`  ${pc.green('✓')} Declares ${pc.bold(d.declared)}, which covers what its API surface did`);
+      lines.push(`  ${pc.green('✓')} Declares ${pc.bold(d.declared)}, which covers the ${pc.bold(d.required)} its API surface requires`);
     }
     lines.push(`      ${pc.dim(`read from ${d.source}`)}`);
   }
