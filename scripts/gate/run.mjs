@@ -182,6 +182,9 @@ async function toolFor({ pkg, old, nw }) {
     majorProven: parsed.summary.majorProven,
     majorReview: parsed.summary.majorReview,
     major: parsed.summary.major,
+    // The proven-only bump a declaration is graded against needs the minor
+    // count too: majorProven decides major, and minor decides the rest.
+    minor: parsed.summary.minor,
     recommended: parsed.recommended,
     provenKinds,
   };

@@ -50,6 +50,7 @@
         "majorProven": 0,
         "majorReview": 4,
         "major": 4,
+        "minor": 3,
         "recommended": "major",
         "provenKinds": {}
       },
@@ -73,6 +74,7 @@
         "majorProven": 0,
         "majorReview": 3,
         "major": 3,
+        "minor": 0,
         "recommended": "major",
         "provenKinds": {}
       },
@@ -99,6 +101,7 @@
         "majorProven": 2,
         "majorReview": 0,
         "major": 2,
+        "minor": 2,
         "recommended": "major",
         "provenKinds": {
           "class-property-removed": 2
@@ -124,6 +127,7 @@
         "majorProven": 0,
         "majorReview": 1,
         "major": 1,
+        "minor": 0,
         "recommended": "major",
         "provenKinds": {}
       },
@@ -148,6 +152,7 @@
         "majorProven": 2,
         "majorReview": 0,
         "major": 2,
+        "minor": 0,
         "recommended": "major",
         "provenKinds": {
           "interface-method-signature-changed": 1,
@@ -179,6 +184,7 @@
         "majorProven": 3,
         "majorReview": 31,
         "major": 34,
+        "minor": 7,
         "recommended": "major",
         "provenKinds": {
           "class-property-removed": 2,
@@ -205,6 +211,7 @@
         "majorProven": 0,
         "majorReview": 1,
         "major": 1,
+        "minor": 0,
         "recommended": "major",
         "provenKinds": {}
       },
@@ -228,6 +235,7 @@
         "majorProven": 0,
         "majorReview": 3,
         "major": 3,
+        "minor": 0,
         "recommended": "major",
         "provenKinds": {}
       },
@@ -251,6 +259,7 @@
         "majorProven": 0,
         "majorReview": 2,
         "major": 2,
+        "minor": 3,
         "recommended": "major",
         "provenKinds": {}
       },
@@ -276,6 +285,7 @@
         "majorProven": 1,
         "majorReview": 0,
         "major": 1,
+        "minor": 0,
         "recommended": "major",
         "provenKinds": {
           "class-property-removed": 1
@@ -304,6 +314,7 @@
         "majorProven": 4,
         "majorReview": 12,
         "major": 16,
+        "minor": 12,
         "recommended": "major",
         "provenKinds": {
           "class-method-signature-changed": 2,
@@ -332,6 +343,7 @@
         "majorProven": 2,
         "majorReview": 0,
         "major": 2,
+        "minor": 0,
         "recommended": "major",
         "provenKinds": {
           "class-method-removed": 2
@@ -358,6 +370,7 @@
         "majorProven": 0,
         "majorReview": 8,
         "major": 8,
+        "minor": 0,
         "recommended": "major",
         "provenKinds": {}
       },
@@ -383,6 +396,7 @@
         "majorProven": 1,
         "majorReview": 0,
         "major": 1,
+        "minor": 1,
         "recommended": "major",
         "provenKinds": {
           "export-removed": 1
@@ -408,6 +422,7 @@
         "majorProven": 0,
         "majorReview": 4,
         "major": 4,
+        "minor": 1,
         "recommended": "major",
         "provenKinds": {}
       },
@@ -431,6 +446,7 @@
         "majorProven": 0,
         "majorReview": 2,
         "major": 2,
+        "minor": 1,
         "recommended": "major",
         "provenKinds": {}
       },
@@ -454,6 +470,7 @@
         "majorProven": 0,
         "majorReview": 1,
         "major": 1,
+        "minor": 0,
         "recommended": "major",
         "provenKinds": {}
       },
@@ -479,6 +496,7 @@
         "majorProven": 1,
         "majorReview": 4,
         "major": 5,
+        "minor": 2,
         "recommended": "major",
         "provenKinds": {
           "export-removed": 1
@@ -506,6 +524,7 @@
         "majorProven": 1,
         "majorReview": 2,
         "major": 3,
+        "minor": 1,
         "recommended": "major",
         "provenKinds": {
           "export-removed": 1
@@ -531,6 +550,7 @@
         "majorProven": 0,
         "majorReview": 1,
         "major": 1,
+        "minor": 0,
         "recommended": "major",
         "provenKinds": {}
       },
@@ -554,6 +574,7 @@
         "majorProven": 0,
         "majorReview": 1,
         "major": 1,
+        "minor": 0,
         "recommended": "major",
         "provenKinds": {}
       },
@@ -578,6 +599,7 @@
         "majorProven": 0,
         "majorReview": 8,
         "major": 8,
+        "minor": 6,
         "recommended": "major",
         "provenKinds": {}
       },
@@ -602,6 +624,7 @@
         "majorProven": 0,
         "majorReview": 7,
         "major": 7,
+        "minor": 4,
         "recommended": "major",
         "provenKinds": {}
       },
@@ -625,6 +648,7 @@
         "majorProven": 0,
         "majorReview": 2,
         "major": 2,
+        "minor": 2,
         "recommended": "major",
         "provenKinds": {}
       },
@@ -648,6 +672,7 @@
         "majorProven": 0,
         "majorReview": 1,
         "major": 1,
+        "minor": 0,
         "recommended": "major",
         "provenKinds": {}
       },
@@ -671,6 +696,7 @@
         "majorProven": 0,
         "majorReview": 5,
         "major": 5,
+        "minor": 0,
         "recommended": "major",
         "provenKinds": {}
       },
@@ -694,6 +720,7 @@
         "majorProven": 0,
         "majorReview": 1,
         "major": 1,
+        "minor": 2,
         "recommended": "major",
         "provenKinds": {}
       },
@@ -717,6 +744,7 @@
         "majorProven": 0,
         "majorReview": 0,
         "major": 0,
+        "minor": 0,
         "recommended": "patch",
         "provenKinds": {}
       },
@@ -740,6 +768,7 @@
         "majorProven": 0,
         "majorReview": 0,
         "major": 0,
+        "minor": 0,
         "recommended": "patch",
         "provenKinds": {}
       },
@@ -763,6 +792,7 @@
         "majorProven": 0,
         "majorReview": 3,
         "major": 3,
+        "minor": 4,
         "recommended": "major",
         "provenKinds": {}
       },
@@ -786,6 +816,7 @@
         "majorProven": 0,
         "majorReview": 0,
         "major": 0,
+        "minor": 0,
         "recommended": "patch",
         "provenKinds": {}
       },
@@ -809,6 +840,7 @@
         "majorProven": 0,
         "majorReview": 0,
         "major": 0,
+        "minor": 0,
         "recommended": "patch",
         "provenKinds": {}
       },
@@ -832,6 +864,7 @@
         "majorProven": 0,
         "majorReview": 0,
         "major": 0,
+        "minor": 0,
         "recommended": "patch",
         "provenKinds": {}
       },
@@ -855,6 +888,7 @@
         "majorProven": 0,
         "majorReview": 1,
         "major": 1,
+        "minor": 0,
         "recommended": "major",
         "provenKinds": {}
       },
@@ -878,6 +912,7 @@
         "majorProven": 0,
         "majorReview": 0,
         "major": 0,
+        "minor": 0,
         "recommended": "patch",
         "provenKinds": {}
       },
@@ -901,6 +936,7 @@
         "majorProven": 0,
         "majorReview": 0,
         "major": 0,
+        "minor": 0,
         "recommended": "patch",
         "provenKinds": {}
       },
@@ -924,6 +960,7 @@
         "majorProven": 0,
         "majorReview": 0,
         "major": 0,
+        "minor": 0,
         "recommended": "patch",
         "provenKinds": {}
       },
@@ -947,6 +984,7 @@
         "majorProven": 0,
         "majorReview": 3,
         "major": 3,
+        "minor": 0,
         "recommended": "major",
         "provenKinds": {}
       },
@@ -970,6 +1008,7 @@
         "majorProven": 0,
         "majorReview": 0,
         "major": 0,
+        "minor": 1,
         "recommended": "minor",
         "provenKinds": {}
       },
@@ -993,6 +1032,7 @@
         "majorProven": 0,
         "majorReview": 0,
         "major": 0,
+        "minor": 2,
         "recommended": "minor",
         "provenKinds": {}
       },
@@ -1018,6 +1058,7 @@
         "majorProven": 2,
         "majorReview": 0,
         "major": 2,
+        "minor": 0,
         "recommended": "major",
         "provenKinds": {
           "class-method-signature-changed": 1,
@@ -1044,6 +1085,7 @@
         "majorProven": 0,
         "majorReview": 0,
         "major": 0,
+        "minor": 2,
         "recommended": "minor",
         "provenKinds": {}
       },
@@ -1070,6 +1112,7 @@
         "majorProven": 2,
         "majorReview": 6,
         "major": 8,
+        "minor": 0,
         "recommended": "major",
         "provenKinds": {
           "export-removed": 1,
@@ -1096,6 +1139,7 @@
         "majorProven": 2,
         "majorReview": 50,
         "major": 52,
+        "minor": 39,
         "recommended": "major",
         "provenKinds": {
           "property-type-changed": 1,
@@ -1122,6 +1166,7 @@
         "majorProven": 0,
         "majorReview": 0,
         "major": 0,
+        "minor": 0,
         "recommended": "patch",
         "provenKinds": {}
       },
@@ -1145,6 +1190,7 @@
         "majorProven": 0,
         "majorReview": 10,
         "major": 10,
+        "minor": 7,
         "recommended": "major",
         "provenKinds": {}
       },
@@ -1168,6 +1214,7 @@
         "majorProven": 0,
         "majorReview": 0,
         "major": 0,
+        "minor": 1,
         "recommended": "minor",
         "provenKinds": {}
       },
@@ -1191,6 +1238,7 @@
         "majorProven": 0,
         "majorReview": 0,
         "major": 0,
+        "minor": 0,
         "recommended": "patch",
         "provenKinds": {}
       },
@@ -1214,6 +1262,7 @@
         "majorProven": 0,
         "majorReview": 2,
         "major": 2,
+        "minor": 13,
         "recommended": "major",
         "provenKinds": {}
       },
@@ -1237,6 +1286,7 @@
         "majorProven": 0,
         "majorReview": 0,
         "major": 0,
+        "minor": 0,
         "recommended": "patch",
         "provenKinds": {}
       },
@@ -1260,6 +1310,7 @@
         "majorProven": 0,
         "majorReview": 0,
         "major": 0,
+        "minor": 0,
         "recommended": "patch",
         "provenKinds": {}
       },
@@ -1283,6 +1334,7 @@
         "majorProven": 0,
         "majorReview": 2,
         "major": 2,
+        "minor": 2,
         "recommended": "major",
         "provenKinds": {}
       },
@@ -1306,6 +1358,7 @@
         "majorProven": 0,
         "majorReview": 0,
         "major": 0,
+        "minor": 2,
         "recommended": "minor",
         "provenKinds": {}
       },
@@ -1329,6 +1382,7 @@
         "majorProven": 0,
         "majorReview": 4,
         "major": 4,
+        "minor": 11,
         "recommended": "major",
         "provenKinds": {}
       },
@@ -1352,6 +1406,7 @@
         "majorProven": 0,
         "majorReview": 80,
         "major": 80,
+        "minor": 36,
         "recommended": "major",
         "provenKinds": {}
       },
@@ -1375,6 +1430,7 @@
         "majorProven": 0,
         "majorReview": 38,
         "major": 38,
+        "minor": 8,
         "recommended": "major",
         "provenKinds": {}
       },
@@ -1398,6 +1454,7 @@
         "majorProven": 0,
         "majorReview": 2,
         "major": 2,
+        "minor": 2,
         "recommended": "major",
         "provenKinds": {}
       },
@@ -1421,6 +1478,7 @@
         "majorProven": 0,
         "majorReview": 4,
         "major": 4,
+        "minor": 0,
         "recommended": "major",
         "provenKinds": {}
       },
@@ -1444,6 +1502,7 @@
         "majorProven": 0,
         "majorReview": 0,
         "major": 0,
+        "minor": 0,
         "recommended": "patch",
         "provenKinds": {}
       },
@@ -1467,6 +1526,7 @@
         "majorProven": 0,
         "majorReview": 0,
         "major": 0,
+        "minor": 0,
         "recommended": "patch",
         "provenKinds": {}
       },
@@ -1490,6 +1550,7 @@
         "majorProven": 0,
         "majorReview": 0,
         "major": 0,
+        "minor": 0,
         "recommended": "patch",
         "provenKinds": {}
       },
@@ -1513,6 +1574,7 @@
         "majorProven": 0,
         "majorReview": 0,
         "major": 0,
+        "minor": 0,
         "recommended": "patch",
         "provenKinds": {}
       },
@@ -1536,6 +1598,7 @@
         "majorProven": 0,
         "majorReview": 0,
         "major": 0,
+        "minor": 0,
         "recommended": "patch",
         "provenKinds": {}
       },
@@ -1559,6 +1622,7 @@
         "majorProven": 0,
         "majorReview": 0,
         "major": 0,
+        "minor": 0,
         "recommended": "patch",
         "provenKinds": {}
       },
@@ -1582,6 +1646,7 @@
         "majorProven": 0,
         "majorReview": 0,
         "major": 0,
+        "minor": 0,
         "recommended": "patch",
         "provenKinds": {}
       },
@@ -1605,6 +1670,7 @@
         "majorProven": 0,
         "majorReview": 0,
         "major": 0,
+        "minor": 0,
         "recommended": "patch",
         "provenKinds": {}
       },
@@ -1628,6 +1694,7 @@
         "majorProven": 0,
         "majorReview": 0,
         "major": 0,
+        "minor": 0,
         "recommended": "patch",
         "provenKinds": {}
       },
@@ -1651,6 +1718,7 @@
         "majorProven": 0,
         "majorReview": 0,
         "major": 0,
+        "minor": 0,
         "recommended": "patch",
         "provenKinds": {}
       },
@@ -1674,6 +1742,7 @@
         "majorProven": 0,
         "majorReview": 0,
         "major": 0,
+        "minor": 0,
         "recommended": "patch",
         "provenKinds": {}
       },
@@ -1697,6 +1766,7 @@
         "majorProven": 0,
         "majorReview": 0,
         "major": 0,
+        "minor": 0,
         "recommended": "patch",
         "provenKinds": {}
       },
@@ -1720,6 +1790,7 @@
         "majorProven": 0,
         "majorReview": 0,
         "major": 0,
+        "minor": 0,
         "recommended": "patch",
         "provenKinds": {}
       },
@@ -1743,6 +1814,7 @@
         "majorProven": 0,
         "majorReview": 0,
         "major": 0,
+        "minor": 0,
         "recommended": "patch",
         "provenKinds": {}
       },
@@ -1766,6 +1838,7 @@
         "majorProven": 0,
         "majorReview": 0,
         "major": 0,
+        "minor": 1,
         "recommended": "minor",
         "provenKinds": {}
       },
@@ -1789,6 +1862,7 @@
         "majorProven": 0,
         "majorReview": 0,
         "major": 0,
+        "minor": 1,
         "recommended": "minor",
         "provenKinds": {}
       },
@@ -1815,6 +1889,7 @@
         "majorProven": 1,
         "majorReview": 0,
         "major": 1,
+        "minor": 0,
         "recommended": "major",
         "provenKinds": {
           "export-removed": 1
