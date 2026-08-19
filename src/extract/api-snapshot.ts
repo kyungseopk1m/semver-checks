@@ -128,7 +128,7 @@ export interface ApiClassSymbol {
   // explicit constructor on this class AND it has a heritage clause
   // (`extends`), in any form. `constructorSignatures`/`constructorVisibility`
   // are still populated with a placeholder in this case, but the classifier
-  // must not compare them -- see classifyClassChanges. Absent (not `false`)
+  // must not compare them — see classifyClassChanges. Absent (not `false`)
   // both for a snapshot predating this field and for a class whose
   // constructor WAS determined, so an old snapshot compares exactly as it did
   // before this field existed rather than being newly treated as unknown.
@@ -168,4 +168,33 @@ export interface ApiSnapshot {
   // package.json "exports" convention (e.g. './utils'). A single-entry package
   // is represented as `{ '.': { ...symbols } }`.
   entrypoints: Record<string, Record<string, ApiSymbol>>;
+}
+
+// A symbol that carries no shape: an `any`-typed value or alias, or a namespace
+// whose members are all themselves opaque (an empty one included — it says
+// nothing about the surface either).
+function isOpaque(symbol: ApiSymbol): boolean {
+  switch (symbol.kind) {
+    case 'variable':
+    case 'type-alias':
+      return symbol.type.text === 'any';
+    case 'namespace':
+      return Object.values(symbol.symbols).every(isOpaque);
+    default:
+      return false;
+  }
+}
+
+// Why a snapshot cannot support a comparison, or null when it can.
+//
+// An empty snapshot is the dangerous case, because it diffs against another
+// empty snapshot as `{"changes":[],"recommended":"patch"}` and exits 0 — byte
+// for byte the output of "analyzed, nothing broke". The extraction failed and
+// the gate says green. Reporting it as a hard failure is the only way `--strict`
+// can mean what it claims.
+export function describeUnusableSnapshot(snapshot: ApiSnapshot): string | null {
+  const symbols = Object.values(snapshot.entrypoints).flatMap((syms) => Object.values(syms));
+  if (symbols.length === 0) return 'no API symbols could be extracted';
+  if (symbols.every(isOpaque)) return `all ${symbols.length} extracted symbol(s) are opaque (\`any\`)`;
+  return null;
 }

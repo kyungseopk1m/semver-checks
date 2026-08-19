@@ -76,10 +76,65 @@ export function extractFromPath(projectPath: string, entry?: string | string[]):
   const entryFiles = resolveEntries(project, projectPath, entry);
   const entrypoints: Record<string, Record<string, ApiSymbol>> = {};
   for (const [subpath, file] of Object.entries(entryFiles)) {
-    entrypoints[subpath] = collectContainerExports(file);
+    const own = collectContainerExports(file);
+    entrypoints[subpath] = Object.keys(own).length > 0 ? own : collectAmbientModuleExports(project, file, projectPath);
   }
 
   return { entrypoints };
+}
+
+// The quoted name of an ambient `declare module 'x' { ... }`, or null for a
+// plain `namespace` / `declare global` block. ts-morph hands back the name with
+// its quotes attached, and only a string-literal name makes it a module.
+function ambientModuleName(mod: ModuleDeclaration): string | null {
+  const name = mod.getName();
+  const quoted = /^['"](.*)['"]$/.exec(name);
+  return quoted ? quoted[1] : null;
+}
+
+function readPackageName(projectPath: string): string | null {
+  try {
+    const name = JSON.parse(fs.readFileSync(path.join(projectPath, 'package.json'), 'utf-8')).name;
+    return typeof name === 'string' ? name : null;
+  } catch {
+    return null;
+  }
+}
+
+// Fallback surface for a package that declares its API in an ambient
+// `declare module 'pkg' { ... }` block rather than exporting from the entry file.
+//
+// This is the legacy CJS / DefinitelyTyped convention, and mongoose is the live
+// example: nothing is exported *from* `types/index.d.ts`, so
+// `getExportedDeclarations()` on it is empty and the whole package reads as
+// having no public API. TypeScript merges every `declare module 'mongoose'`
+// block in the program into one module — mongoose spreads its across 26 files --
+// so the blocks have to be gathered project-wide, not just from the entry.
+//
+// Only reached when the entry exports nothing of its own, so a package with a
+// normal surface plus an augmentation of some other module is unaffected.
+function collectAmbientModuleExports(
+  project: Project,
+  entryFile: SourceFile,
+  projectPath: string,
+): Record<string, ApiSymbol> {
+  const declaredInEntry = entryFile.getModules().map(ambientModuleName).filter((n): n is string => n !== null);
+  if (declaredInEntry.length === 0) return {};
+
+  // An entry that augments several modules (mongoose's own, plus `bson`) is
+  // describing its own surface with the block that carries the package name.
+  const pkgName = readPackageName(projectPath);
+  const wanted = new Set(pkgName !== null && declaredInEntry.includes(pkgName) ? [pkgName] : declaredInEntry);
+
+  const result: Record<string, ApiSymbol> = {};
+  for (const sourceFile of project.getSourceFiles()) {
+    for (const mod of sourceFile.getModules()) {
+      const name = ambientModuleName(mod);
+      if (name === null || !wanted.has(name)) continue;
+      Object.assign(result, collectContainerExports(mod));
+    }
+  }
+  return result;
 }
 
 const DTS_SUFFIXES = ['.d.ts', '.d.mts', '.d.cts'] as const;
@@ -945,13 +1000,13 @@ function convertEnum(name: string, node: Node): ApiEnumSymbol {
 
 // A class with no explicit constructor and no heritage clause is definitely a
 // fresh public zero-arg constructor. One with a heritage clause inherits its
-// base's constructor instead -- but we deliberately don't resolve *which*
+// base's constructor instead — but we deliberately don't resolve *which*
 // one: `getBaseClass()` only hands back the ancestor's declaration node as
 // written, with no way to substitute in the derived class's actual type
 // arguments (`class Derived extends Base<string>` needs `Base<T>`'s
 // constructor instantiated at `T = string`, which a declaration node alone
-// can't express), and some bases -- a class expression, a mixin call
-// expression -- have no declaration node to walk to at all. Reading the
+// can't express), and some bases — a class expression, a mixin call
+// expression — have no declaration node to walk to at all. Reading the
 // ancestor's constructor node directly under those conditions produced wrong
 // answers often enough that we now report the constructor as unknown instead
 // and let the classifier skip the comparison; see `constructorUnknown` on

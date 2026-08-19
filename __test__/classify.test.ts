@@ -286,12 +286,27 @@ describe('class changes', () => {
     expect(report.recommended).toBe('minor');
   });
 
-  it('detects required class property added as MAJOR', () => {
+  it('detects required class property added as MAJOR, review-only', () => {
     const report = compareFixture('class-property-added');
     const change = report.changes.find((c) => c.kind === 'required-class-property-added');
     expect(change).toBeDefined();
     expect(change?.severity).toBe('major');
+    // Review-only on purpose: it breaks only a consumer who re-implements the
+    // class structurally, and measured against a tsc oracle over real releases
+    // every instance of this kind was a false positive. Do not promote it back
+    // to proven without evidence from structurally-implemented classes.
+    expect(change?.confidence).toBe('heuristic');
+    expect(report.summary.majorProven).toBe(0);
     expect(report.recommended).toBe('major');
+  });
+
+  it('treats an added static class property as an additive MINOR', () => {
+    const report = compareFixture('class-static-property-added');
+    const change = report.changes.find((c) => c.symbolPath === 'HttpError.DEFAULT_CODE');
+    expect(change?.kind).toBe('class-property-added');
+    expect(change?.severity).toBe('minor');
+    expect(report.changes.some((c) => c.kind === 'required-class-property-added')).toBe(false);
+    expect(report.recommended).toBe('minor');
   });
 
   it('detects optional class property added as MINOR', () => {
@@ -367,6 +382,45 @@ describe('overload changes', () => {
     expect(report.changes.filter((c) => c.kind === 'return-type-changed' && c.symbolPath === 'parse')).toHaveLength(2);
     expect(report.changes).toHaveLength(4);
     expect(report.recommended).toBe('major');
+  });
+
+  // The other half of the overload story, and the reason index pairing had to
+  // go: inserting an overload ahead of the existing ones shifts every later
+  // signature into the wrong slot, so each gets diffed against a sibling it has
+  // nothing to do with. Measured cost of that: 1251 proven majors on
+  // ioredis 5.11.1 -> 6.0.0, and 22 on got 14.6.4 -> 14.6.5, a published patch.
+  // Adding an overload is additive; the only change here is the addition.
+  it('treats an overload inserted ahead of the existing ones as an additive MINOR', () => {
+    const report = compareFixture('overload-inserted-at-front');
+    expect(report.changes.filter((c) => c.kind === 'overload-added')).toHaveLength(1);
+    expect(report.changes.filter((c) => c.severity === 'major')).toHaveLength(0);
+    expect(report.recommended).toBe('minor');
+  });
+
+  // Measured on axios 1.16.1 -> 1.17.0: `toJSON(asStrings?: boolean)` gained two
+  // narrower overloads ahead of it and stayed put as the last one. Charging a flat
+  // cost for any mismatch ties all three candidates, so the alignment took the
+  // first and reported a narrowed, newly-required parameter nobody ever saw.
+  // Grading the substitution cost makes it pair with the sibling it actually
+  // matches.
+  it('aligns an old signature with the closest new overload, not merely the first', () => {
+    const report = compareFixture('overload-added-aligns-to-closest');
+    expect(report.changes.filter((c) => c.kind === 'overload-added')).toHaveLength(1);
+    // The signature it should have paired with differs only in its return type.
+    expect(report.changes.filter((c) => c.kind === 'return-type-narrowed')).toHaveLength(1);
+    // The parameter is untouched in that pairing; pairing with the first overload
+    // instead would report both of these.
+    expect(report.changes.some((c) => c.kind === 'required-param-added')).toBe(false);
+    expect(report.changes.some((c) => c.kind === 'param-type-changed')).toBe(false);
+    expect(report.changes.filter((c) => c.severity === 'major')).toHaveLength(0);
+    expect(report.recommended).toBe('minor');
+  });
+
+  it('treats an interface method overload inserted ahead of the existing ones as an additive MINOR', () => {
+    const report = compareFixture('interface-method-overload-inserted-at-front');
+    expect(report.changes.filter((c) => c.kind === 'overload-added')).toHaveLength(1);
+    expect(report.changes.filter((c) => c.severity === 'major')).toHaveLength(0);
+    expect(report.recommended).toBe('minor');
   });
 
   it('detects a pure interface method overload reorder as MAJOR (declaration order changes call resolution)', () => {
@@ -675,11 +729,16 @@ describe('class static/optional changes', () => {
     expect(report.recommended).toBe('major');
   });
 
-  it('detects class property optional-to-required as MAJOR', () => {
+  it('detects class property optional-to-required as MAJOR, review-only', () => {
     const report = compareFixture('class-property-optional-to-required');
     const change = report.changes.find((c) => c.kind === 'class-property-became-required');
     expect(change).toBeDefined();
     expect(change?.severity).toBe('major');
+    // Same asymmetry as required-class-property-added: classes are instantiated
+    // and extended, not structurally re-implemented. The interface counterpart
+    // stays proven.
+    expect(change?.confidence).toBe('heuristic');
+    expect(report.summary.majorProven).toBe(0);
     expect(report.recommended).toBe('major');
   });
 
@@ -789,7 +848,7 @@ describe('constructor visibility changes', () => {
   // for the derived class's actual type arguments and has no node to read at
   // all for a class-expression or mixin base. So `Derived` here is UNKNOWN on
   // the old side (no explicit constructor, extends ProtectedBase) and known on
-  // the new side (explicit constructor) -- an asymmetric pair, which the
+  // the new side (explicit constructor) — an asymmetric pair, which the
   // classifier skips outright rather than emit a one-sided diff. `no changes`
   // is the same expectation the old inheritance-resolving code produced, but
   // for a different reason: this used to be a *proven* no-op (Derived's
@@ -820,7 +879,7 @@ describe('constructor visibility changes', () => {
   // either side but Base's does differ (constructor 1 vs constructor 2 has a
   // parameter). Old Derived is UNKNOWN either way (it extends Base with no
   // explicit constructor on both sides), so this one is symmetric-UNKNOWN, not
-  // asymmetric -- included here because it exercises the same "no explicit
+  // asymmetric — included here because it exercises the same "no explicit
   // constructor + extends" skip path from the signature-comparison side.
   it('skips the comparison when one side has no explicit constructor and a heritage clause matching the base signature (no changes)', () => {
     const report = compareFixture('class-constructor-inherited-signature-noop');
@@ -829,7 +888,7 @@ describe('constructor visibility changes', () => {
 
   // Base's own constructor changes (value: string -> number); Derived has no
   // explicit constructor on either side, so Derived is UNKNOWN both before and
-  // after and the classifier skips its comparison -- it does NOT walk up to
+  // after and the classifier skips its comparison — it does NOT walk up to
   // Base to re-check Derived's effective signature (that inheritance-tracking
   // is exactly what this release removed, see hasHeritageClause). Base itself
   // has no heritage clause, so Base's own constructor is fully known and its
@@ -850,7 +909,7 @@ describe('constructor visibility changes', () => {
   // and extends Root, so Mid is fully known and its own signature change
   // (value: string -> number) surfaces directly; Leaf has no explicit
   // constructor and extends Mid, so Leaf is UNKNOWN on both sides and its
-  // comparison is skipped -- it is not resolved through Mid.
+  // comparison is skipped — it is not resolved through Mid.
   it('reports the intermediate class constructor change directly, without propagating it to a derived class with no explicit constructor', () => {
     const report = compareFixture('class-constructor-multi-level-inherited-signature-changed');
     const midChange = report.changes.find((c) => c.kind === 'class-constructor-changed' && c.symbolPath === 'Mid.constructor');
@@ -872,7 +931,7 @@ describe('constructor visibility changes', () => {
 
   // Overload set changes on Base (a: number -> a: boolean); Derived has no
   // explicit constructor on either side (UNKNOWN both sides, extends Base) so
-  // its comparison is skipped -- Derived's effective overload set is not
+  // its comparison is skipped — Derived's effective overload set is not
   // resolved through Base. Base has no heritage clause, so its own overload
   // change is fully known and surfaces normally.
   it('reports the base class constructor overload change directly, without propagating it to a derived class with no explicit constructor', () => {
@@ -890,7 +949,7 @@ describe('constructor visibility changes', () => {
   // is UNKNOWN here regardless of which type argument it supplies. Base's own
   // constructor is unchanged (still `x: T` on both sides), so this is silent
   // end to end. Confirmed with tsc below: `new Derived("s")` compiles against
-  // old, fails TS2345 against new -- this is a real breaking change we choose
+  // old, fails TS2345 against new — this is a real breaking change we choose
   // not to report rather than risk a wrong one.
   it('skips a generic base whose type argument changes (no changes; a real break goes unreported by design)', () => {
     const report = compareFixture('class-constructor-generic-base-typearg-changed');
@@ -900,7 +959,7 @@ describe('constructor visibility changes', () => {
   // Companion case: the type ARGUMENT is unchanged (`Base<string>` both sides),
   // only the base's type PARAMETER name changes (T -> U). Derived is UNKNOWN
   // either way (no explicit constructor, extends Base), so this is silent for
-  // the same "can't resolve" reason as the case above -- not because the
+  // the same "can't resolve" reason as the case above — not because the
   // classifier proved the rename harmless. Before this release, the recursive
   // resolver copied Base's `x: T` text onto Derived and compared it against
   // `x: U` using Derived's own (empty) type parameter scope, which can't
@@ -945,7 +1004,7 @@ describe('constructor visibility changes', () => {
 
   // Mirror image: old Derived has only a heritage clause (UNKNOWN), new
   // Derived has an explicit constructor (known). Proves the guard is
-  // symmetric -- it is not enough to check only oldCls or only newCls.
+  // symmetric — it is not enough to check only oldCls or only newCls.
   it('skips when the old side has only a heritage clause and the new side has an explicit constructor (no changes on Derived)', () => {
     const report = compareFixture('class-constructor-asymmetric-heritage-only-to-explicit');
     const baseChange = report.changes.find((c) => c.kind === 'class-constructor-changed' && c.symbolPath === 'Base.constructor');
@@ -955,7 +1014,7 @@ describe('constructor visibility changes', () => {
     expect(report.recommended).toBe('major');
   });
 
-  // A heritage clause does not, by itself, make a constructor unknown -- only
+  // A heritage clause does not, by itself, make a constructor unknown — only
   // the ABSENCE of an explicit constructor does. Derived here has an explicit
   // constructor on both sides (and extends Base), so it's fully known and a
   // real visibility narrowing is still caught, same as the extends-less case
@@ -973,7 +1032,7 @@ describe('constructor visibility changes', () => {
   // `implements` is not `extends`: it says nothing about the constructor
   // (interfaces have no runtime construct behavior to inherit), so a class
   // with only an `implements` clause and no explicit constructor is exactly
-  // as determinable as one with no heritage clause at all -- known, implicit,
+  // as determinable as one with no heritage clause at all — known, implicit,
   // public, zero-arg. If `implements` were mistaken for heritage here, this
   // would wrongly go UNKNOWN and stay silent instead of catching the
   // narrowing.
@@ -1186,6 +1245,32 @@ describe('static and instance same-name coexistence', () => {
     expect(report.changes.some((c) => c.kind === 'class-property-added')).toBe(false);
     expect(report.changes.some((c) => c.kind === 'required-class-property-added')).toBe(false);
     expect(report.changes.some((c) => c.kind === 'class-property-removed')).toBe(false);
+    expect(report.recommended).toBe('major');
+  });
+});
+
+// The legacy CJS / DefinitelyTyped shape: the package exports nothing from its
+// entry file and declares its whole surface in `declare module 'pkg' { ... }`
+// instead. Extraction used to return `{}` for these, which meant every such
+// package compared as a clean `patch` — mongoose 8 -> 9 (a real major) passed
+// `--strict` silently.
+describe('ambient declare module', () => {
+  it('extracts the package surface from ambient module blocks across files', () => {
+    const snap = extractFromPath(fixtureDir('ambient-module-member-removed', 'old'), 'index.ts');
+    const symbols = snap.entrypoints['.'];
+    expect(Object.keys(symbols).sort()).toEqual(['fromOtherFile', 'goes', 'stay']);
+  });
+
+  it('does not leak an augmentation of another package into the surface', () => {
+    const snap = extractFromPath(fixtureDir('ambient-module-member-removed', 'old'), 'index.ts');
+    expect(snap.entrypoints['.']['unrelated']).toBeUndefined();
+  });
+
+  it('detects a member removed from an ambient module as MAJOR', () => {
+    const report = compareFixture('ambient-module-member-removed');
+    const change = report.changes.find((c) => c.kind === 'export-removed' && c.symbolPath === 'goes');
+    expect(change).toBeDefined();
+    expect(change?.severity).toBe('major');
     expect(report.recommended).toBe('major');
   });
 });
@@ -1727,17 +1812,93 @@ describe('interface accessors', () => {
 });
 
 describe('graded confidence', () => {
-  it('decomposes an object-literal alias so an added required property is a PROVEN major', () => {
+  // `proven` is opt-in per rule. It used to be the default every major-emitting
+  // rule inherited without deciding, which is what `--strict`'s whole promise
+  // rested on. These two pin the direction of that default in both directions.
+  it('grades a removal as PROVEN (the change is its own evidence)', () => {
+    const report = compareFixture('export-removed');
+    const removed = report.changes.find((c) => c.kind === 'export-removed');
+    expect(removed?.confidence).toBe('proven');
+    expect(report.summary.majorProven).toBeGreaterThan(0);
+  });
+
+  it('grades a major rule that never decided as review-only, not proven', () => {
+    // `class-property-became-readonly` is a real major, but nothing in the rule
+    // establishes that a consumer is affected, and it is not on the proven
+    // allow-list. It must not reach `--strict` by inheritance.
+    const report = compareFixture('class-property-readonly-added');
+    const change = report.changes.find((c) => c.kind === 'class-property-became-readonly');
+    expect(change?.severity).toBe('major');
+    expect(change?.confidence).toBe('heuristic');
+    expect(report.summary.majorProven).toBe(0);
+    expect(report.summary.majorReview).toBeGreaterThan(0);
+  });
+
+  it('propagates a sub-change grade to its wrapper through the kind default', () => {
+    // `param-removed` never computes a confidence and is not on the proven
+    // allow-list, so it resolves to review-only — and the
+    // `class-method-signature-changed` wrapper above it has to say the same.
+    // Reading the sub's raw `confidence` here sees `undefined` (the default is
+    // applied later, in `diff`) and would read that as "not heuristic, so
+    // proven", handing the wrapper a confidence its parts never had.
+    const report = compareFixture('class-method-param-removed-wrapper');
+    const wrapper = report.changes.find((c) => c.kind === 'class-method-signature-changed');
+    const sub = report.changes.find((c) => c.kind === 'param-removed');
+    expect(wrapper?.severity).toBe('major');
+    expect(sub?.confidence).toBe('heuristic');
+    expect(wrapper?.confidence).toBe('heuristic');
+    expect(report.summary.majorProven).toBe(0);
+  });
+
+  // Measured on commander 14.0.1 -> 14.0.2: the deprecated `outputHelp(cb)`
+  // overload lost its `?` while `outputHelp(context?)` stayed ahead of it, so
+  // `outputHelp()` still compiles (verified against tsc). The finding is true of
+  // the signature and false of the symbol, and `--strict` must not fail on it.
+  it('grades a required parameter as review-only when a sibling overload still takes the shorter call', () => {
+    const report = compareFixture('overload-required-param-shadowed');
+    const added = report.changes.find((c) => c.kind === 'required-param-added');
+    expect(added).toBeDefined();
+    expect(added?.confidence).toBe('heuristic');
+    expect(report.summary.majorProven).toBe(0);
+  });
+
+  it('keeps a required parameter PROVEN when every overload demands the argument', () => {
+    const report = compareFixture('overload-required-param-not-shadowed');
+    const added = report.changes.filter((c) => c.kind === 'required-param-added');
+    expect(added.length).toBeGreaterThan(0);
+    expect(added.some((c) => c.confidence !== 'heuristic')).toBe(true);
+    expect(report.summary.majorProven).toBeGreaterThan(0);
+  });
+
+  it('grades an undecidable declaration-form change as review-only, not as a removal', () => {
+    // Nothing was removed: `Handler` still resolves, as an interface now rather
+    // than an alias. The change reuses the `export-removed` kind, so without an
+    // explicit grade it would inherit that rule's proven confidence and fail
+    // `--strict` on a refactor. ky flipped KyRequest/KyResponse between the two
+    // forms in 1.12.0 and back in 1.13.0; no consumer noticed either way.
+    const report = compareFixture('export-kind-changed-alias-to-interface');
+    const change = report.changes.find((c) => c.kind === 'export-removed' && c.symbolPath === 'Handler');
+    expect(change?.severity).toBe('major');
+    expect(change?.confidence).toBe('heuristic');
+    expect(report.summary.majorProven).toBe(0);
+  });
+
+  it('decomposes an object-literal alias so an added required property is named, not opaque', () => {
     // The p-limit `LimitFunction.concurrency` case: `type X = { ... }` gains a
-    // required property. Without decomposition this is an opaque, review-only
-    // `type-alias-changed`; decomposed it is a structural required-property-added.
+    // required property. Without decomposition this is an opaque
+    // `type-alias-changed`; decomposed it is a structural required-property-added
+    // that names the member responsible.
+    //
+    // Review-only, not proven: it breaks only a consumer who builds the object
+    // themselves, and against a tsc oracle over real releases the rule scored
+    // 33%. Decomposition is what this test is about; the grade follows the
+    // measured evidence and moves if better evidence arrives.
     const report = compareFixture('object-alias-required-prop-added');
     const added = report.changes.find((c) => c.kind === 'required-property-added' && c.symbolPath === 'LimitFunction.concurrency');
     expect(added).toBeDefined();
     expect(added?.severity).toBe('major');
-    expect(added?.confidence).toBe('proven');
+    expect(added?.confidence).toBe('heuristic');
     expect(report.changes.some((c) => c.kind === 'type-alias-changed')).toBe(false);
-    expect(report.summary.majorProven).toBeGreaterThan(0);
     expect(report.recommended).toBe('major');
   });
 

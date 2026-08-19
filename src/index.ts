@@ -4,12 +4,34 @@ import { resolvePath } from './resolve/path-resolver.js';
 import { resolveGitRef, cleanupTmpDir } from './resolve/git-resolver.js';
 import { resolveNpmSpec } from './resolve/npm-resolver.js';
 import { ensureProjectDeps } from './resolve/dependency-installer.js';
-import type { CompareOptions, SemverReport } from './types.js';
+import { describeUnusableSnapshot, type ApiSnapshot } from './extract/api-snapshot.js';
+import type { CompareOptions, SemverReport, SourceRef } from './types.js';
 
 export type { CompareOptions, SemverReport, ApiChange, SemverBump, ChangeKind, SourceRef } from './types.js';
 export type { ApiSnapshot, ApiEnumMember, ApiInterfaceMethod } from './extract/api-snapshot.js';
 export { extract } from './extract/extractor.js';
 export { diff } from './compare/differ.js';
+
+function describeSource(source: SourceRef): string {
+  if (source.type === 'path') return source.path;
+  if (source.type === 'npm') return source.spec;
+  return source.ref;
+}
+
+// An unusable side is a non-answer, and a non-answer must never be reported as a
+// clean `patch`. Comparing two empty snapshots produces exactly the output of a
+// safe release, so the failure has to be raised before `diff()` ever sees them.
+function assertUsable(snapshot: ApiSnapshot, source: SourceRef): void {
+  const reason = describeUnusableSnapshot(snapshot);
+  if (!reason) return;
+  throw new Error(
+    `Cannot compare '${describeSource(source)}': ${reason}.\n` +
+      `  This is an extraction failure, not a clean API - reporting it as 'patch' would be wrong.\n` +
+      `  Common causes: the package ships no bundled declarations (types live in a separate @types package),\n` +
+      `  its types are only reachable through an ambient 'declare module' block, or the entry point resolved\n` +
+      `  to the wrong file. Pass --entry to point at the declaration file explicitly.`,
+  );
+}
 
 export async function compare(options: CompareOptions): Promise<SemverReport> {
   const { oldSource, newSource, entry, installDeps = false } = options;
@@ -55,6 +77,9 @@ export async function compare(options: CompareOptions): Promise<SemverReport> {
       extract({ projectPath: oldPath, entry }),
       extract({ projectPath: newPath, entry }),
     ]);
+
+    assertUsable(oldSnap, oldSource);
+    assertUsable(newSnap, newSource);
 
     return diff(oldSnap, newSnap);
   } finally {

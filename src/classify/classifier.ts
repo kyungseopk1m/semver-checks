@@ -24,11 +24,36 @@ function typeChangeConfidence(relation: TypeRelation | null, position: 'param' |
   return position === 'invariant' ? 'heuristic' : 'proven';
 }
 
-// Spread into a change literal: tags 'heuristic' explicitly, leaves 'proven'
-// implicit (omitted, normalized to 'proven' by `diff()`). Keeps proven sites a
-// zero-diff so confidence reads as the exception, not noise on every push.
-function maybeHeuristic(confidence: Confidence): { confidence: 'heuristic' } | Record<string, never> {
-  return confidence === 'heuristic' ? { confidence } : {};
+// MAJOR kinds whose confidence needs no analysis: the change IS the evidence.
+// A member that was there and now is not, or a call that now demands an argument
+// it did not, breaks every consumer touching it, whatever the types involved.
+//
+// Everything else defaults to review-only (see `resolveConfidence`). That default
+// is the point: `--strict` used to promote all 47 major-emitting rules to proven
+// by inheritance, so its promise ("only confident breaks fail CI") rested on one
+// unexamined line. Measured against a tsc oracle over real minor/patch releases,
+// most of those rules could not show a single true positive. A rule earns proven
+// here by evidence, or it computes its own confidence at the emit site.
+const PROVEN_KINDS: ReadonlySet<string> = new Set([
+  'export-removed',
+  'property-removed',
+  'class-property-removed',
+  'class-method-removed',
+  'required-param-added',
+]);
+
+// The confidence a change carries once the kind-based default is applied. A rule
+// that computed its own confidence keeps it; a rule that never made the decision
+// gets one made for it.
+export function resolveConfidence(change: ApiChange): Confidence {
+  return change.confidence ?? (PROVEN_KINDS.has(change.kind) ? 'proven' : 'heuristic');
+}
+
+// Spread into a change literal by a rule that actually decided. Both branches are
+// explicit: an omitted `proven` would fall through to the kind-based default and
+// throw away the variance analysis that produced it.
+function gradedConfidence(confidence: Confidence): { confidence: Confidence } {
+  return { confidence };
 }
 
 interface InvariantCompare {
@@ -64,11 +89,16 @@ function propTypeConfidence(read: InvariantCompare, write: InvariantCompare): Co
 
 // Spread into a signature/constructor wrapper change. The wrapper is proven when
 // at least one of its major sub-changes is itself proven; if every major sub is
-// review-only, so is the wrapper (and a non-major wrapper stays proven/omitted).
-function maybeWrapper(subChanges: ApiChange[]): { confidence: 'heuristic' } | Record<string, never> {
+// review-only, so is the wrapper. A non-major wrapper leaves confidence to the
+// default, where it carries no meaning anyway.
+//
+// Sub-changes are read through `resolveConfidence`: a sub that never decided is
+// undefined here, and treating undefined as proven would let the wrapper claim a
+// confidence its parts do not have.
+function maybeWrapper(subChanges: ApiChange[]): { confidence: Confidence } | Record<string, never> {
   const majors = subChanges.filter((c) => c.severity === 'major');
   if (majors.length === 0) return {};
-  return majors.some((c) => c.confidence !== 'heuristic') ? {} : { confidence: 'heuristic' };
+  return { confidence: majors.some((c) => resolveConfidence(c) === 'proven') ? 'proven' : 'heuristic' };
 }
 
 // Build a rename map that lets us treat `<T>(x: T)` and `<S>(x: S)` as the same
@@ -462,6 +492,15 @@ function classifySymbolChanges(name: string, oldSym: ApiSymbol, newSym: ApiSymbo
       message: `'${name}' changed kind from '${oldSym.kind}' to '${newSym.kind}'`,
       oldValue: oldSym.kind,
       newValue: newSym.kind,
+      // Review-only, and deliberately not inheriting `export-removed`'s proven
+      // grade: nothing was removed. The name still resolves, it just resolves to
+      // a different declaration form, and the equivalence check above could not
+      // decide the shapes match. A form change genuinely can break (an interface
+      // has no implicit index signature, so it stops satisfying
+      // `Record<string, unknown>`), but usually does not — ky flipped
+      // `KyRequest`/`KyResponse` between the two forms in 1.12.0 and back in
+      // 1.13.0, and no consumer noticed either way.
+      confidence: 'heuristic',
     }];
   }
 
@@ -714,6 +753,12 @@ function compareFunctionSignature(
         oldValue: oldP.isRest ? `...${oldP.name}: ${oldP.type.text}` : `${oldP.name}: ${oldP.type.text}`,
         newValue: newP.isRest ? `...${newP.name}: ${newP.type.text}` : `${newP.name}: ${newP.type.text}`,
       });
+    } else if (
+      oldP.isOptional &&
+      !newP.isOptional &&
+      impliedUndefinedCores(oldP.type.text).includes(renameTypeText(newP.type.text, tpRename).trim())
+    ) {
+      // Nothing but the optionality changed; the transition below reports it.
     } else if (oldP.type.text !== renameTypeText(newP.type.text, tpRename)) {
       // Parameters are contravariant: existing callers keep passing the *old*
       // type, so a change is non-breaking only if the old type is still assignable
@@ -748,7 +793,7 @@ function compareFunctionSignature(
             message: `Parameter '${oldP.name}' type changed in '${symbolPath}'`,
             oldValue: oldP.type.text,
             newValue: newP.type.text,
-            ...maybeHeuristic(typeChangeConfidence(relation, 'param')),
+            ...gradedConfidence(typeChangeConfidence(relation, 'param')),
           });
         }
       }
@@ -801,7 +846,7 @@ function compareFunctionSignature(
           message: `Return type of '${symbolPath}' changed`,
           oldValue: oldSig.returnType.text,
           newValue: newSig.returnType.text,
-          ...maybeHeuristic(typeChangeConfidence(relation, 'return')),
+          ...gradedConfidence(typeChangeConfidence(relation, 'return')),
         });
       }
     }
@@ -837,16 +882,171 @@ function classifyFunctionChanges(name: string, oldFn: ApiFunctionSymbol, newFn: 
     });
   }
 
-  // Compare all matching signature pairs
-  const pairCount = Math.min(oldFn.signatures.length, newFn.signatures.length);
-  for (let i = 0; i < pairCount; i++) {
-    const oldSig = oldFn.signatures[i];
-    const newSig = newFn.signatures[i];
+  // Compare aligned signature pairs
+  for (const [oi, ni] of alignSignatures(
+    oldFn.signatures.map((s) => signatureParts(s)),
+    newFn.signatures.map((s) => signatureParts(s)),
+  )) {
+    const oldSig = oldFn.signatures[oi];
+    const newSig = newFn.signatures[ni];
     changes.push(...compareFunctionSignature(name, oldSig, newSig));
     changes.push(...classifyTypeParamChanges(name, oldSig.typeParameters, newSig.typeParameters, 'callable'));
   }
 
-  return changes;
+  return demoteShadowedRequiredParam(changes, oldFn.signatures, newFn.signatures);
+}
+
+// The type an optional parameter would have written without its optionality, in
+// the spellings the serializer produces: `T | undefined`, and `(T) | undefined`
+// when `T` needs parentheses inside a union.
+//
+// A parameter that merely became required goes from `T | undefined` to `T`, which
+// the type comparison reads as a narrowing and reports on top of the optionality
+// transition -- the same event, twice, and the duplicate carries a different kind
+// so demoting one leaves the other on the gate.
+//
+// ponytail: string surgery, not a parser. A shape it does not recognise just
+// falls through to the existing comparison, which over-reports rather than
+// under-reports.
+function impliedUndefinedCores(text: string): string[] {
+  const trimmed = text.trim();
+  const suffix = ' | undefined';
+  if (!trimmed.endsWith(suffix)) return [trimmed];
+  const core = trimmed.slice(0, -suffix.length).trim();
+  const unwrapped = core.startsWith('(') && core.endsWith(')') ? core.slice(1, -1).trim() : null;
+  return unwrapped === null ? [core] : [core, unwrapped];
+}
+
+// The fewest arguments any of these signatures can be called with.
+function minRequiredParams(signatures: ApiFunctionSignature[]): number {
+  return signatures.reduce(
+    (min, sig) => Math.min(min, sig.parameters.filter((p) => !p.isOptional && !p.isRest).length),
+    Infinity,
+  );
+}
+
+// Making a parameter required on ONE signature of an overloaded symbol does not
+// take a call form away from anyone, so long as a sibling signature still accepts
+// the old minimum argument count.
+//
+// commander 14.0.2 is the case: it dropped the `?` from the deprecated
+// `outputHelp(cb)` overload while `outputHelp(context?: HelpContext)` sat ahead of
+// it, so `outputHelp()` still resolves. The finding is true of the signature and
+// false of the symbol, and `--strict` should not fail a release over it.
+//
+// A symbol with a single signature is untouched by this without needing a special
+// case: its minimum required count IS that signature's, so making a parameter
+// required always raises it (rxjs 7.8.2's `Subscriber#next` is exactly that, and
+// it must keep failing the gate).
+function demoteShadowedRequiredParam(
+  changes: ApiChange[],
+  oldSignatures: ApiFunctionSignature[],
+  newSignatures: ApiFunctionSignature[],
+): ApiChange[] {
+  if (minRequiredParams(newSignatures) > minRequiredParams(oldSignatures)) return changes;
+  return changes.map((c) =>
+    c.kind === 'required-param-added' ? { ...c, confidence: 'heuristic' as const } : c,
+  );
+}
+
+// Decide which old overload each new overload should be compared against, as a
+// list of `[oldIndex, newIndex]` pairs in declaration order.
+//
+// Pairing by raw array index is correct only while the overload count holds
+// still. Insert one overload at the front and every later signature is diffed
+// against the wrong sibling, which is where the measured false-positive floods
+// come from: ioredis 5.11.1 -> 6.0.0 reported 1251 proven majors, and got
+// 14.6.4 -> 14.6.5 — a published patch — reported 22.
+//
+// So: a minimum-cost, ORDER-PRESERVING alignment (Levenshtein over signature
+// keys; match 0, substitute 1, insert 1, delete 1), with ties broken toward
+// substitution.
+//
+// The tie-break is the load-bearing part. On a pure reorder (`[A,B]` -> `[B,A]`)
+// two substitutions and delete-match-insert both cost 2, and taking
+// substitution reproduces index pairing exactly, so a reorder still reports as
+// the MAJOR it is. That matters because TypeScript resolves an overloaded call
+// against the FIRST matching signature in declaration order and `ReturnType<T>`
+// against the LAST, so reordering changes what consumers get. A set- or
+// multiset-based match erases that distinction; it was tried once, it turned
+// real breaks into PATCH, and it was reverted wholesale. Do not reintroduce it.
+// The reorder fixtures in __test__ pin this behaviour.
+//
+// On an insertion (`[A,B]` -> `[X,A,B]`) one insert costs 1 against three
+// substitutions at 3, so A pairs with A and B with B, and X is simply new.
+function alignSignatures(oldParts: string[][], newParts: string[][]): Array<[number, number]> {
+  const n = oldParts.length;
+  const m = newParts.length;
+  const sub = (i: number, j: number): number => signatureDistance(oldParts[i], newParts[j]);
+  // cost[i][j] = cheapest way to align oldParts[i..] against newParts[j..].
+  const cost: number[][] = Array.from({ length: n + 1 }, () => new Array<number>(m + 1).fill(0));
+  for (let j = 0; j <= m; j++) cost[n][j] = m - j;
+  for (let i = 0; i <= n; i++) cost[i][m] = n - i;
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      cost[i][j] = Math.min(cost[i + 1][j + 1] + sub(i, j), cost[i + 1][j] + 1, cost[i][j + 1] + 1);
+    }
+  }
+
+  const pairs: Array<[number, number]> = [];
+  let i = 0;
+  let j = 0;
+  while (i < n && j < m) {
+    // Substitution is tested first, so a tie resolves to it.
+    if (cost[i][j] === cost[i + 1][j + 1] + sub(i, j)) {
+      pairs.push([i, j]);
+      i++;
+      j++;
+    } else if (cost[i][j] === cost[i + 1][j] + 1) {
+      i++;
+    } else {
+      j++;
+    }
+  }
+  return pairs;
+}
+
+// The comparable pieces of a signature: its type parameter list, each parameter,
+// and its return type.
+function signatureParts(sig: ApiFunctionSignature, rename: Map<string, string> | null = null): string[] {
+  return [
+    sig.typeParameters
+      .map(
+        (tp) =>
+          tp.name +
+          (tp.constraint ? ` extends ${renameTypeText(tp.constraint.text, rename)}` : '') +
+          (tp.default ? ` = ${renameTypeText(tp.default.text, rename)}` : ''),
+      )
+      .join(', '),
+    ...sig.parameters.map(
+      (p) => `${p.isRest ? '...' : ''}${p.name}${p.isOptional ? '?' : ''}: ${renameTypeText(p.type.text, rename)}`,
+    ),
+    `=> ${renameTypeText(sig.returnType.text, rename)}`,
+  ];
+}
+
+// How different two signatures are: the share of their parts that do not match,
+// with missing positions counted as differing. Exactly 0 only when identical.
+//
+// Grading the substitution cost, rather than charging a flat 1 for any mismatch,
+// is what makes the alignment pick the *closest* sibling when an overload is
+// added. axios 1.17.0 replaced `toJSON(asStrings?: boolean): RawAxiosHeaders`
+// with three overloads; a flat cost ties all three, so the old signature paired
+// with `toJSON(asStrings: true)` and reported a narrowed, newly-required
+// parameter that no consumer ever saw.
+//
+// The clamp keeps the value strictly inside (0, 1) for non-identical signatures.
+// A free substitution would let the alignment pair anything; a substitution
+// costing a full 1 ties with delete-plus-insert and loses the closest-match
+// preference. Staying under 1 also keeps a pure reorder cheaper as a positional
+// substitution than as a delete/insert, which is what keeps a reorder reported as
+// the MAJOR it is.
+function signatureDistance(a: string[], b: string[]): number {
+  const len = Math.max(a.length, b.length);
+  if (len === 0) return 0;
+  let differing = 0;
+  for (let i = 0; i < len; i++) if (a[i] !== b[i]) differing++;
+  return differing === 0 ? 0 : Math.min(0.9, Math.max(0.1, differing / len));
 }
 
 // Canonical text of a call/construct signature, used to compare interface
@@ -991,7 +1191,7 @@ function classifyInterfaceChanges(name: string, oldIf: ApiInterfaceSymbol, newIf
         message: `Property '${propName}' type changed in interface '${name}'`,
         oldValue: describe(oldProp),
         newValue: describe(newProp),
-        ...maybeHeuristic(propTypeConfidence(read, write)),
+        ...gradedConfidence(propTypeConfidence(read, write)),
       });
     }
     if (oldProp.isOptional && !newProp.isOptional) {
@@ -1056,7 +1256,7 @@ function classifyInterfaceChanges(name: string, oldIf: ApiInterfaceSymbol, newIf
         message: `Member '${memberName}' changed between property and method form in '${name}'`,
         oldValue: oldView.typeText,
         newValue: newView.typeText,
-        ...maybeHeuristic(propTypeConfidence(read, write)),
+        ...gradedConfidence(propTypeConfidence(read, write)),
       });
     }
     if (oldView.isOptional && !newView.isOptional) {
@@ -1163,13 +1363,19 @@ function classifyInterfaceChanges(name: string, oldIf: ApiInterfaceSymbol, newIf
       });
     }
 
-    const pairCount = Math.min(oldMethod.signatures.length, newMethod.signatures.length);
-    const allSigChanges: ApiChange[] = [];
-    for (let i = 0; i < pairCount; i++) {
-      const oldSig = oldMethod.signatures[i];
-      const newSig = newMethod.signatures[i];
+    // Same alignment as top-level functions (see alignSignatures). The new side's
+    // keys go through the container rename so a pure `interface F<T>` -> `<S>`
+    // rewrite still matches its counterpart instead of looking substituted.
+    const alignment = alignSignatures(
+      oldMethod.signatures.map((s) => signatureParts(s)),
+      newMethod.signatures.map((s) => signatureParts(s, renameForSignature(containerRename, s))),
+    );
+    const rawSigChanges: ApiChange[] = [];
+    for (const [oi, ni] of alignment) {
+      const oldSig = oldMethod.signatures[oi];
+      const newSig = newMethod.signatures[ni];
       if (!oldSig || !newSig) continue;
-      allSigChanges.push(
+      rawSigChanges.push(
         ...compareFunctionSignature(
           `${name}.${methodName}`,
           oldSig,
@@ -1178,8 +1384,9 @@ function classifyInterfaceChanges(name: string, oldIf: ApiInterfaceSymbol, newIf
           containerRename,
         ),
       );
-      allSigChanges.push(...classifyTypeParamChanges(`${name}.${methodName}`, oldSig.typeParameters, newSig.typeParameters, 'callable'));
+      rawSigChanges.push(...classifyTypeParamChanges(`${name}.${methodName}`, oldSig.typeParameters, newSig.typeParameters, 'callable'));
     }
+    const allSigChanges = demoteShadowedRequiredParam(rawSigChanges, oldMethod.signatures, newMethod.signatures);
     if (allSigChanges.length > 0) {
       changes.push({
         kind: 'interface-method-signature-changed',
@@ -1350,17 +1557,27 @@ function classifySingleClassMethodChange(
     });
   }
 
-  const pairCount = Math.min(oldMethod.signatures.length, newMethod.signatures.length);
-  const allSigChanges: ApiChange[] = [];
-  for (let i = 0; i < pairCount; i++) {
-    const oldSig = oldMethod.signatures[i];
-    const newSig = newMethod.signatures[i];
+  // Same alignment as top-level functions and interface methods. A plain `.ts`
+  // class cannot exercise it -- `getMethods()` returns one implementation node per
+  // method, so its overloads arrive merged into a single signature -- but an
+  // ambient `declare class` keeps them separate, and that is what every published
+  // package ships. axios 1.17.0 grew `AxiosHeaders#toJSON` from one overload to
+  // three; index pairing compared the original against `toJSON(asStrings: true)`
+  // and reported a narrowed, newly-required parameter.
+  const rawSigChanges: ApiChange[] = [];
+  for (const [oi, ni] of alignSignatures(
+    oldMethod.signatures.map((s) => signatureParts(s)),
+    newMethod.signatures.map((s) => signatureParts(s, containerRename ?? null)),
+  )) {
+    const oldSig = oldMethod.signatures[oi];
+    const newSig = newMethod.signatures[ni];
     if (!oldSig || !newSig) continue;
-    allSigChanges.push(
+    rawSigChanges.push(
       ...compareFunctionSignature(symbolPath, oldSig, newSig, classTPs, containerRename ?? null),
     );
-    allSigChanges.push(...classifyTypeParamChanges(symbolPath, oldSig.typeParameters, newSig.typeParameters, 'callable'));
+    rawSigChanges.push(...classifyTypeParamChanges(symbolPath, oldSig.typeParameters, newSig.typeParameters, 'callable'));
   }
+  const allSigChanges = demoteShadowedRequiredParam(rawSigChanges, oldMethod.signatures, newMethod.signatures);
   if (allSigChanges.length > 0) {
     changes.push({
       kind: 'class-method-signature-changed',
@@ -1410,7 +1627,7 @@ function classifySingleClassPropertyChange(
       message: `Property '${oldProp.name}' type changed in class '${className}'`,
       oldValue: describe(oldProp),
       newValue: describe(newProp),
-      ...maybeHeuristic(propTypeConfidence(read, write)),
+      ...gradedConfidence(propTypeConfidence(read, write)),
     });
   }
   // isStatic checks only fire in the 1:1 name-only shortcut path (classifyClassPropertyGroupChanges).
@@ -1437,6 +1654,11 @@ function classifySingleClassPropertyChange(
       severity: 'major',
       symbolPath,
       message: `Property '${oldProp.name}' became required in class '${className}'`,
+      // Review-only for the same reason as `classAddedProperty`: only a consumer
+      // structurally re-implementing the class owes this member. The interface
+      // counterpart (`interface-property-became-required`) stays proven, because
+      // interfaces exist to be implemented.
+      confidence: 'heuristic',
     });
   }
   if (!oldProp.isOptional && newProp.isOptional) {
@@ -1465,6 +1687,33 @@ function classifySingleClassPropertyChange(
   }
 
   return changes;
+}
+
+// A property that appears on the new side of a class and has no counterpart on
+// the old side.
+//
+// Only an added *required instance* property can oblige anyone, and even then
+// only a consumer who re-implements the class structurally (`const x: Cls = {...}`).
+// The common shapes — `new Cls(...)` and `class Mine extends Cls` — inherit the
+// new member and keep compiling, which is why this is review-only rather than
+// proven: measured against a tsc oracle over real releases, every
+// `required-class-property-added` was a false positive.
+//
+// `isStatic` is checked before optionality: a static member lives on the
+// constructor object, so no consumer can be asked to supply it at all. This
+// branch is where that check has to happen — the key-matched path below pairs
+// static with static, so by the time a property reaches it both sides already
+// agree.
+function classAddedProperty(className: string, property: ApiClassProperty): ApiChange {
+  const additive = property.isStatic || property.isOptional;
+  const label = property.isStatic ? 'Static' : property.isOptional ? 'Optional' : 'Required';
+  return {
+    kind: additive ? 'class-property-added' : 'required-class-property-added',
+    severity: additive ? 'minor' : 'major',
+    symbolPath: `${className}.${property.name}`,
+    message: `${label} property '${property.name}' was added to class '${className}'`,
+    ...(additive ? {} : { confidence: 'heuristic' as const }),
+  };
 }
 
 function classifyClassMethodGroupChanges(
@@ -1545,12 +1794,7 @@ function classifyClassPropertyGroupChanges(
 
   if (oldGroup.length === 0) {
     for (const property of newGroup) {
-      changes.push({
-        kind: property.isOptional ? 'class-property-added' : 'required-class-property-added',
-        severity: property.isOptional ? 'minor' : 'major',
-        symbolPath: `${className}.${property.name}`,
-        message: `${property.isOptional ? 'Optional' : 'Required'} property '${property.name}' was added to class '${className}'`,
-      });
+      changes.push(classAddedProperty(className, property));
     }
     return changes;
   }
@@ -1590,12 +1834,7 @@ function classifyClassPropertyGroupChanges(
 
   for (const [key, newProperty] of newByKey) {
     if (oldByKey.has(key)) continue;
-    changes.push({
-      kind: newProperty.isOptional ? 'class-property-added' : 'required-class-property-added',
-      severity: newProperty.isOptional ? 'minor' : 'major',
-      symbolPath: `${className}.${newProperty.name}`,
-      message: `${newProperty.isOptional ? 'Optional' : 'Required'} property '${newProperty.name}' was added to class '${className}'`,
-    });
+    changes.push(classAddedProperty(className, newProperty));
   }
 
   return changes;
@@ -1657,7 +1896,7 @@ function classifyClassChanges(name: string, oldCls: ApiClassSymbol, newCls: ApiC
   const containerRename = buildTypeParamRenameMap(oldCls.typeParameters, newCls.typeParameters);
 
   // Constructor changes. Skipped entirely when either side's constructor is
-  // unknown (no explicit constructor on a class with a heritage clause -- see
+  // unknown (no explicit constructor on a class with a heritage clause — see
   // constructorUnknown on ApiClassSymbol / hasHeritageClause in the
   // extractor): comparing a real signature/visibility against a placeholder
   // for an unresolved inherited one produces false diffs, and checking only
@@ -1834,7 +2073,7 @@ function classifyTypeAliasChanges(name: string, oldTA: ApiTypeAliasSymbol, newTA
         // A non-object alias text difference: proven only when variance resolved
         // the two as genuinely unrelated; a bail or a one-directional (in this
         // invariant position) relation is review-only.
-        ...maybeHeuristic(typeChangeConfidence(relation, 'invariant')),
+        ...gradedConfidence(typeChangeConfidence(relation, 'invariant')),
       });
     }
   }
@@ -1870,6 +2109,6 @@ function classifyVariableChanges(name: string, oldVar: ApiVariableSymbol, newVar
     // Variable types are invariant: a one-directional or unresolved relation can
     // still be safe in practice, so it is review-only; only a genuinely unrelated
     // change is proven.
-    ...maybeHeuristic(typeChangeConfidence(relation, 'invariant')),
+    ...gradedConfidence(typeChangeConfidence(relation, 'invariant')),
   }];
 }

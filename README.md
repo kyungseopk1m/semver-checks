@@ -64,14 +64,29 @@ semver-checks is complementary to your existing release workflow. Use it as a **
 
 semver-checks grades every breaking change by **confidence**, so the CI gate stays trustworthy:
 
-- **proven** — the break follows from a structural fact (a member added/removed, an optionality/readonly/static transition, an enum or overload change) or from a _resolved_ type relation the analyzer decided is genuinely unrelated. `--strict` exits 1 on these, and only these — safe to leave on in CI.
+- **proven** — the change is its own evidence (a removed export, property, class property or class method; a newly required parameter), or a _resolved_ type relation the analyzer decided is genuinely unrelated. `--strict` exits 1 on these, and only these — safe to leave on in CI. Proven is earned per rule, not inherited: a rule either computes its own confidence or is on that short list, and everything else is review-only. The list is short because it is empirical — see [Measured](#accuracy--limitations) below.
 - **heuristic** — a conservative MAJOR the analyzer could _not_ prove (a type-text difference it couldn't resolve, or a one-directional change in an invariant position where a safe reading exists). These surface for human review but do **not** fail `--strict`; opt in with `--strict-review` if you want every MAJOR to gate.
 
 This is the design's center of gravity: the equivalence-preserving rewrites and input-union widenings that make text-based type-semver tools cry wolf land in _heuristic_, off the default gate, while real under-bumps stay _proven_ and on it. It is neither _sound_ (zero false positives) nor _complete_ (catches everything), so a `proven` MAJOR is a strong signal, not a theorem. That isolation only covers the over-reporting surfaces in [Known limitations](#known-limitations); the under-report and structural rows in the same table are a different axis, a silent `patch` or an outright failure, not a confidence question.
 
 It is most reliable on **conventional, single-entry packages with an explicitly-typed public surface**: added / removed / renamed exports, function and method signature changes, added required parameters and properties, and removed members are detected dependably and reported as `proven`.
 
-**Measured.** Across 44 adjacent real-world npm release pairs (`.d.ts` ↔ `.d.ts`, seven API shapes, the author's published bump as the oracle), 37 were analyzable. Of those, 19 matched the published bump exactly, 9 were _stricter_ than the published bump, and 9 were _looser_. The graded gate splits the 9 stricter rows cleanly: `--strict` fires on 4 of them — real breaks the author shipped under-bumped: `p-limit` 6.1.0 and `ky` 1.14.0 each added a required property to an exported type yet released as a minor (`tsc` confirms a `TS2741` for implementers), `commander` 12.1.0 removed a public method, and `commander` 14.0.2 turned the optional `cb` parameter of `Command#outputHelp` and `Command#help` into a required one in a _patch_ — while the other 5 (the equivalence rewrites, input-union widenings, and return-only generics on the surfaces below) demote to review-only and pass the gate. Most of the looser results are releases bumped for runtime-only reasons with no public _type_ change. Reproduce the scorecard with [`scripts/accuracy-probe.mjs`](scripts/accuracy-probe.mjs) (after `npm run build`), or spot-check your own dependencies:
+**Measured, against a compiler.** The scorecard that decides which rules are `proven` uses `tsc` as its oracle, not the author's published bump — the tool exists because authors get the bump wrong, so scoring it against that bump would be circular. Each of 75 adjacent minor/patch release pairs, across 17 packages, has a consumer program compiled against both sides; the pair is a real break iff the new side produces errors the old side did not. Major-version boundaries are excluded: there the author already knows the release is breaking, so the tool's verdict carries no decision value.
+
+On that corpus `--strict` fires on 13 of 75 pairs, catching all 11 real breaks with 2 false positives — precision 84.6%, recall 100%, and no single pair emitting more than 4 proven majors.
+
+The control group is [`scripts/gate/naive-baseline.mjs`](scripts/gate/naive-baseline.mjs), a 45-line exported-name-and-arity diff with no type resolution at all, kept to answer the obvious question: does the type analysis buy anything a much dumber tool does not already get? It scores 75.0% precision and 81.8% recall on the same corpus, and the two breaks it misses are the answer to that question:
+
+- `commander` 11.0.0 → 11.1.0 widened `Command#executableDir()`'s return type from `string` to `string | null` in a minor. No name moved, no parameter count changed; a name-and-arity diff has nothing to look at.
+- `@sinclair/typebox` 0.34.51 → 0.34.52 dropped the `StringUtil` namespace from its `./compiler` entry, which takes resolving the surface of that subpath to see.
+
+Its three false positives point the other way: all of them are removals inside `internal/` files or underscore-prefixed members, which no consumer could import in the first place. Reading declarations rather than files is what separates the public surface from the implementation.
+
+Two false positives remain here too, both worth naming. On `hono` 4.12.29 → 4.12.30 a parameter of `WSContextInit#send` narrowed; the type is one consumers *implement* rather than call, and parameter position is contravariant, so implementations keep compiling — but a caller genuinely would break, so over-reporting is the safe side of an ambiguity the tool cannot resolve. On `zod` 4.3.6 → 4.4.0 the literal type of the exported `version` constant changed from `{ minor: 3 }` to `{ minor: 4 }`, which is breaking only for a consumer who pinned it.
+
+Reproduce with `node scripts/gate/run.mjs`; the corpus, the consumers, and the per-pair results are checked in.
+
+**Measured, against published bumps.** Across 44 adjacent real-world npm release pairs (`.d.ts` ↔ `.d.ts`, seven API shapes, the author's published bump as the oracle), 37 were analyzable. Of those, 19 matched the published bump exactly, 9 were _stricter_ than the published bump, and 9 were _looser_. The graded gate splits the 9 stricter rows cleanly: `--strict` fires on 4 of them — real breaks the author shipped under-bumped: `p-limit` 6.1.0 and `ky` 1.14.0 each added a required property to an exported type yet released as a minor (`tsc` confirms a `TS2741` for implementers), and `commander` 12.1.0 removed a public method — while the other 5 (the equivalence rewrites, input-union widenings, and return-only generics on the surfaces below) demote to review-only and pass the gate. Most of the looser results are releases bumped for runtime-only reasons with no public _type_ change. Reproduce the scorecard with [`scripts/accuracy-probe.mjs`](scripts/accuracy-probe.mjs) (after `npm run build`), or spot-check your own dependencies:
 
 ```bash
 npx semver-checks compare <pkg>@<previous> <pkg>@<latest>
@@ -292,8 +307,8 @@ console.log(Object.keys(snapshot.entrypoints["."])); // root entry's symbol name
 | `class-property-type-changed`           | A public class property's type changed                    |
 | `class-property-became-static`          | A class property changed from instance to static          |
 | `class-property-became-instance`        | A class property changed from static to instance          |
-| `class-property-became-required`        | An optional class property became required                |
-| `required-class-property-added`         | A required class property was added                       |
+| `class-property-became-required`        | An optional class property became required (review-only)  |
+| `required-class-property-added`         | A required instance class property was added (review-only) |
 | `class-property-became-readonly`        | A public class property changed from mutable to readonly  |
 | `generic-param-required`                | A required generic parameter was added                    |
 | `generic-param-removed`                 | A generic parameter was removed                           |
@@ -324,7 +339,7 @@ console.log(Object.keys(snapshot.entrypoints["."])); // root entry's symbol name
 | `generic-param-with-default`         | A generic parameter with a default was added                                            |
 | `generic-param-default-added`        | A default was added to an existing generic parameter                                    |
 | `class-method-added`                 | A public class method was added                                                         |
-| `class-property-added`               | An optional public class property was added                                             |
+| `class-property-added`               | An optional or static public class property was added                                   |
 | `class-property-became-optional`     | A required class property became optional                                               |
 | `class-property-became-mutable`      | A public class property changed from readonly to mutable                                |
 | `param-type-widened`                 | A parameter's type was widened — existing callers still type-check (contravariant)      |
@@ -352,6 +367,16 @@ semver-checks compare <old> [new] [options]
 
 - `<old>`: an npm spec (`pkg@version`), a git ref (tag, branch, commit SHA), or a local directory path for the old version
 - `[new]`: npm spec, git ref, or path for the new version; defaults to `.` (current directory)
+
+**Exit codes:**
+
+| Code | Meaning                                                                                       |
+| ---- | --------------------------------------------------------------------------------------------- |
+| `0`  | Analyzed; the gate you asked for passed                                                       |
+| `1`  | Analyzed; the gate failed (`--strict` on a proven break, `--strict-review` on any)            |
+| `2`  | Could not answer — an input didn't resolve, or a side's API surface could not be extracted    |
+
+Exit 2 covers the case where extraction produced nothing usable: no API symbols at all, or only opaque (`any`) ones. That is reported as a failure rather than a clean `patch`, because a comparison of two empty surfaces is indistinguishable from a release that genuinely changed nothing. Pass `--entry` to point at the declaration file when a package's entry point can't be auto-resolved.
 
 **Output formats:**
 
@@ -385,6 +410,8 @@ semver-checks snapshot [path] [options]
 **Arguments:**
 
 - `[path]`: project path; defaults to `.` (current directory)
+
+Exits 2 when nothing usable could be extracted, rather than printing an empty surface — same reasoning as `compare` above.
 
 ### Global options
 

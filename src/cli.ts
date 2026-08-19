@@ -5,6 +5,7 @@ import { jsonReport } from './report/json-reporter.js';
 import { markdownReport } from './report/markdown-reporter.js';
 import { githubReport } from './report/github-reporter.js';
 import { extract } from './extract/extractor.js';
+import { describeUnusableSnapshot } from './extract/api-snapshot.js';
 import { resolvePath } from './resolve/path-resolver.js';
 import { resolveGitRef, cleanupTmpDir } from './resolve/git-resolver.js';
 import { resolveNpmSpec } from './resolve/npm-resolver.js';
@@ -185,6 +186,16 @@ const snapshotCommand = defineCommand({
       }
 
       const snapshot = await extract({ projectPath, entry: parseEntryArg(args.entry as string | string[] | undefined) });
+      // Printing `{"entrypoints":{".":{}}}` and exiting 0 reads as "this package
+      // has no public API" when it actually means the extraction found nothing.
+      // Same contract as `compare`: a non-answer exits 2.
+      const unusable = describeUnusableSnapshot(snapshot);
+      if (unusable) {
+        throw new Error(
+          `Cannot snapshot '${args.npm ?? args.ref ?? args.path ?? '.'}': ${unusable}.\n` +
+            `  Pass --entry to point at the declaration file explicitly.`,
+        );
+      }
       console.log(JSON.stringify(snapshot, null, 2));
     } catch (err: any) {
       console.error(`Error: ${err.message}`);

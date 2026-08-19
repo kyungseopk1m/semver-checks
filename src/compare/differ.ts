@@ -1,14 +1,15 @@
 import type { ApiSnapshot } from '../extract/api-snapshot.js';
 import type { SemverReport, SemverBump } from '../types.js';
-import { classifyChanges } from '../classify/classifier.js';
+import { classifyChanges, resolveConfidence } from '../classify/classifier.js';
 
 export function diff(oldSnap: ApiSnapshot, newSnap: ApiSnapshot): SemverReport {
   const changes = classifyChanges(oldSnap, newSnap);
 
   const summary = { major: 0, minor: 0, patch: 0, majorProven: 0, majorReview: 0 };
   for (const c of changes) {
-    // The classifier only sets 'heuristic' explicitly; everything else is proven.
-    if (!c.confidence) c.confidence = 'proven';
+    // Proven is earned, not inherited: a rule either computed its own confidence
+    // or is on the classifier's proven allow-list. Anything else is review-only.
+    if (!c.confidence) c.confidence = resolveConfidence(c);
     summary[c.severity]++;
     if (c.severity === 'major') {
       if (c.confidence === 'heuristic') summary.majorReview++;

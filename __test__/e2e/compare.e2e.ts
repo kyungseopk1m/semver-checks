@@ -92,6 +92,33 @@ describe('path-to-path compare (full pipeline)', () => {
     expect(report.summary.minor).toBe(0);
   }, 10_000);
 
+  // The empty-extraction guard. Two sides that both extract nothing used to
+  // diff to `{"changes":[],"recommended":"patch"}` and exit 0 - the exact output
+  // of a verified-safe release - so `--strict` waved through packages the tool
+  // had in fact failed to read (mongoose, yargs, firebase). A non-answer must be
+  // loud.
+  it('refuses to compare when a side extracts no symbols', async () => {
+    const empty = makePathProject('const internal = 1;\n');
+    await expect(
+      compare({
+        oldSource: { type: 'path', path: empty },
+        newSource: { type: 'path', path: empty },
+        entry: 'index.ts',
+      }),
+    ).rejects.toThrow(/no API symbols could be extracted/);
+  }, 10_000);
+
+  it('refuses to compare when every extracted symbol is opaque', async () => {
+    const opaque = makePathProject('export const client: any = {};\n');
+    await expect(
+      compare({
+        oldSource: { type: 'path', path: opaque },
+        newSource: { type: 'path', path: opaque },
+        entry: 'index.ts',
+      }),
+    ).rejects.toThrow(/opaque/);
+  }, 10_000);
+
   it('returns structured JSON report', async () => {
     const report = await compare({
       oldSource: { type: 'path', path: path.join(FIXTURES, 'property-removed', 'old') },
