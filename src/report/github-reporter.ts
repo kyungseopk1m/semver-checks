@@ -17,6 +17,32 @@ export function githubReport(report: SemverReport): string {
     }
   }
 
+  // The action defaults to this format, so a declaration gate that exits 1 here
+  // with nothing but a bump recommendation would fail a build without saying
+  // why. Same reason the verdict is in the text report.
+  const d = report.declaration;
+  if (d) {
+    if (d.verdict === 'mismatch') {
+      lines.push(
+        `::error title=${escapeProperty('Declared bump')}::${escapeData(
+          `This release declares ${d.declared}, but a proven breaking change requires ${d.required}. Read from ${d.source}.`,
+        )}`,
+      );
+    } else if (d.verdict === 'review') {
+      lines.push(
+        `::warning title=${escapeProperty('Declared bump')}::${escapeData(
+          `This release declares ${d.declared}, and the changes above argue for ${d.suggested}. Review only: no proven break behind it. Read from ${d.source}.`,
+        )}`,
+      );
+    } else {
+      lines.push(
+        `::notice title=${escapeProperty('Declared bump')}::${escapeData(
+          `This release declares ${d.declared}, which covers what its API surface did. Read from ${d.source}.`,
+        )}`,
+      );
+    }
+  }
+
   lines.push(
     `::notice title=semver-checks::${escapeData(
       `Recommended bump: ${report.recommended.toUpperCase()} ` +

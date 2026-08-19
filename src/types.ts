@@ -86,6 +86,34 @@ export interface ApiChange {
   confidence?: Confidence;
 }
 
+// What a release says about itself. changesets adds a fourth release type to
+// the three semver bumps: `none` records a change without moving the version.
+export type DeclaredBump = SemverBump | 'none';
+
+// How the bump a release declares lines up with what its API surface did.
+//
+// The split between `required` and `suggested` is the same graded-confidence
+// contract `--strict` and `--strict-review` already draw. `required` counts
+// proven breaks only and is the one the gate fails on. `suggested` also counts
+// additions, which carry no confidence grade of their own yet: every MINOR kind
+// falls through to `heuristic` because the allow-list was written for the major
+// gate. Failing a build on an ungraded rule is how a gate gets switched off, so
+// an addition is reported and nothing more.
+export interface BumpDeclaration {
+  declared: DeclaredBump;
+  // Where the declaration was read from: a changeset path, or the two versions.
+  source: string;
+  // What the proven breaks require. `major`, or `patch` when there are none.
+  required: SemverBump;
+  // What the whole change set argues for, review-only breaks and additions
+  // alike. This is the same reading as `recommended`, adjusted for a 0.x
+  // package, and it never fails a run.
+  suggested: SemverBump;
+  // 'mismatch' fails the build, 'review' is a note on a passing run, 'ok' is
+  // a declaration that covers everything found.
+  verdict: 'ok' | 'review' | 'mismatch';
+}
+
 export interface SemverReport {
   recommended: SemverBump;
   changes: ApiChange[];
@@ -98,11 +126,16 @@ export interface SemverReport {
     majorProven: number;
     majorReview: number;
   };
+  // Present only when a declared bump was supplied or detected.
+  declaration?: BumpDeclaration;
 }
 
 export interface CompareOptions {
   oldSource: SourceRef;
   newSource: SourceRef;
+  // The bump this release declares, or 'auto' to read it from the new side's
+  // changesets and, failing that, from the two package.json versions.
+  declared?: DeclaredBump | 'auto';
   entry?: string | string[];
   installDeps?: boolean;
 }

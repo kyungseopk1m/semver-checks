@@ -12,6 +12,27 @@ export function markdownReport(report: SemverReport): string {
   );
   lines.push('');
 
+  // The verdict goes above the tables: whoever opens a release pull request is
+  // there to learn whether the bump they wrote down holds, and the change list
+  // is the evidence for that answer rather than the answer.
+  const d = report.declaration;
+  if (d) {
+    if (d.verdict === 'mismatch') {
+      lines.push(
+        `❌ This release declares \`${d.declared}\`, but a proven breaking change requires \`${d.required}\`. Read from ${d.source}.`,
+      );
+    } else if (d.verdict === 'review') {
+      lines.push(
+        `⚠️ This release declares \`${d.declared}\`, and the changes below argue for \`${d.suggested}\`. Review only: no proven break behind it. Read from ${d.source}.`,
+      );
+    } else {
+      lines.push(
+        `✅ This release declares \`${d.declared}\`, which covers what its API surface did. Read from ${d.source}.`,
+      );
+    }
+    lines.push('');
+  }
+
   if (report.changes.length === 0) {
     lines.push('✅ No API changes detected.');
     lines.push('');

@@ -5,9 +5,19 @@ import { resolveGitRef, cleanupTmpDir } from './resolve/git-resolver.js';
 import { resolveNpmSpec } from './resolve/npm-resolver.js';
 import { ensureProjectDeps } from './resolve/dependency-installer.js';
 import { describeUnusableSnapshot, type ApiSnapshot } from './extract/api-snapshot.js';
+import { resolveDeclaration } from './declared.js';
 import type { CompareOptions, SemverReport, SourceRef } from './types.js';
 
-export type { CompareOptions, SemverReport, ApiChange, SemverBump, ChangeKind, SourceRef } from './types.js';
+export type {
+  CompareOptions,
+  SemverReport,
+  ApiChange,
+  SemverBump,
+  ChangeKind,
+  SourceRef,
+  DeclaredBump,
+  BumpDeclaration,
+} from './types.js';
 export type { ApiSnapshot, ApiEnumMember, ApiInterfaceMethod } from './extract/api-snapshot.js';
 export { extract } from './extract/extractor.js';
 export { diff } from './compare/differ.js';
@@ -34,7 +44,7 @@ function assertUsable(snapshot: ApiSnapshot, source: SourceRef): void {
 }
 
 export async function compare(options: CompareOptions): Promise<SemverReport> {
-  const { oldSource, newSource, entry, installDeps = false } = options;
+  const { oldSource, newSource, entry, installDeps = false, declared } = options;
 
   let oldPath: string;
   let newPath: string;
@@ -81,7 +91,27 @@ export async function compare(options: CompareOptions): Promise<SemverReport> {
     assertUsable(oldSnap, oldSource);
     assertUsable(newSnap, newSource);
 
-    return diff(oldSnap, newSnap);
+    const report = diff(oldSnap, newSnap);
+
+    if (declared) {
+      // Only a local path can be a package sitting inside a larger workspace,
+      // so it is the only source whose changesets may live above it.
+      const declaration = resolveDeclaration(oldPath, newPath, declared, report.summary, newSource.type === 'path');
+      // Asking for the declaration gate and getting no declaration is a
+      // non-answer, and a non-answer that exits 0 is indistinguishable from a
+      // release that checked out clean. Same contract as an empty snapshot.
+      if (!declaration) {
+        throw new Error(
+          `Cannot read a declared bump from '${describeSource(newSource)}': no changeset declares this package, and the two package.json versions do not describe one.\n` +
+            `  A version that is not x.y.z, a version that went backwards, or a prerelease on either side will all land here:\n` +
+            `  1.0.0-rc.1 to 1.0.0 moves none of the three numbers, and 2.0.0 to 1.0.0 is not a bump at all.\n` +
+            `  Pass --declared major|minor|patch|none to state the bump explicitly.`,
+        );
+      }
+      report.declaration = declaration;
+    }
+
+    return report;
   } finally {
     if (oldTmp) cleanupTmpDir(oldTmp);
     if (newTmp) cleanupTmpDir(newTmp);

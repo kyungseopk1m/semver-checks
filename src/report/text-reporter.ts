@@ -15,6 +15,22 @@ export function textReport(report: SemverReport): string {
   lines.push(`${pc.bold('semver-checks')} — Recommended bump: ${bumpColor}`);
   lines.push(`  ${pc.dim(`major: ${report.summary.major} (confident: ${report.summary.majorProven}, review: ${report.summary.majorReview})  minor: ${report.summary.minor}  patch: ${report.summary.patch}`)}`);
 
+  // text is the default format, so leaving the verdict out of it would let the
+  // declaration gate exit 1 without ever saying why.
+  const d = report.declaration;
+  if (d) {
+    lines.push('');
+    if (d.verdict === 'mismatch') {
+      lines.push(`  ${pc.red('✗')} Declares ${pc.bold(d.declared)}, but a proven breaking change requires ${pc.bold(d.required)}`);
+    } else if (d.verdict === 'review') {
+      lines.push(`  ${pc.yellow('?')} Declares ${pc.bold(d.declared)}, and the changes below argue for ${pc.bold(d.suggested)}`);
+      lines.push(`      ${pc.dim('review only: no proven break behind it')}`);
+    } else {
+      lines.push(`  ${pc.green('✓')} Declares ${pc.bold(d.declared)}, which covers what its API surface did`);
+    }
+    lines.push(`      ${pc.dim(`read from ${d.source}`)}`);
+  }
+
   if (report.changes.length === 0) {
     lines.push('');
     lines.push(pc.green('  ✓ No API changes detected'));

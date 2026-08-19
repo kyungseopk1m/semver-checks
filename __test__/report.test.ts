@@ -107,3 +107,87 @@ describe('githubReport', () => {
     expect(out).not.toContain('::warning');
   });
 });
+
+describe('the declaration verdict', () => {
+  const withDeclaration = (over: Record<string, unknown>): SemverReport => ({
+    ...report,
+    declaration: {
+      declared: 'minor',
+      source: '.changeset/wild-pans-shake.md',
+      required: 'major',
+      suggested: 'major',
+      verdict: 'mismatch',
+      ...over,
+    } as SemverReport['declaration'],
+  });
+
+  it('names the bump, the requirement, and where the declaration came from', () => {
+    const md = markdownReport(withDeclaration({}));
+    expect(md).toContain('❌ This release declares `minor`, but a proven breaking change requires `major`.');
+    expect(md).toContain('Read from .changeset/wild-pans-shake.md.');
+  });
+
+  it('says so when the declaration covers what happened', () => {
+    const md = markdownReport(withDeclaration({ declared: 'major', verdict: 'ok' }));
+    expect(md).toContain('✅ This release declares `major`, which covers what its API surface did.');
+    expect(md).not.toContain('❌');
+  });
+
+  it('marks an addition as review-only rather than a failure', () => {
+    const md = markdownReport(withDeclaration({ declared: 'patch', required: 'patch', suggested: 'minor', verdict: 'review' }));
+    expect(md).toContain('⚠️ This release declares `patch`, and the changes below argue for `minor`.');
+    expect(md).toContain('Review only: no proven break behind it.');
+    expect(md).not.toContain('❌');
+  });
+
+  it('renders on a report with no changes at all, where the tables would not', () => {
+    const md = markdownReport({
+      ...empty,
+      declaration: {
+        declared: 'none',
+        source: 'package.json version 1.0.0 -> 1.0.0',
+        required: 'patch',
+        suggested: 'patch',
+        verdict: 'ok',
+      },
+    });
+    expect(md).toContain('✅ This release declares `none`');
+    expect(md).toContain('✅ No API changes detected.');
+  });
+
+  it('stays out of the report when nothing was declared', () => {
+    expect(markdownReport(report)).not.toContain('This release declares');
+  });
+});
+
+describe('the declaration verdict in the github format', () => {
+  // This is the format the action defaults to, so a gate that exits 1 here with
+  // nothing but a bump recommendation would fail a build without saying why.
+  const withDeclaration = (over: Record<string, unknown>): SemverReport => ({
+    ...report,
+    declaration: {
+      declared: 'minor',
+      source: '.changeset/wild-pans-shake.md',
+      required: 'major',
+      suggested: 'major',
+      verdict: 'mismatch',
+      ...over,
+    } as SemverReport['declaration'],
+  });
+
+  it('raises a mismatch as an error annotation', () => {
+    const out = githubReport(withDeclaration({}));
+    expect(out).toContain('::error title=Declared bump::');
+    expect(out).toContain('declares minor, but a proven breaking change requires major');
+  });
+
+  it('raises a review note as a warning, not an error', () => {
+    const out = githubReport(withDeclaration({ declared: 'patch', required: 'patch', suggested: 'minor', verdict: 'review' }));
+    expect(out).toContain('::warning title=Declared bump::');
+    expect(out).not.toContain('::error title=Declared bump::');
+  });
+
+  it('says nothing when nothing was declared', () => {
+    expect(githubReport(report)).not.toContain('Declared bump');
+  });
+});
