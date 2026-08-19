@@ -1,0 +1,872 @@
+{
+  "summary": {
+    "label": "BEFORE",
+    "pairs": 43,
+    "inconclusive": 0,
+    "toolErrors": 0,
+    "breaks": 7,
+    "strict": {
+      "fired": 19,
+      "truePositives": 7,
+      "falsePositives": 12,
+      "breaks": 7,
+      "missed": 0,
+      "precision": 0.3684210526315789,
+      "recall": 1
+    },
+    "any": {
+      "fired": 32,
+      "truePositives": 7,
+      "falsePositives": 25,
+      "breaks": 7,
+      "missed": 0,
+      "precision": 0.21875,
+      "recall": 1
+    },
+    "baseline": {
+      "fired": 12,
+      "truePositives": 7,
+      "falsePositives": 5,
+      "breaks": 7,
+      "missed": 0,
+      "precision": 0.5833333333333334,
+      "recall": 1
+    },
+    "maxProvenPerPair": 22,
+    "maxProvenPair": "got 14.6.4->14.6.5"
+  },
+  "rows": [
+    {
+      "pkg": "hono",
+      "old": "4.12.18",
+      "nw": "4.12.19",
+      "oracle": "FALSE",
+      "newOnlyErrors": [],
+      "tool": {
+        "outcome": "ok",
+        "majorProven": 0,
+        "majorReview": 4,
+        "major": 4,
+        "recommended": "major"
+      },
+      "baseline": {
+        "major": false,
+        "removed": 0,
+        "arity": 0
+      }
+    },
+    {
+      "pkg": "hono",
+      "old": "4.12.19",
+      "nw": "4.12.20",
+      "oracle": "FALSE",
+      "newOnlyErrors": [],
+      "tool": {
+        "outcome": "ok",
+        "majorProven": 0,
+        "majorReview": 3,
+        "major": 3,
+        "recommended": "major"
+      },
+      "baseline": {
+        "major": false,
+        "removed": 0,
+        "arity": 0
+      }
+    },
+    {
+      "pkg": "hono",
+      "old": "4.12.26",
+      "nw": "4.12.27",
+      "oracle": "FALSE",
+      "newOnlyErrors": [],
+      "tool": {
+        "outcome": "ok",
+        "majorProven": 2,
+        "majorReview": 0,
+        "major": 2,
+        "recommended": "major"
+      },
+      "baseline": {
+        "major": true,
+        "removed": 1,
+        "arity": 0
+      }
+    },
+    {
+      "pkg": "hono",
+      "old": "4.12.28",
+      "nw": "4.12.29",
+      "oracle": "FALSE",
+      "newOnlyErrors": [],
+      "tool": {
+        "outcome": "ok",
+        "majorProven": 0,
+        "majorReview": 1,
+        "major": 1,
+        "recommended": "major"
+      },
+      "baseline": {
+        "major": false,
+        "removed": 0,
+        "arity": 0
+      }
+    },
+    {
+      "pkg": "hono",
+      "old": "4.12.29",
+      "nw": "4.12.30",
+      "oracle": "FALSE",
+      "newOnlyErrors": [],
+      "tool": {
+        "outcome": "ok",
+        "majorProven": 2,
+        "majorReview": 0,
+        "major": 2,
+        "recommended": "major"
+      },
+      "baseline": {
+        "major": false,
+        "removed": 0,
+        "arity": 0
+      }
+    },
+    {
+      "pkg": "hono",
+      "old": "4.12.34",
+      "nw": "4.13.0",
+      "oracle": "FALSE",
+      "newOnlyErrors": [],
+      "tool": {
+        "outcome": "ok",
+        "majorProven": 6,
+        "majorReview": 28,
+        "major": 34,
+        "recommended": "major"
+      },
+      "baseline": {
+        "major": true,
+        "removed": 1,
+        "arity": 0
+      }
+    },
+    {
+      "pkg": "commander",
+      "old": "9.3.0",
+      "nw": "9.4.0",
+      "oracle": "FALSE",
+      "newOnlyErrors": [],
+      "tool": {
+        "outcome": "ok",
+        "majorProven": 0,
+        "majorReview": 1,
+        "major": 1,
+        "recommended": "major"
+      },
+      "baseline": {
+        "major": false,
+        "removed": 0,
+        "arity": 0
+      }
+    },
+    {
+      "pkg": "commander",
+      "old": "9.4.0",
+      "nw": "9.4.1",
+      "oracle": "FALSE",
+      "newOnlyErrors": [],
+      "tool": {
+        "outcome": "ok",
+        "majorProven": 0,
+        "majorReview": 3,
+        "major": 3,
+        "recommended": "major"
+      },
+      "baseline": {
+        "major": false,
+        "removed": 0,
+        "arity": 0
+      }
+    },
+    {
+      "pkg": "commander",
+      "old": "9.4.1",
+      "nw": "9.5.0",
+      "oracle": "FALSE",
+      "newOnlyErrors": [],
+      "tool": {
+        "outcome": "ok",
+        "majorProven": 1,
+        "majorReview": 1,
+        "major": 2,
+        "recommended": "major"
+      },
+      "baseline": {
+        "major": false,
+        "removed": 0,
+        "arity": 0
+      }
+    },
+    {
+      "pkg": "commander",
+      "old": "10.0.0",
+      "nw": "10.0.1",
+      "oracle": "TRUE",
+      "newOnlyErrors": [
+        "consumer.ts(14,27): error TS2339: Property 'optionFlags' does not exist on type 'Option'."
+      ],
+      "tool": {
+        "outcome": "ok",
+        "majorProven": 1,
+        "majorReview": 0,
+        "major": 1,
+        "recommended": "major"
+      },
+      "baseline": {
+        "major": true,
+        "removed": 1,
+        "arity": 0
+      }
+    },
+    {
+      "pkg": "commander",
+      "old": "11.0.0",
+      "nw": "11.1.0",
+      "oracle": "FALSE",
+      "newOnlyErrors": [],
+      "tool": {
+        "outcome": "ok",
+        "majorProven": 6,
+        "majorReview": 10,
+        "major": 16,
+        "recommended": "major"
+      },
+      "baseline": {
+        "major": false,
+        "removed": 0,
+        "arity": 0
+      }
+    },
+    {
+      "pkg": "commander",
+      "old": "12.0.0",
+      "nw": "12.1.0",
+      "oracle": "TRUE",
+      "newOnlyErrors": [
+        "consumer.ts(15,26): error TS2551: Property 'fullDescription' does not exist on type 'Option'. Did you mean 'description'?"
+      ],
+      "tool": {
+        "outcome": "ok",
+        "majorProven": 2,
+        "majorReview": 0,
+        "major": 2,
+        "recommended": "major"
+      },
+      "baseline": {
+        "major": true,
+        "removed": 1,
+        "arity": 0
+      }
+    },
+    {
+      "pkg": "commander",
+      "old": "14.0.1",
+      "nw": "14.0.2",
+      "oracle": "FALSE",
+      "newOnlyErrors": [],
+      "tool": {
+        "outcome": "ok",
+        "majorProven": 12,
+        "majorReview": 0,
+        "major": 12,
+        "recommended": "major"
+      },
+      "baseline": {
+        "major": false,
+        "removed": 0,
+        "arity": 0
+      }
+    },
+    {
+      "pkg": "ts-pattern",
+      "old": "5.3.0",
+      "nw": "5.3.1",
+      "oracle": "TRUE",
+      "newOnlyErrors": [
+        "consumer.ts(1,32): error TS2724: '\"ts-pattern\"' has no exported member named 'ExhaustiveError'. Did you mean 'NonExhaustiveError'?"
+      ],
+      "tool": {
+        "outcome": "ok",
+        "majorProven": 1,
+        "majorReview": 0,
+        "major": 1,
+        "recommended": "major"
+      },
+      "baseline": {
+        "major": true,
+        "removed": 2,
+        "arity": 0
+      }
+    },
+    {
+      "pkg": "ts-pattern",
+      "old": "5.5.0",
+      "nw": "5.6.0",
+      "oracle": "FALSE",
+      "newOnlyErrors": [],
+      "tool": {
+        "outcome": "ok",
+        "majorProven": 0,
+        "majorReview": 4,
+        "major": 4,
+        "recommended": "major"
+      },
+      "baseline": {
+        "major": false,
+        "removed": 0,
+        "arity": 0
+      }
+    },
+    {
+      "pkg": "ts-pattern",
+      "old": "5.6.0",
+      "nw": "5.6.1",
+      "oracle": "FALSE",
+      "newOnlyErrors": [],
+      "tool": {
+        "outcome": "ok",
+        "majorProven": 0,
+        "majorReview": 2,
+        "major": 2,
+        "recommended": "major"
+      },
+      "baseline": {
+        "major": false,
+        "removed": 0,
+        "arity": 0
+      }
+    },
+    {
+      "pkg": "ts-pattern",
+      "old": "5.6.1",
+      "nw": "5.6.2",
+      "oracle": "FALSE",
+      "newOnlyErrors": [],
+      "tool": {
+        "outcome": "ok",
+        "majorProven": 0,
+        "majorReview": 1,
+        "major": 1,
+        "recommended": "major"
+      },
+      "baseline": {
+        "major": false,
+        "removed": 0,
+        "arity": 0
+      }
+    },
+    {
+      "pkg": "ts-pattern",
+      "old": "5.8.0",
+      "nw": "5.9.0",
+      "oracle": "TRUE",
+      "newOnlyErrors": [
+        "consumer.ts(2,15): error TS2724: '\"ts-pattern/types\"' has no exported member named 'AnyPattern'. Did you mean 'Pattern'?"
+      ],
+      "tool": {
+        "outcome": "ok",
+        "majorProven": 1,
+        "majorReview": 4,
+        "major": 5,
+        "recommended": "major"
+      },
+      "baseline": {
+        "major": true,
+        "removed": 1,
+        "arity": 0
+      }
+    },
+    {
+      "pkg": "ky",
+      "old": "1.7.5",
+      "nw": "1.8.0",
+      "oracle": "TRUE",
+      "newOnlyErrors": [
+        "consumer.ts(2,15): error TS2614: Module '\"ky\"' has no exported member 'DownloadProgress'. Did you mean to use 'import DownloadProgress from \"ky\"' instead?"
+      ],
+      "tool": {
+        "outcome": "ok",
+        "majorProven": 2,
+        "majorReview": 1,
+        "major": 3,
+        "recommended": "major"
+      },
+      "baseline": {
+        "major": true,
+        "removed": 2,
+        "arity": 0
+      }
+    },
+    {
+      "pkg": "ky",
+      "old": "1.8.2",
+      "nw": "1.9.0",
+      "oracle": "FALSE",
+      "newOnlyErrors": [],
+      "tool": {
+        "outcome": "ok",
+        "majorProven": 0,
+        "majorReview": 1,
+        "major": 1,
+        "recommended": "major"
+      },
+      "baseline": {
+        "major": false,
+        "removed": 0,
+        "arity": 0
+      }
+    },
+    {
+      "pkg": "ky",
+      "old": "1.9.1",
+      "nw": "1.10.0",
+      "oracle": "FALSE",
+      "newOnlyErrors": [],
+      "tool": {
+        "outcome": "ok",
+        "majorProven": 0,
+        "majorReview": 1,
+        "major": 1,
+        "recommended": "major"
+      },
+      "baseline": {
+        "major": false,
+        "removed": 0,
+        "arity": 0
+      }
+    },
+    {
+      "pkg": "ky",
+      "old": "1.11.0",
+      "nw": "1.12.0",
+      "oracle": "FALSE",
+      "newOnlyErrors": [],
+      "tool": {
+        "outcome": "ok",
+        "majorProven": 2,
+        "majorReview": 6,
+        "major": 8,
+        "recommended": "major"
+      },
+      "baseline": {
+        "major": true,
+        "removed": 1,
+        "arity": 0
+      }
+    },
+    {
+      "pkg": "ky",
+      "old": "1.12.0",
+      "nw": "1.13.0",
+      "oracle": "FALSE",
+      "newOnlyErrors": [],
+      "tool": {
+        "outcome": "ok",
+        "majorProven": 3,
+        "majorReview": 4,
+        "major": 7,
+        "recommended": "major"
+      },
+      "baseline": {
+        "major": true,
+        "removed": 11,
+        "arity": 0
+      }
+    },
+    {
+      "pkg": "ky",
+      "old": "1.13.0",
+      "nw": "1.14.0",
+      "oracle": "FALSE",
+      "newOnlyErrors": [],
+      "tool": {
+        "outcome": "ok",
+        "majorProven": 1,
+        "majorReview": 1,
+        "major": 2,
+        "recommended": "major"
+      },
+      "baseline": {
+        "major": false,
+        "removed": 0,
+        "arity": 0
+      }
+    },
+    {
+      "pkg": "ky",
+      "old": "1.14.1",
+      "nw": "1.14.2",
+      "oracle": "FALSE",
+      "newOnlyErrors": [],
+      "tool": {
+        "outcome": "ok",
+        "majorProven": 0,
+        "majorReview": 1,
+        "major": 1,
+        "recommended": "major"
+      },
+      "baseline": {
+        "major": false,
+        "removed": 0,
+        "arity": 0
+      }
+    },
+    {
+      "pkg": "got",
+      "old": "14.6.3",
+      "nw": "14.6.4",
+      "oracle": "FALSE",
+      "newOnlyErrors": [],
+      "tool": {
+        "outcome": "ok",
+        "majorProven": 0,
+        "majorReview": 5,
+        "major": 5,
+        "recommended": "major"
+      },
+      "baseline": {
+        "major": false,
+        "removed": 0,
+        "arity": 0
+      }
+    },
+    {
+      "pkg": "got",
+      "old": "14.6.4",
+      "nw": "14.6.5",
+      "oracle": "FALSE",
+      "newOnlyErrors": [],
+      "tool": {
+        "outcome": "ok",
+        "majorProven": 22,
+        "majorReview": 125,
+        "major": 147,
+        "recommended": "major"
+      },
+      "baseline": {
+        "major": false,
+        "removed": 0,
+        "arity": 0
+      }
+    },
+    {
+      "pkg": "got",
+      "old": "14.6.5",
+      "nw": "14.6.6",
+      "oracle": "FALSE",
+      "newOnlyErrors": [],
+      "tool": {
+        "outcome": "ok",
+        "majorProven": 0,
+        "majorReview": 0,
+        "major": 0,
+        "recommended": "patch"
+      },
+      "baseline": {
+        "major": false,
+        "removed": 0,
+        "arity": 0
+      }
+    },
+    {
+      "pkg": "got",
+      "old": "15.0.6",
+      "nw": "15.0.7",
+      "oracle": "FALSE",
+      "newOnlyErrors": [],
+      "tool": {
+        "outcome": "ok",
+        "majorProven": 0,
+        "majorReview": 0,
+        "major": 0,
+        "recommended": "patch"
+      },
+      "baseline": {
+        "major": false,
+        "removed": 0,
+        "arity": 0
+      }
+    },
+    {
+      "pkg": "got",
+      "old": "15.0.7",
+      "nw": "15.1.0",
+      "oracle": "FALSE",
+      "newOnlyErrors": [],
+      "tool": {
+        "outcome": "ok",
+        "majorProven": 1,
+        "majorReview": 2,
+        "major": 3,
+        "recommended": "major"
+      },
+      "baseline": {
+        "major": false,
+        "removed": 0,
+        "arity": 0
+      }
+    },
+    {
+      "pkg": "joi",
+      "old": "17.13.1",
+      "nw": "17.13.2",
+      "oracle": "FALSE",
+      "newOnlyErrors": [],
+      "tool": {
+        "outcome": "ok",
+        "majorProven": 0,
+        "majorReview": 0,
+        "major": 0,
+        "recommended": "patch"
+      },
+      "baseline": {
+        "major": false,
+        "removed": 0,
+        "arity": 0
+      }
+    },
+    {
+      "pkg": "joi",
+      "old": "17.13.2",
+      "nw": "17.13.3",
+      "oracle": "FALSE",
+      "newOnlyErrors": [],
+      "tool": {
+        "outcome": "ok",
+        "majorProven": 0,
+        "majorReview": 0,
+        "major": 0,
+        "recommended": "patch"
+      },
+      "baseline": {
+        "major": false,
+        "removed": 0,
+        "arity": 0
+      }
+    },
+    {
+      "pkg": "joi",
+      "old": "17.13.3",
+      "nw": "17.13.4",
+      "oracle": "FALSE",
+      "newOnlyErrors": [],
+      "tool": {
+        "outcome": "ok",
+        "majorProven": 0,
+        "majorReview": 0,
+        "major": 0,
+        "recommended": "patch"
+      },
+      "baseline": {
+        "major": false,
+        "removed": 0,
+        "arity": 0
+      }
+    },
+    {
+      "pkg": "joi",
+      "old": "18.1.2",
+      "nw": "18.2.0",
+      "oracle": "FALSE",
+      "newOnlyErrors": [],
+      "tool": {
+        "outcome": "ok",
+        "majorProven": 1,
+        "majorReview": 0,
+        "major": 1,
+        "recommended": "major"
+      },
+      "baseline": {
+        "major": false,
+        "removed": 0,
+        "arity": 0
+      }
+    },
+    {
+      "pkg": "joi",
+      "old": "18.2.2",
+      "nw": "18.2.3",
+      "oracle": "FALSE",
+      "newOnlyErrors": [],
+      "tool": {
+        "outcome": "ok",
+        "majorProven": 0,
+        "majorReview": 0,
+        "major": 0,
+        "recommended": "patch"
+      },
+      "baseline": {
+        "major": false,
+        "removed": 0,
+        "arity": 0
+      }
+    },
+    {
+      "pkg": "bullmq",
+      "old": "5.80.1",
+      "nw": "5.80.2",
+      "oracle": "FALSE",
+      "newOnlyErrors": [],
+      "tool": {
+        "outcome": "ok",
+        "majorProven": 0,
+        "majorReview": 0,
+        "major": 0,
+        "recommended": "patch"
+      },
+      "baseline": {
+        "major": false,
+        "removed": 0,
+        "arity": 0
+      }
+    },
+    {
+      "pkg": "bullmq",
+      "old": "5.80.5",
+      "nw": "5.80.6",
+      "oracle": "FALSE",
+      "newOnlyErrors": [],
+      "tool": {
+        "outcome": "ok",
+        "majorProven": 0,
+        "majorReview": 0,
+        "major": 0,
+        "recommended": "patch"
+      },
+      "baseline": {
+        "major": false,
+        "removed": 0,
+        "arity": 0
+      }
+    },
+    {
+      "pkg": "bullmq",
+      "old": "5.80.11",
+      "nw": "5.80.12",
+      "oracle": "FALSE",
+      "newOnlyErrors": [],
+      "tool": {
+        "outcome": "ok",
+        "majorProven": 0,
+        "majorReview": 3,
+        "major": 3,
+        "recommended": "major"
+      },
+      "baseline": {
+        "major": false,
+        "removed": 0,
+        "arity": 0
+      }
+    },
+    {
+      "pkg": "bullmq",
+      "old": "5.80.12",
+      "nw": "5.81.0",
+      "oracle": "FALSE",
+      "newOnlyErrors": [],
+      "tool": {
+        "outcome": "ok",
+        "majorProven": 0,
+        "majorReview": 0,
+        "major": 0,
+        "recommended": "minor"
+      },
+      "baseline": {
+        "major": false,
+        "removed": 0,
+        "arity": 0
+      }
+    },
+    {
+      "pkg": "rxjs",
+      "old": "7.8.0",
+      "nw": "7.8.1",
+      "oracle": "FALSE",
+      "newOnlyErrors": [],
+      "tool": {
+        "outcome": "ok",
+        "majorProven": 0,
+        "majorReview": 0,
+        "major": 0,
+        "recommended": "minor"
+      },
+      "baseline": {
+        "major": true,
+        "removed": 1,
+        "arity": 0
+      }
+    },
+    {
+      "pkg": "rxjs",
+      "old": "7.8.1",
+      "nw": "7.8.2",
+      "oracle": "TRUE",
+      "newOnlyErrors": [
+        "consumer.ts(9,10): error TS2554: Expected 1 arguments, but got 0."
+      ],
+      "tool": {
+        "outcome": "ok",
+        "majorProven": 3,
+        "majorReview": 0,
+        "major": 3,
+        "recommended": "major"
+      },
+      "baseline": {
+        "major": true,
+        "removed": 0,
+        "arity": 1
+      }
+    },
+    {
+      "pkg": "@tanstack/react-store",
+      "old": "0.7.7",
+      "nw": "0.8.0",
+      "oracle": "FALSE",
+      "newOnlyErrors": [],
+      "tool": {
+        "outcome": "ok",
+        "majorProven": 0,
+        "majorReview": 0,
+        "major": 0,
+        "recommended": "minor"
+      },
+      "baseline": {
+        "major": false,
+        "removed": 0,
+        "arity": 0
+      }
+    },
+    {
+      "pkg": "@tanstack/react-store",
+      "old": "0.8.1",
+      "nw": "0.9.0",
+      "oracle": "TRUE",
+      "newOnlyErrors": [
+        "consumer.ts(2,15): error TS2305: Module '\"@tanstack/react-store\"' has no exported member 'NoInfer'.",
+        "consumer.ts(9,15): error TS2554: Expected 2-3 arguments, but got 1."
+      ],
+      "tool": {
+        "outcome": "ok",
+        "majorProven": 3,
+        "majorReview": 5,
+        "major": 8,
+        "recommended": "major"
+      },
+      "baseline": {
+        "major": true,
+        "removed": 1,
+        "arity": 1
+      }
+    }
+  ]
+}

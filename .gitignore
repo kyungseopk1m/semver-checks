@@ -6,3 +6,6 @@ coverage/
 
 # Local agent state, never part of the package
 .omc/
+
+# Gate runs write here by default; the checked-in before/after pair is enough
+scripts/gate/gate-results.json
