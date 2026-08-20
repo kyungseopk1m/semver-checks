@@ -1,53 +1,50 @@
 {
   "summary": {
-    "label": "FINAL",
-    "pairs": 109,
+    "label": "BEFORE",
+    "pairs": 75,
     "inconclusive": 0,
     "toolErrors": 0,
-    "breaks": 37,
+    "breaks": 11,
     "strict": {
-      "fired": 15,
-      "truePositives": 14,
-      "falsePositives": 1,
-      "breaks": 37,
-      "missed": 23,
-      "precision": 0.9333333333333333,
-      "recall": 0.3783783783783784
+      "fired": 13,
+      "truePositives": 11,
+      "falsePositives": 2,
+      "breaks": 11,
+      "missed": 0,
+      "precision": 0.8461538461538461,
+      "recall": 1
     },
     "any": {
-      "fired": 52,
-      "truePositives": 37,
-      "falsePositives": 15,
-      "breaks": 37,
+      "fired": 42,
+      "truePositives": 11,
+      "falsePositives": 31,
+      "breaks": 11,
       "missed": 0,
-      "precision": 0.7115384615384616,
+      "precision": 0.2619047619047619,
       "recall": 1
     },
     "baseline": {
-      "fired": 16,
-      "truePositives": 14,
-      "falsePositives": 2,
-      "breaks": 37,
-      "missed": 23,
-      "precision": 0.875,
-      "recall": 0.3783783783783784
+      "fired": 12,
+      "truePositives": 9,
+      "falsePositives": 3,
+      "breaks": 11,
+      "missed": 2,
+      "precision": 0.75,
+      "recall": 0.8181818181818182
     },
-    "maxProvenPerPair": 5,
-    "maxProvenPair": "kysely 0.29.2->0.29.3"
+    "maxProvenPerPair": 4,
+    "maxProvenPair": "commander 11.0.0->11.1.0"
   },
   "rows": [
     {
       "pkg": "hono",
       "old": "4.12.18",
       "nw": "4.12.19",
-      "oracle": "TRUE",
+      "oracle": "FALSE",
       "consumers": [
-        "hono.consumer.ts",
-        "hono.cloudflare-manifest.ts"
+        "hono.consumer.ts"
       ],
-      "newOnlyErrors": [
-        "[hono.cloudflare-manifest.ts] consumer.ts(13,3): error TS2322: Type 'string | object | undefined' is not assignable to type 'string | object'."
-      ],
+      "newOnlyErrors": [],
       "tool": {
         "outcome": "ok",
         "majorProven": 0,
@@ -67,14 +64,11 @@
       "pkg": "hono",
       "old": "4.12.19",
       "nw": "4.12.20",
-      "oracle": "TRUE",
+      "oracle": "FALSE",
       "consumers": [
-        "hono.consumer.ts",
-        "hono.jsx-children.ts"
+        "hono.consumer.ts"
       ],
-      "newOnlyErrors": [
-        "[hono.jsx-children.ts] consumer.ts(9,43): error TS18049: 'child' is possibly 'null' or 'undefined'."
-      ],
+      "newOnlyErrors": [],
       "tool": {
         "outcome": "ok",
         "majorProven": 0,
@@ -123,14 +117,11 @@
       "pkg": "hono",
       "old": "4.12.28",
       "nw": "4.12.29",
-      "oracle": "TRUE",
+      "oracle": "FALSE",
       "consumers": [
-        "hono.consumer.ts",
-        "hono.lambda-edge-result.ts"
+        "hono.consumer.ts"
       ],
-      "newOnlyErrors": [
-        "[hono.lambda-edge-result.ts] consumer.ts(16,17): error TS2339: Property 'status' does not exist on type 'CloudFrontRequest | CloudFrontResult'."
-      ],
+      "newOnlyErrors": [],
       "tool": {
         "outcome": "ok",
         "majorProven": 0,
@@ -150,16 +141,12 @@
       "pkg": "hono",
       "old": "4.12.29",
       "nw": "4.12.30",
-      "oracle": "TRUE",
+      "oracle": "FALSE",
       "consumers": [
         "hono.consumer.ts",
-        "hono.wscontext-init.ts",
-        "hono.wscontext-caller.ts"
+        "hono.wscontext-init.ts"
       ],
-      "newOnlyErrors": [
-        "[hono.wscontext-caller.ts] consumer.ts(14,13): error TS2345: Argument of type 'Buffer<ArrayBufferLike>' is not assignable to parameter of type 'string | ArrayBuffer | Uint8Array<ArrayBuffer>'.",
-        "[hono.wscontext-caller.ts] consumer.ts(18,13): error TS2345: Argument of type 'Uint8Array<ArrayBufferLike>' is not assignable to parameter of type 'string | ArrayBuffer | Uint8Array<ArrayBuffer>'."
-      ],
+      "newOnlyErrors": [],
       "tool": {
         "outcome": "ok",
         "majorProven": 2,
@@ -214,14 +201,11 @@
       "pkg": "commander",
       "old": "9.3.0",
       "nw": "9.4.0",
-      "oracle": "TRUE",
+      "oracle": "FALSE",
       "consumers": [
-        "commander.consumer.ts",
-        "commander.hook-event.ts"
+        "commander.consumer.ts"
       ],
-      "newOnlyErrors": [
-        "[commander.hook-event.ts] consumer.ts(7,7): error TS2741: Property 'preSubcommand' is missing in type '{ preAction: string; postAction: string; }' but required in type 'Record<HookEvent, string>'."
-      ],
+      "newOnlyErrors": [],
       "tool": {
         "outcome": "ok",
         "majorProven": 0,
@@ -241,15 +225,11 @@
       "pkg": "commander",
       "old": "9.4.0",
       "nw": "9.4.1",
-      "oracle": "TRUE",
+      "oracle": "FALSE",
       "consumers": [
-        "commander.consumer.ts",
-        "commander.option-value-source.ts"
+        "commander.consumer.ts"
       ],
-      "newOnlyErrors": [
-        "[commander.option-value-source.ts] consumer.ts(8,7): error TS2741: Property 'implied' is missing in type '{ default: string; config: string; env: string; cli: string; }' but required in type 'Record<OptionValueSource, string>'.",
-        "[commander.option-value-source.ts] consumer.ts(18,7): error TS2322: Type 'OptionValueSource | undefined' is not assignable to type 'OptionValueSource'."
-      ],
+      "newOnlyErrors": [],
       "tool": {
         "outcome": "ok",
         "majorProven": 0,
@@ -269,15 +249,11 @@
       "pkg": "commander",
       "old": "9.4.1",
       "nw": "9.5.0",
-      "oracle": "TRUE",
+      "oracle": "FALSE",
       "consumers": [
-        "commander.consumer.ts",
-        "commander.help-implements.ts"
+        "commander.consumer.ts"
       ],
-      "newOnlyErrors": [
-        "[commander.help-implements.ts] consumer.ts(7,7): error TS2720: Class 'RecordingHelp' incorrectly implements class 'Help'. Did you mean to extend 'Help' and inherit its members as a subclass?",
-        "[commander.help-implements.ts] consumer.ts(33,24): error TS2739: Type 'RecordingHelp' is missing the following properties from type 'Help': showGlobalOptions, visibleGlobalOptions, longestGlobalOptionTermLength"
-      ],
+      "newOnlyErrors": [],
       "tool": {
         "outcome": "ok",
         "majorProven": 0,
@@ -460,16 +436,11 @@
       "pkg": "ts-pattern",
       "old": "5.6.0",
       "nw": "5.6.1",
-      "oracle": "TRUE",
+      "oracle": "FALSE",
       "consumers": [
-        "ts-pattern.consumer.ts",
-        "ts-pattern.is-matching-constraint.ts"
+        "ts-pattern.consumer.ts"
       ],
-      "newOnlyErrors": [
-        "[ts-pattern.is-matching-constraint.ts] consumer.ts(10,39): error TS2345: Argument of type '[StringPattern, NumberPattern]' is not assignable to parameter of type 'KnownPattern<[string, number]> & UnknownProperties'.",
-        "[ts-pattern.is-matching-constraint.ts] consumer.ts(13,39): error TS2345: Argument of type 'StringPattern' is not assignable to parameter of type 'KnownPattern<string> & UnknownProperties'.",
-        "[ts-pattern.is-matching-constraint.ts] consumer.ts(16,39): error TS2345: Argument of type '200' is not assignable to parameter of type 'KnownPattern<200 | 404> & UnknownProperties'."
-      ],
+      "newOnlyErrors": [],
       "tool": {
         "outcome": "ok",
         "majorProven": 0,
@@ -569,14 +540,11 @@
       "pkg": "ky",
       "old": "1.8.2",
       "nw": "1.9.0",
-      "oracle": "TRUE",
+      "oracle": "FALSE",
       "consumers": [
-        "ky.consumer.ts",
-        "ky.response-promise-shape.ts"
+        "ky.consumer.ts"
       ],
-      "newOnlyErrors": [
-        "[ky.response-promise-shape.ts] consumer.ts(17,14): error TS2322: Type 'Promise<KyResponse<Payload>> & { arrayBuffer: () => Promise<ArrayBuffer>; blob: () => Promise<Blob>; formData: () => Promise<...>; json: <J = Payload>() => Promise<...>; text: () => Promise<...>; }' is not assignable to type 'ResponsePromise<Payload>'."
-      ],
+      "newOnlyErrors": [],
       "tool": {
         "outcome": "ok",
         "majorProven": 0,
@@ -596,14 +564,11 @@
       "pkg": "ky",
       "old": "1.9.1",
       "nw": "1.10.0",
-      "oracle": "TRUE",
+      "oracle": "FALSE",
       "consumers": [
-        "ky.consumer.ts",
-        "ky.search-params-option.ts"
+        "ky.consumer.ts"
       ],
-      "newOnlyErrors": [
-        "[ky.search-params-option.ts] consumer.ts(16,13): error TS2345: Argument of type 'Record<string, string> | Record<string, string | number | boolean | undefined>' is not assignable to parameter of type 'Record<string, string | number | boolean>'."
-      ],
+      "newOnlyErrors": [],
       "tool": {
         "outcome": "ok",
         "majorProven": 0,
@@ -623,15 +588,12 @@
       "pkg": "ky",
       "old": "1.11.0",
       "nw": "1.12.0",
-      "oracle": "TRUE",
+      "oracle": "FALSE",
       "consumers": [
         "ky.consumer.ts",
-        "ky.request-response-form.ts",
-        "ky.hook-arity.ts"
+        "ky.request-response-form.ts"
       ],
-      "newOnlyErrors": [
-        "[ky.hook-arity.ts] consumer.ts(8,24): error TS2554: Expected 2 arguments, but got 1."
-      ],
+      "newOnlyErrors": [],
       "tool": {
         "outcome": "ok",
         "majorProven": 0,
@@ -651,14 +613,12 @@
       "pkg": "ky",
       "old": "1.12.0",
       "nw": "1.13.0",
-      "oracle": "TRUE",
+      "oracle": "FALSE",
       "consumers": [
         "ky.consumer.ts",
-        "ky.normalized-options.ts"
+        "ky.request-response-form.ts"
       ],
-      "newOnlyErrors": [
-        "[ky.normalized-options.ts] consumer.ts(6,7): error TS2741: Property 'context' is missing in type '{ method: string; retry: { limit: number; }; prefixUrl: string; onDownloadProgress: undefined; onUploadProgress: undefined; }' but required in type 'NormalizedOptions'."
-      ],
+      "newOnlyErrors": [],
       "tool": {
         "outcome": "ok",
         "majorProven": 0,
@@ -678,14 +638,11 @@
       "pkg": "ky",
       "old": "1.13.0",
       "nw": "1.14.0",
-      "oracle": "TRUE",
+      "oracle": "FALSE",
       "consumers": [
-        "ky.consumer.ts",
-        "ky.after-response-return.ts"
+        "ky.consumer.ts"
       ],
-      "newOnlyErrors": [
-        "[ky.after-response-return.ts] consumer.ts(15,11): error TS2322: Type 'void | Response | RetryMarker' is not assignable to type 'void | Response'."
-      ],
+      "newOnlyErrors": [],
       "tool": {
         "outcome": "ok",
         "majorProven": 0,
@@ -705,14 +662,11 @@
       "pkg": "ky",
       "old": "1.14.1",
       "nw": "1.14.2",
-      "oracle": "TRUE",
+      "oracle": "FALSE",
       "consumers": [
-        "ky.consumer.ts",
-        "ky.is-ky-error-predicate.ts"
+        "ky.consumer.ts"
       ],
-      "newOnlyErrors": [
-        "[ky.is-ky-error-predicate.ts] consumer.ts(15,9): error TS2322: Type 'HTTPError<unknown> | TimeoutError | ForceRetryError' is not assignable to type 'HTTPError<unknown> | TimeoutError'."
-      ],
+      "newOnlyErrors": [],
       "tool": {
         "outcome": "ok",
         "majorProven": 0,
@@ -756,14 +710,11 @@
       "pkg": "got",
       "old": "14.6.4",
       "nw": "14.6.5",
-      "oracle": "TRUE",
+      "oracle": "FALSE",
       "consumers": [
-        "got.consumer.ts",
-        "got.extend-response-type.ts"
+        "got.consumer.ts"
       ],
-      "newOnlyErrors": [
-        "[got.extend-response-type.ts] consumer.ts(12,3): error TS2322: Type 'unknown' is not assignable to type 'string'."
-      ],
+      "newOnlyErrors": [],
       "tool": {
         "outcome": "ok",
         "majorProven": 0,
@@ -927,14 +878,11 @@
       "pkg": "joi",
       "old": "18.1.2",
       "nw": "18.2.0",
-      "oracle": "TRUE",
+      "oracle": "FALSE",
       "consumers": [
-        "joi.consumer.ts",
-        "joi.link-schema-implements.ts"
+        "joi.consumer.ts"
       ],
-      "newOnlyErrors": [
-        "[joi.link-schema-implements.ts] consumer.ts(13,14): error TS2741: Property 'maxRecursion' is missing in type 'MyLinkSchema' but required in type 'LinkSchema<any>'."
-      ],
+      "newOnlyErrors": [],
       "tool": {
         "outcome": "ok",
         "majorProven": 0,
@@ -1026,16 +974,11 @@
       "pkg": "bullmq",
       "old": "5.80.11",
       "nw": "5.80.12",
-      "oracle": "TRUE",
+      "oracle": "FALSE",
       "consumers": [
-        "bullmq.consumer.ts",
-        "bullmq.bun-redis-handlers.ts"
+        "bullmq.consumer.ts"
       ],
-      "newOnlyErrors": [
-        "[bullmq.bun-redis-handlers.ts] consumer.ts(10,7): error TS2322: Type '((...args: any[]) => void) | null | undefined' is not assignable to type 'Handler | undefined'.",
-        "[bullmq.bun-redis-handlers.ts] consumer.ts(11,7): error TS2322: Type '((...args: any[]) => void) | null | undefined' is not assignable to type 'Handler | undefined'.",
-        "[bullmq.bun-redis-handlers.ts] consumer.ts(12,7): error TS2322: Type '((...args: any[]) => void) | null | undefined' is not assignable to type 'Handler | undefined'."
-      ],
+      "newOnlyErrors": [],
       "tool": {
         "outcome": "ok",
         "majorProven": 0,
@@ -1237,14 +1180,11 @@
       "pkg": "zod",
       "old": "4.4.1",
       "nw": "4.4.2",
-      "oracle": "TRUE",
+      "oracle": "FALSE",
       "consumers": [
-        "zod.consumer.ts",
-        "zod.preprocess-shape.ts"
+        "zod.consumer.ts"
       ],
-      "newOnlyErrors": [
-        "[zod.preprocess-shape.ts] consumer.ts(6,7): error TS2322: Type 'ZodPreprocess<ZodString>' is not assignable to type 'ZodPipe<ZodTransform<string, unknown>, ZodString>'."
-      ],
+      "newOnlyErrors": [],
       "tool": {
         "outcome": "ok",
         "majorProven": 0,
@@ -1312,14 +1252,11 @@
       "pkg": "valibot",
       "old": "1.3.1",
       "nw": "1.4.0",
-      "oracle": "TRUE",
+      "oracle": "FALSE",
       "consumers": [
-        "valibot.consumer.ts",
-        "valibot.flatten-issues-readonly.ts"
+        "valibot.consumer.ts"
       ],
-      "newOnlyErrors": [
-        "[valibot.flatten-issues-readonly.ts] consumer.ts(9,10): error TS2339: Property 'push' does not exist on type 'readonly [BaseIssue<unknown>, ...BaseIssue<unknown>[]]'."
-      ],
+      "newOnlyErrors": [],
       "tool": {
         "outcome": "ok",
         "majorProven": 0,
@@ -1387,15 +1324,11 @@
       "pkg": "axios",
       "old": "1.16.1",
       "nw": "1.17.0",
-      "oracle": "TRUE",
+      "oracle": "FALSE",
       "consumers": [
-        "axios.consumer.ts",
-        "axios.headers-to-json.ts"
+        "axios.consumer.ts"
       ],
-      "newOnlyErrors": [
-        "[axios.headers-to-json.ts] consumer.ts(11,1): error TS2322: Type 'number' is not assignable to type 'string | string[]'.",
-        "[axios.headers-to-json.ts] consumer.ts(14,12): error TS2416: Property 'toJSON' in type 'MyHeaders' is not assignable to the same property in base type 'AxiosHeaders'."
-      ],
+      "newOnlyErrors": [],
       "tool": {
         "outcome": "ok",
         "majorProven": 0,
@@ -1439,14 +1372,11 @@
       "pkg": "axios",
       "old": "1.18.0",
       "nw": "1.18.1",
-      "oracle": "TRUE",
+      "oracle": "FALSE",
       "consumers": [
-        "axios.consumer.ts",
-        "axios.cancel-token.ts"
+        "axios.consumer.ts"
       ],
-      "newOnlyErrors": [
-        "[axios.cancel-token.ts] consumer.ts(6,7): error TS2739: Type '{ promise: Promise<Cancel>; throwIfRequested(): void; }' is missing the following properties from type 'CancelToken': subscribe, unsubscribe, toAbortSignal"
-      ],
+      "newOnlyErrors": [],
       "tool": {
         "outcome": "ok",
         "majorProven": 0,
@@ -1490,16 +1420,11 @@
       "pkg": "lru-cache",
       "old": "11.3.6",
       "nw": "11.4.0",
-      "oracle": "TRUE",
+      "oracle": "FALSE",
       "consumers": [
-        "lru-cache.consumer.ts",
-        "lru-cache.status-context.ts"
+        "lru-cache.consumer.ts"
       ],
-      "newOnlyErrors": [
-        "[lru-cache.status-context.ts] consumer.ts(15,18): error TS2322: Type 'Status<string, Value, unknown>' is not assignable to type 'Status<string, Value, FetchContext>'.",
-        "[lru-cache.status-context.ts] consumer.ts(16,18): error TS2322: Type 'Status<string, Value, unknown>' is not assignable to type 'Status<string, Value, FetchContext>'.",
-        "[lru-cache.status-context.ts] consumer.ts(17,19): error TS2322: Type 'Status<string, Value, unknown>' is not assignable to type 'Status<string, Value, FetchContext>'."
-      ],
+      "newOnlyErrors": [],
       "tool": {
         "outcome": "ok",
         "majorProven": 0,
@@ -1969,853 +1894,6 @@
         "provenKinds": {
           "export-removed": 1
         }
-      },
-      "baseline": {
-        "major": false,
-        "removed": 0,
-        "arity": 0
-      }
-    },
-    {
-      "pkg": "kysely",
-      "old": "0.29.0",
-      "nw": "0.29.1",
-      "oracle": "FALSE",
-      "consumers": [
-        "kysely.consumer.ts"
-      ],
-      "newOnlyErrors": [],
-      "tool": {
-        "outcome": "ok",
-        "majorProven": 0,
-        "majorReview": 0,
-        "major": 0,
-        "minor": 0,
-        "recommended": "patch",
-        "provenKinds": {}
-      },
-      "baseline": {
-        "major": false,
-        "removed": 0,
-        "arity": 0
-      }
-    },
-    {
-      "pkg": "kysely",
-      "old": "0.29.1",
-      "nw": "0.29.2",
-      "oracle": "FALSE",
-      "consumers": [
-        "kysely.consumer.ts"
-      ],
-      "newOnlyErrors": [],
-      "tool": {
-        "outcome": "ok",
-        "majorProven": 0,
-        "majorReview": 1,
-        "major": 1,
-        "minor": 0,
-        "recommended": "major",
-        "provenKinds": {}
-      },
-      "baseline": {
-        "major": false,
-        "removed": 0,
-        "arity": 0
-      }
-    },
-    {
-      "pkg": "kysely",
-      "old": "0.29.2",
-      "nw": "0.29.3",
-      "oracle": "TRUE",
-      "consumers": [
-        "kysely.consumer.ts",
-        "kysely.mssql-migration-lock.ts"
-      ],
-      "newOnlyErrors": [
-        "[kysely.mssql-migration-lock.ts] consumer.ts(12,17): error TS2554: Expected 2 arguments, but got 1.",
-        "[kysely.mssql-migration-lock.ts] consumer.ts(16,19): error TS2554: Expected 2 arguments, but got 0."
-      ],
-      "tool": {
-        "outcome": "ok",
-        "majorProven": 5,
-        "majorReview": 8,
-        "major": 13,
-        "minor": 1,
-        "recommended": "major",
-        "provenKinds": {
-          "class-method-signature-changed": 2,
-          "required-param-added": 3
-        }
-      },
-      "baseline": {
-        "major": true,
-        "removed": 0,
-        "arity": 2
-      }
-    },
-    {
-      "pkg": "kysely",
-      "old": "0.29.3",
-      "nw": "0.29.4",
-      "oracle": "FALSE",
-      "consumers": [
-        "kysely.consumer.ts"
-      ],
-      "newOnlyErrors": [],
-      "tool": {
-        "outcome": "ok",
-        "majorProven": 0,
-        "majorReview": 1,
-        "major": 1,
-        "minor": 0,
-        "recommended": "major",
-        "provenKinds": {}
-      },
-      "baseline": {
-        "major": false,
-        "removed": 0,
-        "arity": 0
-      }
-    },
-    {
-      "pkg": "kysely",
-      "old": "0.29.4",
-      "nw": "0.29.5",
-      "oracle": "FALSE",
-      "consumers": [
-        "kysely.consumer.ts"
-      ],
-      "newOnlyErrors": [],
-      "tool": {
-        "outcome": "ok",
-        "majorProven": 0,
-        "majorReview": 25,
-        "major": 25,
-        "minor": 0,
-        "recommended": "major",
-        "provenKinds": {}
-      },
-      "baseline": {
-        "major": false,
-        "removed": 0,
-        "arity": 0
-      }
-    },
-    {
-      "pkg": "jose",
-      "old": "6.1.2",
-      "nw": "6.1.3",
-      "oracle": "FALSE",
-      "consumers": [
-        "jose.consumer.ts"
-      ],
-      "newOnlyErrors": [],
-      "tool": {
-        "outcome": "ok",
-        "majorProven": 0,
-        "majorReview": 0,
-        "major": 0,
-        "minor": 0,
-        "recommended": "patch",
-        "provenKinds": {}
-      },
-      "baseline": {
-        "major": false,
-        "removed": 0,
-        "arity": 0
-      }
-    },
-    {
-      "pkg": "jose",
-      "old": "6.1.3",
-      "nw": "6.2.0",
-      "oracle": "FALSE",
-      "consumers": [
-        "jose.consumer.ts"
-      ],
-      "newOnlyErrors": [],
-      "tool": {
-        "outcome": "ok",
-        "majorProven": 0,
-        "majorReview": 0,
-        "major": 0,
-        "minor": 1,
-        "recommended": "minor",
-        "provenKinds": {}
-      },
-      "baseline": {
-        "major": false,
-        "removed": 0,
-        "arity": 0
-      }
-    },
-    {
-      "pkg": "jose",
-      "old": "6.2.0",
-      "nw": "6.2.1",
-      "oracle": "FALSE",
-      "consumers": [
-        "jose.consumer.ts"
-      ],
-      "newOnlyErrors": [],
-      "tool": {
-        "outcome": "ok",
-        "majorProven": 0,
-        "majorReview": 0,
-        "major": 0,
-        "minor": 0,
-        "recommended": "patch",
-        "provenKinds": {}
-      },
-      "baseline": {
-        "major": false,
-        "removed": 0,
-        "arity": 0
-      }
-    },
-    {
-      "pkg": "jose",
-      "old": "6.2.1",
-      "nw": "6.2.2",
-      "oracle": "FALSE",
-      "consumers": [
-        "jose.consumer.ts"
-      ],
-      "newOnlyErrors": [],
-      "tool": {
-        "outcome": "ok",
-        "majorProven": 0,
-        "majorReview": 0,
-        "major": 0,
-        "minor": 0,
-        "recommended": "patch",
-        "provenKinds": {}
-      },
-      "baseline": {
-        "major": false,
-        "removed": 0,
-        "arity": 0
-      }
-    },
-    {
-      "pkg": "jose",
-      "old": "6.2.2",
-      "nw": "6.2.3",
-      "oracle": "FALSE",
-      "consumers": [
-        "jose.consumer.ts"
-      ],
-      "newOnlyErrors": [],
-      "tool": {
-        "outcome": "ok",
-        "majorProven": 0,
-        "majorReview": 0,
-        "major": 0,
-        "minor": 0,
-        "recommended": "patch",
-        "provenKinds": {}
-      },
-      "baseline": {
-        "major": false,
-        "removed": 0,
-        "arity": 0
-      }
-    },
-    {
-      "pkg": "jose",
-      "old": "6.2.3",
-      "nw": "6.2.4",
-      "oracle": "FALSE",
-      "consumers": [
-        "jose.consumer.ts"
-      ],
-      "newOnlyErrors": [],
-      "tool": {
-        "outcome": "ok",
-        "majorProven": 0,
-        "majorReview": 0,
-        "major": 0,
-        "minor": 0,
-        "recommended": "patch",
-        "provenKinds": {}
-      },
-      "baseline": {
-        "major": false,
-        "removed": 0,
-        "arity": 0
-      }
-    },
-    {
-      "pkg": "jose",
-      "old": "6.2.4",
-      "nw": "6.2.5",
-      "oracle": "TRUE",
-      "consumers": [
-        "jose.consumer.ts",
-        "jose.resolved-key.ts",
-        "jose.jwk-augmentation.ts"
-      ],
-      "newOnlyErrors": [
-        "[jose.resolved-key.ts] consumer.ts(15,3): error TS2739: Type 'Uint8Array<ArrayBuffer>' is missing the following properties from type 'CryptoKey': algorithm, extractable, type, usages",
-        "[jose.jwk-augmentation.ts] consumer.ts(8,13): error TS2300: Duplicate identifier 'JWK'.",
-        "[jose.jwk-augmentation.ts] consumer.ts(13,30): error TS2353: Object literal may only specify known properties, and 'kty' does not exist in type 'JWK'."
-      ],
-      "tool": {
-        "outcome": "ok",
-        "majorProven": 1,
-        "majorReview": 189,
-        "major": 190,
-        "minor": 61,
-        "recommended": "major",
-        "provenKinds": {
-          "property-type-changed": 1
-        }
-      },
-      "baseline": {
-        "major": true,
-        "removed": 23,
-        "arity": 2
-      }
-    },
-    {
-      "pkg": "jose",
-      "old": "6.2.8",
-      "nw": "6.2.9",
-      "oracle": "FALSE",
-      "consumers": [
-        "jose.consumer.ts"
-      ],
-      "newOnlyErrors": [],
-      "tool": {
-        "outcome": "ok",
-        "majorProven": 0,
-        "majorReview": 0,
-        "major": 0,
-        "minor": 0,
-        "recommended": "patch",
-        "provenKinds": {}
-      },
-      "baseline": {
-        "major": false,
-        "removed": 0,
-        "arity": 0
-      }
-    },
-    {
-      "pkg": "dayjs",
-      "old": "1.11.13",
-      "nw": "1.11.14",
-      "oracle": "FALSE",
-      "consumers": [
-        "dayjs.consumer.ts"
-      ],
-      "newOnlyErrors": [],
-      "tool": {
-        "outcome": "ok",
-        "majorProven": 0,
-        "majorReview": 0,
-        "major": 0,
-        "minor": 0,
-        "recommended": "patch",
-        "provenKinds": {}
-      },
-      "baseline": {
-        "major": false,
-        "removed": 0,
-        "arity": 0
-      }
-    },
-    {
-      "pkg": "dayjs",
-      "old": "1.11.16",
-      "nw": "1.11.17",
-      "oracle": "FALSE",
-      "consumers": [
-        "dayjs.consumer.ts"
-      ],
-      "newOnlyErrors": [],
-      "tool": {
-        "outcome": "ok",
-        "majorProven": 0,
-        "majorReview": 0,
-        "major": 0,
-        "minor": 0,
-        "recommended": "patch",
-        "provenKinds": {}
-      },
-      "baseline": {
-        "major": false,
-        "removed": 0,
-        "arity": 0
-      }
-    },
-    {
-      "pkg": "dayjs",
-      "old": "1.11.17",
-      "nw": "1.11.18",
-      "oracle": "FALSE",
-      "consumers": [
-        "dayjs.consumer.ts"
-      ],
-      "newOnlyErrors": [],
-      "tool": {
-        "outcome": "ok",
-        "majorProven": 0,
-        "majorReview": 0,
-        "major": 0,
-        "minor": 0,
-        "recommended": "patch",
-        "provenKinds": {}
-      },
-      "baseline": {
-        "major": false,
-        "removed": 0,
-        "arity": 0
-      }
-    },
-    {
-      "pkg": "dayjs",
-      "old": "1.11.18",
-      "nw": "1.11.19",
-      "oracle": "FALSE",
-      "consumers": [
-        "dayjs.consumer.ts"
-      ],
-      "newOnlyErrors": [],
-      "tool": {
-        "outcome": "ok",
-        "majorProven": 0,
-        "majorReview": 0,
-        "major": 0,
-        "minor": 0,
-        "recommended": "patch",
-        "provenKinds": {}
-      },
-      "baseline": {
-        "major": false,
-        "removed": 0,
-        "arity": 0
-      }
-    },
-    {
-      "pkg": "dayjs",
-      "old": "1.11.19",
-      "nw": "1.11.20",
-      "oracle": "FALSE",
-      "consumers": [
-        "dayjs.consumer.ts"
-      ],
-      "newOnlyErrors": [],
-      "tool": {
-        "outcome": "ok",
-        "majorProven": 0,
-        "majorReview": 0,
-        "major": 0,
-        "minor": 0,
-        "recommended": "patch",
-        "provenKinds": {}
-      },
-      "baseline": {
-        "major": false,
-        "removed": 0,
-        "arity": 0
-      }
-    },
-    {
-      "pkg": "dayjs",
-      "old": "1.11.20",
-      "nw": "1.11.21",
-      "oracle": "FALSE",
-      "consumers": [
-        "dayjs.consumer.ts"
-      ],
-      "newOnlyErrors": [],
-      "tool": {
-        "outcome": "ok",
-        "majorProven": 0,
-        "majorReview": 0,
-        "major": 0,
-        "minor": 0,
-        "recommended": "patch",
-        "provenKinds": {}
-      },
-      "baseline": {
-        "major": false,
-        "removed": 0,
-        "arity": 0
-      }
-    },
-    {
-      "pkg": "dayjs",
-      "old": "1.11.21",
-      "nw": "1.11.22",
-      "oracle": "FALSE",
-      "consumers": [
-        "dayjs.consumer.ts"
-      ],
-      "newOnlyErrors": [],
-      "tool": {
-        "outcome": "ok",
-        "majorProven": 0,
-        "majorReview": 0,
-        "major": 0,
-        "minor": 0,
-        "recommended": "patch",
-        "provenKinds": {}
-      },
-      "baseline": {
-        "major": false,
-        "removed": 0,
-        "arity": 0
-      }
-    },
-    {
-      "pkg": "dayjs",
-      "old": "1.11.22",
-      "nw": "1.11.23",
-      "oracle": "FALSE",
-      "consumers": [
-        "dayjs.consumer.ts"
-      ],
-      "newOnlyErrors": [],
-      "tool": {
-        "outcome": "ok",
-        "majorProven": 0,
-        "majorReview": 0,
-        "major": 0,
-        "minor": 0,
-        "recommended": "patch",
-        "provenKinds": {}
-      },
-      "baseline": {
-        "major": false,
-        "removed": 0,
-        "arity": 0
-      }
-    },
-    {
-      "pkg": "ioredis",
-      "old": "5.8.0",
-      "nw": "5.8.1",
-      "oracle": "FALSE",
-      "consumers": [
-        "ioredis.consumer.ts"
-      ],
-      "newOnlyErrors": [],
-      "tool": {
-        "outcome": "ok",
-        "majorProven": 0,
-        "majorReview": 0,
-        "major": 0,
-        "minor": 0,
-        "recommended": "patch",
-        "provenKinds": {}
-      },
-      "baseline": {
-        "major": false,
-        "removed": 0,
-        "arity": 0
-      }
-    },
-    {
-      "pkg": "ioredis",
-      "old": "5.8.1",
-      "nw": "5.8.2",
-      "oracle": "FALSE",
-      "consumers": [
-        "ioredis.consumer.ts"
-      ],
-      "newOnlyErrors": [],
-      "tool": {
-        "outcome": "ok",
-        "majorProven": 0,
-        "majorReview": 1,
-        "major": 1,
-        "minor": 0,
-        "recommended": "major",
-        "provenKinds": {}
-      },
-      "baseline": {
-        "major": false,
-        "removed": 0,
-        "arity": 0
-      }
-    },
-    {
-      "pkg": "ioredis",
-      "old": "5.9.0",
-      "nw": "5.9.1",
-      "oracle": "FALSE",
-      "consumers": [
-        "ioredis.consumer.ts"
-      ],
-      "newOnlyErrors": [],
-      "tool": {
-        "outcome": "ok",
-        "majorProven": 0,
-        "majorReview": 0,
-        "major": 0,
-        "minor": 0,
-        "recommended": "patch",
-        "provenKinds": {}
-      },
-      "baseline": {
-        "major": false,
-        "removed": 0,
-        "arity": 0
-      }
-    },
-    {
-      "pkg": "ioredis",
-      "old": "5.9.1",
-      "nw": "5.9.2",
-      "oracle": "FALSE",
-      "consumers": [
-        "ioredis.consumer.ts"
-      ],
-      "newOnlyErrors": [],
-      "tool": {
-        "outcome": "ok",
-        "majorProven": 0,
-        "majorReview": 0,
-        "major": 0,
-        "minor": 0,
-        "recommended": "patch",
-        "provenKinds": {}
-      },
-      "baseline": {
-        "major": false,
-        "removed": 0,
-        "arity": 0
-      }
-    },
-    {
-      "pkg": "ioredis",
-      "old": "5.9.2",
-      "nw": "5.9.3",
-      "oracle": "FALSE",
-      "consumers": [
-        "ioredis.consumer.ts"
-      ],
-      "newOnlyErrors": [],
-      "tool": {
-        "outcome": "ok",
-        "majorProven": 0,
-        "majorReview": 4,
-        "major": 4,
-        "minor": 0,
-        "recommended": "major",
-        "provenKinds": {}
-      },
-      "baseline": {
-        "major": false,
-        "removed": 0,
-        "arity": 0
-      }
-    },
-    {
-      "pkg": "ioredis",
-      "old": "5.10.0",
-      "nw": "5.10.1",
-      "oracle": "FALSE",
-      "consumers": [
-        "ioredis.consumer.ts"
-      ],
-      "newOnlyErrors": [],
-      "tool": {
-        "outcome": "ok",
-        "majorProven": 0,
-        "majorReview": 0,
-        "major": 0,
-        "minor": 0,
-        "recommended": "patch",
-        "provenKinds": {}
-      },
-      "baseline": {
-        "major": true,
-        "removed": 1,
-        "arity": 1
-      }
-    },
-    {
-      "pkg": "ioredis",
-      "old": "5.11.0",
-      "nw": "5.11.1",
-      "oracle": "TRUE",
-      "consumers": [
-        "ioredis.consumer.ts",
-        "ioredis.retry-strategy.ts"
-      ],
-      "newOnlyErrors": [
-        "[ioredis.retry-strategy.ts] consumer.ts(13,3): error TS2322: Type 'RetryStrategy' is not assignable to type 'Backoff | undefined'.",
-        "[ioredis.retry-strategy.ts] consumer.ts(17,3): error TS2322: Type '((times: number, reason?: Error | undefined) => number | void | null) | null | undefined' is not assignable to type 'ClusterBackoff | undefined'.",
-        "[ioredis.retry-strategy.ts] consumer.ts(26,7): error TS2322: Type 'RetryStrategy' is not assignable to type 'Backoff | undefined'.",
-        "[ioredis.retry-strategy.ts] consumer.ts(34,7): error TS2322: Type '((times: number, reason?: Error | undefined) => number | void | null) | null | undefined' is not assignable to type 'ClusterBackoff | undefined'."
-      ],
-      "tool": {
-        "outcome": "ok",
-        "majorProven": 0,
-        "majorReview": 2,
-        "major": 2,
-        "minor": 1,
-        "recommended": "major",
-        "provenKinds": {}
-      },
-      "baseline": {
-        "major": false,
-        "removed": 0,
-        "arity": 0
-      }
-    },
-    {
-      "pkg": "highlight.js",
-      "old": "11.8.0",
-      "nw": "11.9.0",
-      "oracle": "TRUE",
-      "consumers": [
-        "highlight-js.consumer.ts",
-        "highlight-js.emitter.ts",
-        "highlight-js.keywords-pattern.ts"
-      ],
-      "newOnlyErrors": [
-        "[highlight-js.emitter.ts] consumer.ts(9,7): error TS2420: Class 'PlainTextEmitter' incorrectly implements interface 'Emitter'.",
-        "[highlight-js.emitter.ts] consumer.ts(43,18): error TS2322: Type 'typeof PlainTextEmitter' is not assignable to type 'EmitterConstructor'.",
-        "[highlight-js.emitter.ts] consumer.ts(46,11): error TS2339: Property 'openNode' does not exist on type 'Emitter'.",
-        "[highlight-js.emitter.ts] consumer.ts(47,11): error TS2339: Property 'addKeyword' does not exist on type 'Emitter'.",
-        "[highlight-js.emitter.ts] consumer.ts(48,11): error TS2339: Property 'closeNode' does not exist on type 'Emitter'.",
-        "[highlight-js.emitter.ts] consumer.ts(50,11): error TS2339: Property 'closeAllNodes' does not exist on type 'Emitter'.",
-        "[highlight-js.keywords-pattern.ts] consumer.ts(11,5): error TS2322: Type '{ $pattern: RegExp; keyword: string; literal: string[]; }' is not assignable to type 'string | string[] | Record<string, string | string[]> | undefined'."
-      ],
-      "tool": {
-        "outcome": "ok",
-        "majorProven": 0,
-        "majorReview": 9,
-        "major": 9,
-        "minor": 0,
-        "recommended": "major",
-        "provenKinds": {}
-      },
-      "baseline": {
-        "major": true,
-        "removed": 5,
-        "arity": 0
-      }
-    },
-    {
-      "pkg": "highlight.js",
-      "old": "11.9.0",
-      "nw": "11.10.0",
-      "oracle": "FALSE",
-      "consumers": [
-        "highlight-js.consumer.ts"
-      ],
-      "newOnlyErrors": [],
-      "tool": {
-        "outcome": "ok",
-        "majorProven": 0,
-        "majorReview": 1,
-        "major": 1,
-        "minor": 0,
-        "recommended": "major",
-        "provenKinds": {}
-      },
-      "baseline": {
-        "major": false,
-        "removed": 0,
-        "arity": 0
-      }
-    },
-    {
-      "pkg": "highlight.js",
-      "old": "11.10.0",
-      "nw": "11.11.0",
-      "oracle": "FALSE",
-      "consumers": [
-        "highlight-js.consumer.ts"
-      ],
-      "newOnlyErrors": [],
-      "tool": {
-        "outcome": "ok",
-        "majorProven": 0,
-        "majorReview": 0,
-        "major": 0,
-        "minor": 0,
-        "recommended": "patch",
-        "provenKinds": {}
-      },
-      "baseline": {
-        "major": false,
-        "removed": 0,
-        "arity": 0
-      }
-    },
-    {
-      "pkg": "highlight.js",
-      "old": "11.11.0",
-      "nw": "11.11.1",
-      "oracle": "FALSE",
-      "consumers": [
-        "highlight-js.consumer.ts"
-      ],
-      "newOnlyErrors": [],
-      "tool": {
-        "outcome": "ok",
-        "majorProven": 0,
-        "majorReview": 0,
-        "major": 0,
-        "minor": 0,
-        "recommended": "patch",
-        "provenKinds": {}
-      },
-      "baseline": {
-        "major": false,
-        "removed": 0,
-        "arity": 0
-      }
-    },
-    {
-      "pkg": "highlight.js",
-      "old": "11.11.1",
-      "nw": "11.11.2",
-      "oracle": "FALSE",
-      "consumers": [
-        "highlight-js.consumer.ts"
-      ],
-      "newOnlyErrors": [],
-      "tool": {
-        "outcome": "ok",
-        "majorProven": 0,
-        "majorReview": 0,
-        "major": 0,
-        "minor": 0,
-        "recommended": "patch",
-        "provenKinds": {}
-      },
-      "baseline": {
-        "major": false,
-        "removed": 0,
-        "arity": 0
-      }
-    },
-    {
-      "pkg": "highlight.js",
-      "old": "11.11.2",
-      "nw": "11.12.0",
-      "oracle": "FALSE",
-      "consumers": [
-        "highlight-js.consumer.ts"
-      ],
-      "newOnlyErrors": [],
-      "tool": {
-        "outcome": "ok",
-        "majorProven": 0,
-        "majorReview": 0,
-        "major": 0,
-        "minor": 0,
-        "recommended": "patch",
-        "provenKinds": {}
       },
       "baseline": {
         "major": false,
