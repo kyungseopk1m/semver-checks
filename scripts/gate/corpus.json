@@ -14,10 +14,20 @@
           "hono.jsxnode-local-contexts.ts"
         ],
         "4.12.29->4.12.30": [
-          "hono.wscontext-init.ts"
+          "hono.wscontext-init.ts",
+          "hono.wscontext-caller.ts"
         ],
         "4.12.34->4.13.0": [
           "hono.jsxnode-suspended-context.ts"
+        ],
+        "4.12.18->4.12.19": [
+          "hono.cloudflare-manifest.ts"
+        ],
+        "4.12.19->4.12.20": [
+          "hono.jsx-children.ts"
+        ],
+        "4.12.28->4.12.29": [
+          "hono.lambda-edge-result.ts"
         ]
       },
       "pairs": [
@@ -55,6 +65,15 @@
         ],
         "14.0.1->14.0.2": [
           "commander.output-help.ts"
+        ],
+        "9.3.0->9.4.0": [
+          "commander.hook-event.ts"
+        ],
+        "9.4.0->9.4.1": [
+          "commander.option-value-source.ts"
+        ],
+        "9.4.1->9.5.0": [
+          "commander.help-implements.ts"
         ]
       },
       "pairs": [
@@ -90,6 +109,11 @@
     },
     "ts-pattern": {
       "consumer": "ts-pattern.consumer.ts",
+      "probes": {
+        "5.6.0->5.6.1": [
+          "ts-pattern.is-matching-constraint.ts"
+        ]
+      },
       "pairs": [
         [
           "5.3.0",
@@ -117,10 +141,23 @@
       "consumer": "ky.consumer.ts",
       "probes": {
         "1.11.0->1.12.0": [
-          "ky.request-response-form.ts"
+          "ky.request-response-form.ts",
+          "ky.hook-arity.ts"
         ],
         "1.12.0->1.13.0": [
-          "ky.request-response-form.ts"
+          "ky.normalized-options.ts"
+        ],
+        "1.8.2->1.9.0": [
+          "ky.response-promise-shape.ts"
+        ],
+        "1.9.1->1.10.0": [
+          "ky.search-params-option.ts"
+        ],
+        "1.13.0->1.14.0": [
+          "ky.after-response-return.ts"
+        ],
+        "1.14.1->1.14.2": [
+          "ky.is-ky-error-predicate.ts"
         ]
       },
       "pairs": [
@@ -156,6 +193,11 @@
     },
     "got": {
       "consumer": "got.consumer.ts",
+      "probes": {
+        "14.6.4->14.6.5": [
+          "got.extend-response-type.ts"
+        ]
+      },
       "pairs": [
         [
           "14.6.3",
@@ -181,6 +223,11 @@
     },
     "joi": {
       "consumer": "joi.consumer.ts",
+      "probes": {
+        "18.1.2->18.2.0": [
+          "joi.link-schema-implements.ts"
+        ]
+      },
       "pairs": [
         [
           "17.13.1",
@@ -206,6 +253,11 @@
     },
     "bullmq": {
       "consumer": "bullmq.consumer.ts",
+      "probes": {
+        "5.80.11->5.80.12": [
+          "bullmq.bun-redis-handlers.ts"
+        ]
+      },
       "pairs": [
         [
           "5.80.1",
@@ -258,6 +310,11 @@
     },
     "zod": {
       "consumer": "zod.consumer.ts",
+      "probes": {
+        "4.4.1->4.4.2": [
+          "zod.preprocess-shape.ts"
+        ]
+      },
       "pairs": [
         [
           "4.3.6",
@@ -279,6 +336,11 @@
     },
     "valibot": {
       "consumer": "valibot.consumer.ts",
+      "probes": {
+        "1.3.1->1.4.0": [
+          "valibot.flatten-issues-readonly.ts"
+        ]
+      },
       "pairs": [
         [
           "1.3.0",
@@ -300,6 +362,14 @@
     },
     "axios": {
       "consumer": "axios.consumer.ts",
+      "probes": {
+        "1.18.0->1.18.1": [
+          "axios.cancel-token.ts"
+        ],
+        "1.16.1->1.17.0": [
+          "axios.headers-to-json.ts"
+        ]
+      },
       "pairs": [
         [
           "1.16.1",
@@ -321,6 +391,11 @@
     },
     "lru-cache": {
       "consumer": "lru-cache.consumer.ts",
+      "probes": {
+        "11.3.6->11.4.0": [
+          "lru-cache.status-context.ts"
+        ]
+      },
       "pairs": [
         [
           "11.3.6",
