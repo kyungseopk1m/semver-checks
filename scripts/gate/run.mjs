@@ -18,8 +18,10 @@
 //   node scripts/gate/run.mjs --out x.json    where to write (default gate-results.json)
 //
 // tsc results are cached per package@version under the OS temp dir and survive
-// across runs: they depend on the published package, never on this repo's code,
-// so re-measuring after a fix only re-runs the tool.
+// across runs: they depend on the published package and on the consumer program,
+// never on this repo's source, so re-measuring after a fix only re-runs the tool.
+// A cache entry is discarded when its stored consumer no longer matches the one
+// on disk, since an edited consumer asks a different question of the compiler.
 
 import { spawn, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -128,12 +130,23 @@ function consumerErrors(tscOut) {
 async function oracleFor(pkg, ver, consumer, cfg) {
   const dir = path.join(ORACLE_ROOT, `${pkg}@${ver}__${consumer}`.replace(/[@/]/g, '_'));
   const cacheFile = path.join(dir, 'result.json');
-  if (fs.existsSync(cacheFile)) return JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
+  const consumerSource = fs.readFileSync(path.join(HERE, 'consumers', consumer), 'utf8');
+  // The cache is keyed by package version and consumer *name*, so editing a
+  // consumer and re-measuring would silently replay the verdict from the old
+  // one. That is the whole measurement, so the stored copy is compared before
+  // the result is trusted.
+  if (fs.existsSync(cacheFile)) {
+    const cachedSource = fs.existsSync(path.join(dir, 'consumer.ts'))
+      ? fs.readFileSync(path.join(dir, 'consumer.ts'), 'utf8')
+      : null;
+    if (cachedSource === consumerSource) return JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
+    fs.rmSync(cacheFile, { force: true });
+  }
 
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'tsconfig.json'), TSCONFIG);
   fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'gate-oracle', private: true }));
-  fs.copyFileSync(path.join(HERE, 'consumers', consumer), path.join(dir, 'consumer.ts'));
+  fs.writeFileSync(path.join(dir, 'consumer.ts'), consumerSource);
 
   const deps = [`${pkg}@${ver}`, 'typescript@5', '@types/node', ...(cfg.extraDeps ?? [])];
   const install = await run('npm', ['i', ...deps, '--silent', '--no-audit', '--no-fund'], dir, 600_000);
@@ -168,7 +181,10 @@ async function toolFor({ pkg, old, nw }) {
   try {
     parsed = JSON.parse(r.stdout);
   } catch {
-    return { outcome: 'parse-error', code: r.code };
+    // A non-answer that is neither exit 2 nor a timeout is the tool dying, and
+    // the reason only exists on stderr. Dropping it turns a crash into a silent
+    // hole in the denominator.
+    return { outcome: 'parse-error', code: r.code, message: r.stderr.trim().split('\n').slice(-3).join(' | ') };
   }
   // Which rules did the proven majors come from? This is what tells you whether
   // demoting a rule to review-only would cost recall.
