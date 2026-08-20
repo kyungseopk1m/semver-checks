@@ -1702,6 +1702,39 @@ describe('exports map / multiple entrypoints', () => {
     expect(Object.keys(snap.entrypoints['.'])).toEqual(['fromCjsSurface']);
   });
 
+  it('ignores a types condition the running compiler does not satisfy', () => {
+    // `types@{selector}` matches only when the analyzing TypeScript satisfies the
+    // selector. Taking it unconditionally is how a package that points `types@<5.4`
+    // at an "upgrade your TypeScript" stub got analyzed as having a three-symbol
+    // surface that never changes between releases, so every comparison came back
+    // clean and exited 0.
+    const snap = extractFromPath(fixtureDir('exports-versioned-types-stub', 'old'));
+    expect(Object.keys(snap.entrypoints).sort()).toEqual(['.', './sub']);
+    expect(Object.keys(snap.entrypoints['.'])).toEqual(['realSurface']);
+    expect(Object.keys(snap.entrypoints['./sub'])).toEqual(['subSurface']);
+  });
+
+  it('honors a types condition the running compiler does satisfy', () => {
+    // The other direction of the same rule, and the one a hand-rolled comparator
+    // gets wrong: `*`, `^6.0` and `~6.0` all match, and skipping them would turn a
+    // package that resolves today into a hard error.
+    const snap = extractFromPath(fixtureDir('exports-versioned-types-current', 'old'));
+    expect(Object.keys(snap.entrypoints)).toEqual(['.']);
+    expect(Object.keys(snap.entrypoints['.'])).toEqual(['fromVersionedCondition']);
+  });
+
+  it('prefers a declared .d.cts over a declaration substituted from a .js target', () => {
+    // An exports target that names only its runtime file resolves to the
+    // declaration beside it, which is what makes a subpath shipping no `types`
+    // condition analyzable at all. That substitution ranks below every declared
+    // types path, including through the root path's `.d.ts`-first sort, or a
+    // package that declares a `.d.cts` would silently flip onto the `.d.ts` sitting
+    // next to its ESM entry.
+    const snap = extractFromPath(fixtureDir('exports-flat-declared-cts', 'old'));
+    expect(Object.keys(snap.entrypoints)).toEqual(['.']);
+    expect(Object.keys(snap.entrypoints['.'])).toEqual(['fromDeclaredCts']);
+  });
+
   it('keeps single-entry fixtures working through entrypoints[\'.\']', () => {
     // Regression guard: a fixture with no exports map still resolves to '.'.
     const oldSnap = extractFromPath(fixtureDir('export-added', 'old'), 'index.ts');

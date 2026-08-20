@@ -1,0 +1,8 @@
+{
+  "name": "exports-versioned-types-stub",
+  "version": "1.0.0",
+  "exports": {
+    ".": { "types@<5.4": "./outdated.d.ts", "default": "./dist/index.js" },
+    "./sub": "./dist/sub.js"
+  }
+}

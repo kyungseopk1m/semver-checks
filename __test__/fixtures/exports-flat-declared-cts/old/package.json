@@ -1,0 +1,8 @@
+{
+  "name": "exports-flat-declared-cts",
+  "version": "1.0.0",
+  "exports": {
+    "import": "./esm/index.js",
+    "require": { "types": "./cjs/index.d.cts", "default": "./cjs/index.cjs" }
+  }
+}

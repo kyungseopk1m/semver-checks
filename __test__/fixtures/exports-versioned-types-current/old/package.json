@@ -1,0 +1,5 @@
+{
+  "name": "exports-versioned-types-current",
+  "version": "1.0.0",
+  "exports": { ".": { "types@*": "./types/modern.d.ts", "default": "./dist/index.js" } }
+}

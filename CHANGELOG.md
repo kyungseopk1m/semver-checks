@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+
+- **A package whose `exports` map points its types at a version-gated stub is no longer read as having no API.** `types@{selector}` matches only when the TypeScript doing the analysis satisfies the selector, the same rule `typesVersions` uses. It was being taken unconditionally, so `kysely`'s `types@<5.4` won its root entry: a three-symbol file whose only purpose is to tell old compilers to upgrade, identical in every release. Every `kysely` comparison came back with no changes at all and exited 0. The compiler bundled here prints `Saw non-matching condition 'types@<5.4'` for the same `package.json`, so the tool and its own TypeScript disagreed about which file to read; the selector is now handed to that compiler rather than to a comparator written here, which also fixes a two-clause selector like `types@>=3.1 <4.0` that a naive first-clause reading matched.
+- **An `exports` subpath that names only its runtime file now resolves to the declaration beside it.** TypeScript substitutes the analogous extension (`./x.js` → `./x.d.ts`) before giving up, and without it a subpath shipping no `types` condition read as having no public surface. Six of `kysely`'s subpaths and two of `highlight.js`'s were skipped for this reason; `kysely`'s extracted surface goes from 3 symbols to 599. Substituted candidates rank below every declared types path all the way through resolution, so a package that says where its types are keeps the entry it resolves to today, and substitution is offered only to a published tarball so a working tree is still analyzed from its source rather than from a stale `dist/`. A subpath whose sibling declaration does not exist is still skipped, which is the right answer for packages like `axios` that genuinely ship no per-file declarations. Across the 22 gate packages this changes the resolved entry for `kysely` and adds two thin subpath entries for `highlight.js`; every other package resolves byte-identically, and only `kysely`'s gate verdicts move.
+
 ## [0.10.0] - 2026-08-19
 
 This release is about `--strict` telling the truth. Three things were wrong with it. It exited 0 on packages the tool had failed to read at all, so "green" and "extraction produced nothing" were the same output. It never read `declare module 'pkg' { … }` blocks, which is how a whole class of packages (mongoose among them) declares its entire surface — that was the largest single cause of the above. And `proven`, the grade the gate keys on, was inherited by every one of the 47 major-emitting rules from a single line of defaulting, rather than earned by any of them.

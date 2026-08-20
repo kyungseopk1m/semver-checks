@@ -140,6 +140,44 @@ function collectAmbientModuleExports(
 const DTS_SUFFIXES = ['.d.ts', '.d.mts', '.d.cts'] as const;
 const isDtsPath = (p: string): boolean => DTS_SUFFIXES.some((s) => p.endsWith(s));
 
+// TypeScript's extension substitution: an `exports` target that names only its
+// runtime file still resolves to the declaration with the analogous extension.
+// Without it a subpath shipping no `types` condition reads as having no public
+// surface at all, which is how kysely's six subpaths and every one of ethers'
+// went unanalyzed.
+const JS_TO_DTS: ReadonlyArray<readonly [string, string]> = [
+  ['.mjs', '.d.mts'],
+  ['.cjs', '.d.cts'],
+  ['.js', '.d.ts'],
+];
+function dtsForJs(p: string): string | null {
+  for (const [js, dts] of JS_TO_DTS) if (p.endsWith(js)) return `${p.slice(0, -js.length)}${dts}`;
+  return null;
+}
+
+// A `types@{selector}` condition matches only when the TypeScript doing the
+// analysis satisfies the selector, the same rule `typesVersions` uses. Taking it
+// unconditionally is how kysely's `types@<5.4` won: it points at a three-symbol
+// stub that exists to tell old compilers to upgrade, and it never changes between
+// releases, so every kysely release compared as having no API at all.
+//
+// The selector grammar is the compiler's, so the compiler answers. A comparator
+// written here reads `^6.0`, `~6.0` and `*` as non-matching and a two-clause
+// `>=3.1 <4.0` as matching, all four wrong, and the first three turn a package
+// that resolves today into a hard error.
+//
+// ts-morph re-exports the compiler namespace but not this helper's type, so the
+// shape is named here. If a future bundled compiler stops exposing it, every
+// versioned condition is skipped: that surfaces as a loud "could not find an entry
+// file" rather than as a confidently wrong declaration file.
+const versionedTypesKeys = ts as unknown as {
+  isApplicableVersionedTypesKey?: (conditions: readonly string[], key: string) => boolean;
+};
+
+function typesConditionApplies(key: string): boolean {
+  return versionedTypesKeys.isApplicableVersionedTypesKey?.(['types'], key) ?? false;
+}
+
 // Map a declared types path back to its working-tree source: dist→src and
 // .d.ts/.d.mts/.d.cts → .ts/.mts/.cts. Published tarballs ship only declarations,
 // so the raw path is also tried separately (see resolveRawDecl).
@@ -186,16 +224,31 @@ function resolveRawDecl(
 // `browser`/`module`/`default`), arbitrarily nested. `.d.ts` candidates are
 // ordered before `.d.mts`/`.d.cts` because the default tsconfig include always
 // loads `.d.ts`, whereas mts/cts loading depends on the include globs.
-function typesCandidatesFromExportsValue(value: unknown): string[] {
+// `allowSubstitution` is off for a working tree. Substitution exists to read a
+// published tarball, and letting it win there would hand back a stale `dist/`
+// declaration instead of the source the root fallback deliberately prefers.
+function typesCandidatesFromExportsValue(
+  value: unknown,
+  allowSubstitution: boolean,
+): { declared: string[]; substituted: string[] } {
   // `import` before `require` preserves v0.6.0's watched-surface preference (it
   // read `import.types` first): when a package ships separate ESM and CJS
   // declaration files of the *same* extension, the ESM surface stays the one
   // analyzed rather than silently flipping to CJS.
   const PRIORITY_CONDS = ['import', 'require', 'node', 'node-addons', 'browser', 'module', 'default'];
   const out: string[] = [];
+  // Substituted candidates stay in their own list so they can rank below every
+  // declared types path all the way through resolution. Merging them would flip a
+  // root that declares a `.d.cts` onto a `.d.ts` substituted from its `import`
+  // target, since the declaration-first sort runs across whatever list it is given.
+  const substituted: string[] = [];
   const visit = (v: unknown): void => {
     if (typeof v === 'string') {
       if (isDtsPath(v)) out.push(v);
+      else if (allowSubstitution) {
+        const d = dtsForJs(v);
+        if (d) substituted.push(d);
+      }
       return;
     }
     // An `exports` value can be a fallback array (e.g. `[{ types, default }, "./x.js"]`).
@@ -210,14 +263,18 @@ function typesCandidatesFromExportsValue(value: unknown): string[] {
       for (const cond of PRIORITY_CONDS) if (obj[cond] !== undefined) visit(obj[cond]);
       for (const [k, cv] of Object.entries(obj)) {
         if (k === 'types' || PRIORITY_CONDS.includes(k)) continue;
+        if (k.startsWith('types@') && !typesConditionApplies(k)) continue;
         visit(cv);
       }
     }
   };
   visit(value);
-  const ordered = [...out.filter((p) => p.endsWith('.d.ts')), ...out.filter((p) => !p.endsWith('.d.ts'))];
   const seen = new Set<string>();
-  return ordered.filter((p) => (seen.has(p) ? false : (seen.add(p), true)));
+  const dedupedDtsFirst = (paths: string[]): string[] =>
+    [...paths.filter((p) => p.endsWith('.d.ts')), ...paths.filter((p) => !p.endsWith('.d.ts'))].filter((p) =>
+      seen.has(p) ? false : (seen.add(p), true),
+    );
+  return { declared: dedupedDtsFirst(out), substituted: dedupedDtsFirst(substituted) };
 }
 
 // Resolve one or more entry source files keyed by export subpath ('.' for root).
@@ -243,6 +300,13 @@ function resolveEntries(
 
   // Auto-detect from package.json
   let rootCandidates: string[] = [];
+  // A working tree is analyzed from its source, so extension substitution is only
+  // offered to a published tarball. Same test the root fallback below uses, so the
+  // two cannot disagree about which kind of tree this is.
+  const hasWorkingTreeSource = Boolean(
+    project.getSourceFile(path.join(projectPath, 'src', 'index.ts')) ??
+      project.getSourceFile(path.join(projectPath, 'index.ts')),
+  );
   // True when `exports` is a subpath map that deliberately omits a `.` root entry.
   // Such a package has no public root surface, so the conventional-root fallback
   // below must NOT fabricate one from a stray root index.d.ts.
@@ -262,13 +326,18 @@ function resolveEntries(
       const skipped: string[] = [];
       for (const [subpath, value] of Object.entries(exportsField)) {
         if (!subpath.startsWith('.')) continue;
-        const cands = typesCandidatesFromExportsValue(value);
-        if (cands.length === 0) {
+        const { declared, substituted } = typesCandidatesFromExportsValue(value, !hasWorkingTreeSource);
+        if (declared.length === 0 && substituted.length === 0) {
           skipped.push(subpath);
           continue;
         }
+        // Declared paths are exhausted before a substituted one is considered, so a
+        // subpath that says where its types are is resolved exactly as it was.
         const file =
-          resolveMappedSource(project, projectPath, cands) ?? resolveRawDecl(project, projectPath, cands);
+          resolveMappedSource(project, projectPath, declared) ??
+          resolveRawDecl(project, projectPath, declared) ??
+          resolveMappedSource(project, projectPath, substituted) ??
+          resolveRawDecl(project, projectPath, substituted);
         if (file) result[subpath] = file;
         else skipped.push(subpath);
       }
@@ -300,15 +369,25 @@ function resolveEntries(
     exportsSubpathsWithoutRoot =
       hasSubpathKeys && !Object.prototype.hasOwnProperty.call(exportsField, '.');
     const main = hasSubpathKeys ? (exportsField as Record<string, unknown>)['.'] : exportsField;
+    const rootExports =
+      main !== undefined
+        ? typesCandidatesFromExportsValue(main, !hasWorkingTreeSource)
+        : { declared: [], substituted: [] };
     const gathered = [
-      ...(main !== undefined ? typesCandidatesFromExportsValue(main) : []),
+      ...rootExports.declared,
       ...(typeof pkg.types === 'string' && isDtsPath(pkg.types) ? [pkg.types] : []),
       ...(typeof pkg.typings === 'string' && isDtsPath(pkg.typings) ? [pkg.typings] : []),
     ].filter((p, i, a) => a.indexOf(p) === i);
     // Prefer `.d.ts` over `.d.mts`/`.d.cts` across the whole candidate set: a
     // package that ships both should be analysed from one consistent declaration
     // file, and `.d.ts` is the one the default tsconfig include always loads.
-    rootCandidates = [...gathered.filter((p) => p.endsWith('.d.ts')), ...gathered.filter((p) => !p.endsWith('.d.ts'))];
+    // The sort runs inside each list rather than across both, so a substituted
+    // `.d.ts` never overtakes a declared `.d.mts` or `.d.cts`.
+    const dtsFirst = (paths: string[]): string[] => [
+      ...paths.filter((p) => p.endsWith('.d.ts')),
+      ...paths.filter((p) => !p.endsWith('.d.ts')),
+    ];
+    rootCandidates = [...dtsFirst(gathered), ...dtsFirst(rootExports.substituted)];
 
     // Source layout (working tree): map the declared path back to its source.
     const fromSource = resolveMappedSource(project, projectPath, rootCandidates);
