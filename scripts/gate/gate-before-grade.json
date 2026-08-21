@@ -1,39 +1,39 @@
 {
   "summary": {
-    "label": "run",
-    "pairs": 111,
+    "label": "BEFORE",
+    "pairs": 109,
     "inconclusive": 0,
     "toolErrors": 0,
-    "breaks": 43,
+    "breaks": 37,
     "strict": {
-      "fired": 30,
-      "truePositives": 29,
+      "fired": 15,
+      "truePositives": 14,
       "falsePositives": 1,
-      "breaks": 43,
-      "missed": 14,
-      "precision": 0.9666666666666667,
-      "recall": 0.6744186046511628
+      "breaks": 37,
+      "missed": 23,
+      "precision": 0.9333333333333333,
+      "recall": 0.3783783783783784
     },
     "any": {
-      "fired": 54,
-      "truePositives": 43,
-      "falsePositives": 11,
-      "breaks": 43,
+      "fired": 52,
+      "truePositives": 37,
+      "falsePositives": 15,
+      "breaks": 37,
       "missed": 0,
-      "precision": 0.7962962962962963,
+      "precision": 0.7115384615384616,
       "recall": 1
     },
     "baseline": {
       "fired": 16,
       "truePositives": 14,
       "falsePositives": 2,
-      "breaks": 43,
-      "missed": 29,
+      "breaks": 37,
+      "missed": 23,
       "precision": 0.875,
-      "recall": 0.32558139534883723
+      "recall": 0.3783783783783784
     },
-    "maxProvenPerPair": 19,
-    "maxProvenPair": "jose 6.2.4->6.2.5"
+    "maxProvenPerPair": 5,
+    "maxProvenPair": "kysely 0.29.2->0.29.3"
   },
   "rows": [
     {
@@ -194,14 +194,13 @@
       ],
       "tool": {
         "outcome": "ok",
-        "majorProven": 5,
-        "majorReview": 29,
+        "majorProven": 3,
+        "majorReview": 31,
         "major": 34,
         "minor": 7,
         "recommended": "major",
         "provenKinds": {
           "class-property-removed": 2,
-          "property-type-changed": 2,
           "variable-type-changed": 1
         }
       },
@@ -225,14 +224,12 @@
       ],
       "tool": {
         "outcome": "ok",
-        "majorProven": 1,
-        "majorReview": 0,
+        "majorProven": 0,
+        "majorReview": 1,
         "major": 1,
         "minor": 0,
         "recommended": "major",
-        "provenKinds": {
-          "type-alias-changed": 1
-        }
+        "provenKinds": {}
       },
       "baseline": {
         "major": false,
@@ -255,14 +252,12 @@
       ],
       "tool": {
         "outcome": "ok",
-        "majorProven": 1,
-        "majorReview": 2,
+        "majorProven": 0,
+        "majorReview": 3,
         "major": 3,
         "minor": 0,
         "recommended": "major",
-        "provenKinds": {
-          "type-alias-changed": 1
-        }
+        "provenKinds": {}
       },
       "baseline": {
         "major": false,
@@ -527,14 +522,13 @@
       ],
       "tool": {
         "outcome": "ok",
-        "majorProven": 2,
-        "majorReview": 3,
+        "majorProven": 1,
+        "majorReview": 4,
         "major": 5,
         "minor": 2,
         "recommended": "major",
         "provenKinds": {
-          "export-removed": 1,
-          "type-alias-changed": 1
+          "export-removed": 1
         }
       },
       "baseline": {
@@ -556,14 +550,13 @@
       ],
       "tool": {
         "outcome": "ok",
-        "majorProven": 2,
-        "majorReview": 1,
+        "majorProven": 1,
+        "majorReview": 2,
         "major": 3,
         "minor": 1,
         "recommended": "major",
         "provenKinds": {
-          "export-removed": 1,
-          "required-property-added": 1
+          "export-removed": 1
         }
       },
       "baseline": {
@@ -668,14 +661,12 @@
       ],
       "tool": {
         "outcome": "ok",
-        "majorProven": 1,
-        "majorReview": 6,
+        "majorProven": 0,
+        "majorReview": 7,
         "major": 7,
         "minor": 4,
         "recommended": "major",
-        "provenKinds": {
-          "required-property-added": 1
-        }
+        "provenKinds": {}
       },
       "baseline": {
         "major": true,
@@ -697,14 +688,12 @@
       ],
       "tool": {
         "outcome": "ok",
-        "majorProven": 1,
-        "majorReview": 1,
+        "majorProven": 0,
+        "majorReview": 2,
         "major": 2,
         "minor": 2,
         "recommended": "major",
-        "provenKinds": {
-          "required-property-added": 1
-        }
+        "provenKinds": {}
       },
       "baseline": {
         "major": false,
@@ -850,8 +839,8 @@
       "tool": {
         "outcome": "ok",
         "majorProven": 0,
-        "majorReview": 4,
-        "major": 4,
+        "majorReview": 3,
+        "major": 3,
         "minor": 4,
         "recommended": "major",
         "provenKinds": {}
@@ -948,14 +937,12 @@
       ],
       "tool": {
         "outcome": "ok",
-        "majorProven": 1,
-        "majorReview": 0,
+        "majorProven": 0,
+        "majorReview": 1,
         "major": 1,
         "minor": 0,
         "recommended": "major",
-        "provenKinds": {
-          "required-interface-method-added": 1
-        }
+        "provenKinds": {}
       },
       "baseline": {
         "major": false,
@@ -1260,14 +1247,12 @@
       ],
       "tool": {
         "outcome": "ok",
-        "majorProven": 1,
-        "majorReview": 9,
+        "majorProven": 0,
+        "majorReview": 10,
         "major": 10,
         "minor": 7,
         "recommended": "major",
-        "provenKinds": {
-          "interface-heritage-changed": 1
-        }
+        "provenKinds": {}
       },
       "baseline": {
         "major": false,
@@ -1464,14 +1449,12 @@
       ],
       "tool": {
         "outcome": "ok",
-        "majorProven": 3,
-        "majorReview": 1,
+        "majorProven": 0,
+        "majorReview": 4,
         "major": 4,
         "minor": 11,
         "recommended": "major",
-        "provenKinds": {
-          "required-interface-method-added": 3
-        }
+        "provenKinds": {}
       },
       "baseline": {
         "major": false,
@@ -1483,24 +1466,19 @@
       "pkg": "axios",
       "old": "1.18.1",
       "nw": "1.19.0",
-      "oracle": "TRUE",
+      "oracle": "FALSE",
       "consumers": [
-        "axios.consumer.ts",
-        "axios.request-generic.ts"
+        "axios.consumer.ts"
       ],
-      "newOnlyErrors": [
-        "[axios.request-generic.ts] consumer.ts(8,3): error TS2322: Type 'Promise<AxiosResponseResult<T, R, any, any>>' is not assignable to type 'Promise<R>'."
-      ],
+      "newOnlyErrors": [],
       "tool": {
         "outcome": "ok",
-        "majorProven": 3,
-        "majorReview": 77,
+        "majorProven": 0,
+        "majorReview": 80,
         "major": 80,
         "minor": 36,
         "recommended": "major",
-        "provenKinds": {
-          "interface-heritage-changed": 3
-        }
+        "provenKinds": {}
       },
       "baseline": {
         "major": false,
@@ -1524,14 +1502,12 @@
       ],
       "tool": {
         "outcome": "ok",
-        "majorProven": 4,
-        "majorReview": 34,
+        "majorProven": 0,
+        "majorReview": 38,
         "major": 38,
         "minor": 8,
         "recommended": "major",
-        "provenKinds": {
-          "interface-heritage-changed": 4
-        }
+        "provenKinds": {}
       },
       "baseline": {
         "major": false,
@@ -1567,25 +1543,19 @@
       "pkg": "lru-cache",
       "old": "11.5.0",
       "nw": "11.5.1",
-      "oracle": "TRUE",
+      "oracle": "FALSE",
       "consumers": [
-        "lru-cache.consumer.ts",
-        "lru-cache.fetch-options-context.ts"
+        "lru-cache.consumer.ts"
       ],
-      "newOnlyErrors": [
-        "[lru-cache.fetch-options-context.ts] consumer.ts(22,14): error TS2345: Argument of type 'void | undefined' is not assignable to parameter of type 'undefined'.",
-        "[lru-cache.fetch-options-context.ts] consumer.ts(32,14): error TS2345: Argument of type 'void | undefined' is not assignable to parameter of type 'undefined'."
-      ],
+      "newOnlyErrors": [],
       "tool": {
         "outcome": "ok",
-        "majorProven": 4,
-        "majorReview": 0,
+        "majorProven": 0,
+        "majorReview": 4,
         "major": 4,
         "minor": 0,
         "recommended": "major",
-        "provenKinds": {
-          "property-type-changed": 4
-        }
+        "provenKinds": {}
       },
       "baseline": {
         "major": false,
@@ -2294,14 +2264,13 @@
       ],
       "tool": {
         "outcome": "ok",
-        "majorProven": 19,
-        "majorReview": 171,
+        "majorProven": 1,
+        "majorReview": 189,
         "major": 190,
         "minor": 61,
         "recommended": "major",
         "provenKinds": {
-          "interface-heritage-changed": 17,
-          "property-type-changed": 2
+          "property-type-changed": 1
         }
       },
       "baseline": {
@@ -2554,24 +2523,19 @@
       "pkg": "ioredis",
       "old": "5.8.1",
       "nw": "5.8.2",
-      "oracle": "TRUE",
+      "oracle": "FALSE",
       "consumers": [
-        "ioredis.consumer.ts",
-        "ioredis.command-flags.ts"
+        "ioredis.consumer.ts"
       ],
-      "newOnlyErrors": [
-        "[ioredis.command-flags.ts] consumer.ts(7,7): error TS2739: Type '{ VALID_IN_SUBSCRIBER_MODE: string; VALID_IN_MONITOR_MODE: string; ENTER_SUBSCRIBER_MODE: string; EXIT_SUBSCRIBER_MODE: string; WILL_DISCONNECT: string; }' is missing the following properties from type 'Record<keyof CommandNameFlags, string>': HANDSHAKE_COMMANDS, IGNORE_RECONNECT_ON_ERROR"
-      ],
+      "newOnlyErrors": [],
       "tool": {
         "outcome": "ok",
-        "majorProven": 1,
-        "majorReview": 0,
+        "majorProven": 0,
+        "majorReview": 1,
         "major": 1,
         "minor": 0,
         "recommended": "major",
-        "provenKinds": {
-          "class-property-type-changed": 1
-        }
+        "provenKinds": {}
       },
       "baseline": {
         "major": false,
@@ -2692,14 +2656,12 @@
       ],
       "tool": {
         "outcome": "ok",
-        "majorProven": 1,
-        "majorReview": 1,
+        "majorProven": 0,
+        "majorReview": 2,
         "major": 2,
         "minor": 1,
         "recommended": "major",
-        "provenKinds": {
-          "property-type-changed": 1
-        }
+        "provenKinds": {}
       },
       "baseline": {
         "major": false,
@@ -2728,15 +2690,12 @@
       ],
       "tool": {
         "outcome": "ok",
-        "majorProven": 8,
-        "majorReview": 1,
+        "majorProven": 0,
+        "majorReview": 9,
         "major": 9,
         "minor": 0,
         "recommended": "major",
-        "provenKinds": {
-          "interface-method-removed": 5,
-          "required-interface-method-added": 3
-        }
+        "provenKinds": {}
       },
       "baseline": {
         "major": true,
@@ -2748,24 +2707,19 @@
       "pkg": "highlight.js",
       "old": "11.9.0",
       "nw": "11.10.0",
-      "oracle": "TRUE",
+      "oracle": "FALSE",
       "consumers": [
-        "highlight-js.consumer.ts",
-        "highlight-js.keywords-regexp.ts"
+        "highlight-js.consumer.ts"
       ],
-      "newOnlyErrors": [
-        "[highlight-js.keywords-regexp.ts] consumer.ts(13,19): error TS2488: Type 'RegExp | string[]' must have a '[Symbol.iterator]()' method that returns an iterator."
-      ],
+      "newOnlyErrors": [],
       "tool": {
         "outcome": "ok",
-        "majorProven": 1,
-        "majorReview": 0,
+        "majorProven": 0,
+        "majorReview": 1,
         "major": 1,
         "minor": 0,
         "recommended": "major",
-        "provenKinds": {
-          "property-type-changed": 1
-        }
+        "provenKinds": {}
       },
       "baseline": {
         "major": false,
@@ -2862,60 +2816,6 @@
         "minor": 0,
         "recommended": "patch",
         "provenKinds": {}
-      },
-      "baseline": {
-        "major": false,
-        "removed": 0,
-        "arity": 0
-      }
-    },
-    {
-      "pkg": "clsx",
-      "old": "2.1.0",
-      "nw": "2.1.1",
-      "oracle": "TRUE",
-      "consumers": [
-        "clsx.consumer.ts"
-      ],
-      "newOnlyErrors": [
-        "[clsx.consumer.ts] consumer.ts(14,3): error TS2322: Type 'ClassValue' is not assignable to type 'ClassNameProp'."
-      ],
-      "tool": {
-        "outcome": "ok",
-        "majorProven": 0,
-        "majorReview": 2,
-        "major": 2,
-        "minor": 0,
-        "recommended": "major",
-        "provenKinds": {}
-      },
-      "baseline": {
-        "major": false,
-        "removed": 0,
-        "arity": 0
-      }
-    },
-    {
-      "pkg": "p-limit",
-      "old": "6.0.0",
-      "nw": "6.1.0",
-      "oracle": "TRUE",
-      "consumers": [
-        "p-limit.consumer.ts"
-      ],
-      "newOnlyErrors": [
-        "[p-limit.consumer.ts] consumer.ts(17,29): error TS2345: Argument of type '(<Arguments extends unknown[], ReturnType>(fn: (...args: Arguments) => ReturnType | PromiseLike<ReturnType>, ...args: Arguments) => Promise<ReturnType>) & { ...; }' is not assignable to parameter of type 'LimitFunction'."
-      ],
-      "tool": {
-        "outcome": "ok",
-        "majorProven": 1,
-        "majorReview": 0,
-        "major": 1,
-        "minor": 0,
-        "recommended": "major",
-        "provenKinds": {
-          "required-property-added": 1
-        }
       },
       "baseline": {
         "major": false,

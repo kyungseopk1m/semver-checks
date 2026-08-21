@@ -1,54 +1,54 @@
 {
   "summary": {
     "source": "scripts/gate/gate-after.json",
-    "pairs": 109,
+    "pairs": 111,
     "skipped": 0,
-    "breaks": 37,
-    "understated": 36,
+    "breaks": 43,
+    "understated": 42,
     "declaredBreaks": 1,
-    "fired": 14,
-    "truePositives": 13,
+    "fired": 29,
+    "truePositives": 28,
     "falsePositives": 1,
-    "missed": 23,
-    "precision": 0.9285714285714286,
-    "recall": 0.3611111111111111,
-    "reviewed": 39
+    "missed": 14,
+    "precision": 0.9655172413793104,
+    "recall": 0.6666666666666666,
+    "reviewed": 26
   },
   "gateSummary": {
-    "label": "FINAL",
-    "pairs": 109,
+    "label": "run",
+    "pairs": 111,
     "inconclusive": 0,
     "toolErrors": 0,
-    "breaks": 37,
+    "breaks": 43,
     "strict": {
-      "fired": 15,
-      "truePositives": 14,
+      "fired": 30,
+      "truePositives": 29,
       "falsePositives": 1,
-      "breaks": 37,
-      "missed": 23,
-      "precision": 0.9333333333333333,
-      "recall": 0.3783783783783784
+      "breaks": 43,
+      "missed": 14,
+      "precision": 0.9666666666666667,
+      "recall": 0.6744186046511628
     },
     "any": {
-      "fired": 52,
-      "truePositives": 37,
-      "falsePositives": 15,
-      "breaks": 37,
+      "fired": 54,
+      "truePositives": 43,
+      "falsePositives": 11,
+      "breaks": 43,
       "missed": 0,
-      "precision": 0.7115384615384616,
+      "precision": 0.7962962962962963,
       "recall": 1
     },
     "baseline": {
       "fired": 16,
       "truePositives": 14,
       "falsePositives": 2,
-      "breaks": 37,
-      "missed": 23,
+      "breaks": 43,
+      "missed": 29,
       "precision": 0.875,
-      "recall": 0.3783783783783784
+      "recall": 0.32558139534883723
     },
-    "maxProvenPerPair": 5,
-    "maxProvenPair": "kysely 0.29.2->0.29.3"
+    "maxProvenPerPair": 19,
+    "maxProvenPair": "jose 6.2.4->6.2.5"
   },
   "rows": [
     {
@@ -136,10 +136,11 @@
       "suggested": "major",
       "verdict": "mismatch",
       "minor": 7,
-      "majorReview": 31,
+      "majorReview": 29,
       "understated": true,
       "provenKinds": {
         "class-property-removed": 2,
+        "property-type-changed": 2,
         "variable-type-changed": 1
       }
     },
@@ -149,13 +150,15 @@
       "nw": "9.4.0",
       "oracle": "TRUE",
       "declared": "minor",
-      "required": "patch",
+      "required": "major",
       "suggested": "major",
-      "verdict": "review",
+      "verdict": "mismatch",
       "minor": 0,
-      "majorReview": 1,
+      "majorReview": 0,
       "understated": true,
-      "provenKinds": {}
+      "provenKinds": {
+        "type-alias-changed": 1
+      }
     },
     {
       "pkg": "commander",
@@ -163,13 +166,15 @@
       "nw": "9.4.1",
       "oracle": "TRUE",
       "declared": "patch",
-      "required": "patch",
+      "required": "major",
       "suggested": "major",
-      "verdict": "review",
+      "verdict": "mismatch",
       "minor": 0,
-      "majorReview": 3,
+      "majorReview": 2,
       "understated": true,
-      "provenKinds": {}
+      "provenKinds": {
+        "type-alias-changed": 1
+      }
     },
     {
       "pkg": "commander",
@@ -316,10 +321,11 @@
       "suggested": "major",
       "verdict": "mismatch",
       "minor": 2,
-      "majorReview": 4,
+      "majorReview": 3,
       "understated": true,
       "provenKinds": {
-        "export-removed": 1
+        "export-removed": 1,
+        "type-alias-changed": 1
       }
     },
     {
@@ -332,10 +338,11 @@
       "suggested": "major",
       "verdict": "mismatch",
       "minor": 1,
-      "majorReview": 2,
+      "majorReview": 1,
       "understated": true,
       "provenKinds": {
-        "export-removed": 1
+        "export-removed": 1,
+        "required-property-added": 1
       }
     },
     {
@@ -386,13 +393,15 @@
       "nw": "1.13.0",
       "oracle": "TRUE",
       "declared": "minor",
-      "required": "patch",
+      "required": "major",
       "suggested": "major",
-      "verdict": "review",
+      "verdict": "mismatch",
       "minor": 4,
-      "majorReview": 7,
+      "majorReview": 6,
       "understated": true,
-      "provenKinds": {}
+      "provenKinds": {
+        "required-property-added": 1
+      }
     },
     {
       "pkg": "ky",
@@ -400,13 +409,15 @@
       "nw": "1.14.0",
       "oracle": "TRUE",
       "declared": "minor",
-      "required": "patch",
+      "required": "major",
       "suggested": "major",
-      "verdict": "review",
+      "verdict": "mismatch",
       "minor": 2,
-      "majorReview": 2,
+      "majorReview": 1,
       "understated": true,
-      "provenKinds": {}
+      "provenKinds": {
+        "required-property-added": 1
+      }
     },
     {
       "pkg": "ky",
@@ -488,7 +499,7 @@
       "suggested": "major",
       "verdict": "review",
       "minor": 4,
-      "majorReview": 3,
+      "majorReview": 4,
       "understated": false,
       "provenKinds": {}
     },
@@ -540,13 +551,15 @@
       "nw": "18.2.0",
       "oracle": "TRUE",
       "declared": "minor",
-      "required": "patch",
+      "required": "major",
       "suggested": "major",
-      "verdict": "review",
+      "verdict": "mismatch",
       "minor": 0,
-      "majorReview": 1,
+      "majorReview": 0,
       "understated": true,
-      "provenKinds": {}
+      "provenKinds": {
+        "required-interface-method-added": 1
+      }
     },
     {
       "pkg": "joi",
@@ -717,13 +730,15 @@
       "nw": "4.4.2",
       "oracle": "TRUE",
       "declared": "patch",
-      "required": "patch",
+      "required": "major",
       "suggested": "major",
-      "verdict": "review",
+      "verdict": "mismatch",
       "minor": 7,
-      "majorReview": 10,
+      "majorReview": 9,
       "understated": true,
-      "provenKinds": {}
+      "provenKinds": {
+        "interface-heritage-changed": 1
+      }
     },
     {
       "pkg": "zod",
@@ -829,27 +844,31 @@
       "nw": "1.18.1",
       "oracle": "TRUE",
       "declared": "patch",
-      "required": "patch",
+      "required": "major",
       "suggested": "major",
-      "verdict": "review",
+      "verdict": "mismatch",
       "minor": 11,
-      "majorReview": 4,
+      "majorReview": 1,
       "understated": true,
-      "provenKinds": {}
+      "provenKinds": {
+        "required-interface-method-added": 3
+      }
     },
     {
       "pkg": "axios",
       "old": "1.18.1",
       "nw": "1.19.0",
-      "oracle": "FALSE",
+      "oracle": "TRUE",
       "declared": "minor",
-      "required": "patch",
+      "required": "major",
       "suggested": "major",
-      "verdict": "review",
+      "verdict": "mismatch",
       "minor": 36,
-      "majorReview": 80,
-      "understated": false,
-      "provenKinds": {}
+      "majorReview": 77,
+      "understated": true,
+      "provenKinds": {
+        "interface-heritage-changed": 3
+      }
     },
     {
       "pkg": "lru-cache",
@@ -857,13 +876,15 @@
       "nw": "11.4.0",
       "oracle": "TRUE",
       "declared": "minor",
-      "required": "patch",
+      "required": "major",
       "suggested": "major",
-      "verdict": "review",
+      "verdict": "mismatch",
       "minor": 8,
-      "majorReview": 38,
+      "majorReview": 34,
       "understated": true,
-      "provenKinds": {}
+      "provenKinds": {
+        "interface-heritage-changed": 4
+      }
     },
     {
       "pkg": "lru-cache",
@@ -883,15 +904,17 @@
       "pkg": "lru-cache",
       "old": "11.5.0",
       "nw": "11.5.1",
-      "oracle": "FALSE",
+      "oracle": "TRUE",
       "declared": "patch",
-      "required": "patch",
+      "required": "major",
       "suggested": "major",
-      "verdict": "review",
+      "verdict": "mismatch",
       "minor": 0,
-      "majorReview": 4,
-      "understated": false,
-      "provenKinds": {}
+      "majorReview": 0,
+      "understated": true,
+      "provenKinds": {
+        "property-type-changed": 4
+      }
     },
     {
       "pkg": "lru-cache",
@@ -1300,10 +1323,11 @@
       "suggested": "major",
       "verdict": "mismatch",
       "minor": 61,
-      "majorReview": 189,
+      "majorReview": 171,
       "understated": true,
       "provenKinds": {
-        "property-type-changed": 1
+        "interface-heritage-changed": 17,
+        "property-type-changed": 2
       }
     },
     {
@@ -1450,15 +1474,17 @@
       "pkg": "ioredis",
       "old": "5.8.1",
       "nw": "5.8.2",
-      "oracle": "FALSE",
+      "oracle": "TRUE",
       "declared": "patch",
-      "required": "patch",
+      "required": "major",
       "suggested": "major",
-      "verdict": "review",
+      "verdict": "mismatch",
       "minor": 0,
-      "majorReview": 1,
-      "understated": false,
-      "provenKinds": {}
+      "majorReview": 0,
+      "understated": true,
+      "provenKinds": {
+        "class-property-type-changed": 1
+      }
     },
     {
       "pkg": "ioredis",
@@ -1522,13 +1548,15 @@
       "nw": "5.11.1",
       "oracle": "TRUE",
       "declared": "patch",
-      "required": "patch",
+      "required": "major",
       "suggested": "major",
-      "verdict": "review",
+      "verdict": "mismatch",
       "minor": 1,
-      "majorReview": 2,
+      "majorReview": 1,
       "understated": true,
-      "provenKinds": {}
+      "provenKinds": {
+        "property-type-changed": 1
+      }
     },
     {
       "pkg": "highlight.js",
@@ -1536,27 +1564,32 @@
       "nw": "11.9.0",
       "oracle": "TRUE",
       "declared": "minor",
-      "required": "patch",
+      "required": "major",
       "suggested": "major",
-      "verdict": "review",
+      "verdict": "mismatch",
       "minor": 0,
-      "majorReview": 9,
+      "majorReview": 1,
       "understated": true,
-      "provenKinds": {}
+      "provenKinds": {
+        "interface-method-removed": 5,
+        "required-interface-method-added": 3
+      }
     },
     {
       "pkg": "highlight.js",
       "old": "11.9.0",
       "nw": "11.10.0",
-      "oracle": "FALSE",
+      "oracle": "TRUE",
       "declared": "minor",
-      "required": "patch",
+      "required": "major",
       "suggested": "major",
-      "verdict": "review",
+      "verdict": "mismatch",
       "minor": 0,
-      "majorReview": 1,
-      "understated": false,
-      "provenKinds": {}
+      "majorReview": 0,
+      "understated": true,
+      "provenKinds": {
+        "property-type-changed": 1
+      }
     },
     {
       "pkg": "highlight.js",
@@ -1613,6 +1646,36 @@
       "majorReview": 0,
       "understated": false,
       "provenKinds": {}
+    },
+    {
+      "pkg": "clsx",
+      "old": "2.1.0",
+      "nw": "2.1.1",
+      "oracle": "TRUE",
+      "declared": "patch",
+      "required": "patch",
+      "suggested": "major",
+      "verdict": "review",
+      "minor": 0,
+      "majorReview": 2,
+      "understated": true,
+      "provenKinds": {}
+    },
+    {
+      "pkg": "p-limit",
+      "old": "6.0.0",
+      "nw": "6.1.0",
+      "oracle": "TRUE",
+      "declared": "minor",
+      "required": "major",
+      "suggested": "major",
+      "verdict": "mismatch",
+      "minor": 0,
+      "majorReview": 0,
+      "understated": true,
+      "provenKinds": {
+        "required-property-added": 1
+      }
     }
   ]
 }
