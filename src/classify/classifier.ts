@@ -24,6 +24,77 @@ function typeChangeConfidence(relation: TypeRelation | null, position: 'param' |
   return position === 'invariant' ? 'heuristic' : 'proven';
 }
 
+// Resolve a heritage entry back to the interface it names, so a clause change can
+// ask what the base actually carried. `extends Foo<T>` names `Foo`; a qualified
+// `ns.Foo` is looked up under its last segment, and anything the snapshot does not
+// hold (a base from another package, or a non-interface) resolves to undefined.
+type BaseLookup = (name: string) => ApiInterfaceSymbol | undefined;
+interface BaseLookups {
+  old: BaseLookup;
+  new: BaseLookup;
+}
+
+function heritageBaseName(heritage: string): string {
+  const bare = heritage.split('<')[0].trim();
+  const segments = bare.split('.');
+  return segments[segments.length - 1];
+}
+
+// Does dropping this base actually take something with it? A base with no members
+// carries nothing, and a base whose members the interface now declares itself (or
+// inherits from a base it kept) has been inlined rather than lost. Either way no
+// consumer can tell. A base the snapshot does not hold answers `true`: not having
+// looked is not evidence that nothing left. Call, construct and index signatures
+// cannot be checked by name, so a base carrying any of them counts as a loss.
+function droppedBaseLosesMembers(
+  heritage: string,
+  lookup: BaseLookup | undefined,
+  stillProvided: (memberName: string) => boolean,
+  seen: Set<string> = new Set(),
+): boolean {
+  const baseName = heritageBaseName(heritage);
+  if (seen.has(baseName)) return false;
+  seen.add(baseName);
+  const base = lookup?.(baseName);
+  if (!base) return true;
+  if (
+    (base.callSignatures?.length ?? 0) > 0 ||
+    (base.constructSignatures?.length ?? 0) > 0 ||
+    (base.indexSignatures?.length ?? 0) > 0
+  ) {
+    return true;
+  }
+  for (const p of base.properties) if (!stillProvided(p.name)) return true;
+  for (const m of base.methods) if (!stillProvided(m.name)) return true;
+  for (const bh of base.heritage ?? []) if (droppedBaseLosesMembers(bh, lookup, stillProvided, seen)) return true;
+  return false;
+}
+
+// Is `memberName` declared by one of these bases, or by one of theirs? Inherited
+// members are deliberately not flattened into `properties`/`methods`, so a member
+// that moved between an interface and a base reads here as a removal on one side
+// and an addition on the other while the consumer sees neither. Resolving the
+// bases is what tells a move from a real change. A base the snapshot does not
+// hold answers `false`: not having looked is not evidence that the member left.
+function memberDeclaredByBases(
+  heritage: string[] | undefined,
+  memberName: string,
+  lookup: BaseLookup | undefined,
+  seen: Set<string> = new Set(),
+): boolean {
+  for (const h of heritage ?? []) {
+    const baseName = heritageBaseName(h);
+    if (seen.has(baseName)) continue;
+    seen.add(baseName);
+    const base = lookup?.(baseName);
+    if (!base) continue;
+    if (base.properties.some((p) => p.name === memberName)) return true;
+    if (base.methods.some((m) => m.name === memberName)) return true;
+    if (memberDeclaredByBases(base.heritage, memberName, lookup, seen)) return true;
+  }
+  return false;
+}
+
 // MAJOR kinds whose confidence needs no analysis: the change IS the evidence.
 // A member that was there and now is not, or a call that now demands an argument
 // it did not, breaks every consumer touching it, whatever the types involved.
@@ -40,6 +111,9 @@ const PROVEN_KINDS: ReadonlySet<string> = new Set([
   'class-property-removed',
   'class-method-removed',
   'required-param-added',
+  'interface-method-removed',
+  'required-interface-method-added',
+  'required-property-added',
 ]);
 
 // The confidence a change carries once the kind-based default is applied. A rule
@@ -60,6 +134,10 @@ interface InvariantCompare {
   equivalent: boolean;
   // Confidence of the *change* when not equivalent (meaningless when equivalent).
   confidence: Confidence;
+  // Whether the variance probe reached a verdict at all. `confidence` cannot say:
+  // it reads 'heuristic' both for a probe that bailed and for one that resolved a
+  // one-directional relation, and those are opposite epistemic states.
+  resolved: boolean;
 }
 
 // Compare two type texts in an invariant position (interface/class property),
@@ -72,19 +150,18 @@ function invariantTextCompare(
   ctx?: { typeParameters: ApiTypeParameter[] },
 ): InvariantCompare {
   const newText = renameTypeText(newRaw, containerRename);
-  if (oldText === newText) return { equivalent: true, confidence: 'proven' };
+  if (oldText === newText) return { equivalent: true, confidence: 'proven', resolved: true };
   const relation = compareTypeText(oldText, newText, ctx);
   const equivalent = relation !== null && relation.oldToNew && relation.newToOld;
-  return { equivalent, confidence: typeChangeConfidence(relation, 'invariant') };
+  return { equivalent, confidence: typeChangeConfidence(relation, 'invariant'), resolved: relation !== null };
 }
 
 // A property's read and write types are compared separately; the property is a
 // proven break only when a *non-equivalent* side resolved to a genuine break.
-function propTypeConfidence(read: InvariantCompare, write: InvariantCompare): Confidence {
-  const provenBreak =
-    (!read.equivalent && read.confidence === 'proven') ||
-    (!write.equivalent && write.confidence === 'proven');
-  return provenBreak ? 'proven' : 'heuristic';
+function propTypeConfidence(read: InvariantCompare, write: InvariantCompare, promoteResolved = false): Confidence {
+  const broke = (c: InvariantCompare): boolean =>
+    !c.equivalent && (c.confidence === 'proven' || (promoteResolved && c.resolved));
+  return broke(read) || broke(write) ? 'proven' : 'heuristic';
 }
 
 // Spread into a signature/constructor wrapper change. The wrapper is proven when
@@ -326,7 +403,18 @@ function classifySymbolMap(
     const newSym = newSymbols[name];
     if (!newSym) continue;
 
-    changes.push(...classifySymbolChanges(prefix + name, oldSym, newSym));
+    changes.push(
+      ...classifySymbolChanges(prefix + name, oldSym, newSym, {
+        old: (baseName) => {
+          const sym = oldSymbols[baseName];
+          return sym?.kind === 'interface' ? sym : undefined;
+        },
+        new: (baseName) => {
+          const sym = newSymbols[baseName];
+          return sym?.kind === 'interface' ? sym : undefined;
+        },
+      }),
+    );
   }
 
   return changes;
@@ -465,7 +553,7 @@ function typeAliasInterfaceEquivalent(ta: ApiTypeAliasSymbol, iface: ApiInterfac
   return aliasShape !== null && aliasShape === canonicalObjectShape(ifaceText);
 }
 
-function classifySymbolChanges(name: string, oldSym: ApiSymbol, newSym: ApiSymbol): ApiChange[] {
+function classifySymbolChanges(name: string, oldSym: ApiSymbol, newSym: ApiSymbol, bases?: BaseLookups): ApiChange[] {
   if (oldSym.kind !== newSym.kind) {
     // A type-alias <-> interface conversion with a structurally equivalent shape
     // is a non-breaking refactor, not an export removal.
@@ -508,7 +596,7 @@ function classifySymbolChanges(name: string, oldSym: ApiSymbol, newSym: ApiSymbo
     case 'function':
       return classifyFunctionChanges(name, oldSym, newSym as ApiFunctionSymbol);
     case 'interface':
-      return classifyInterfaceChanges(name, oldSym, newSym as ApiInterfaceSymbol);
+      return classifyInterfaceChanges(name, oldSym, newSym as ApiInterfaceSymbol, bases);
     case 'enum':
       return classifyEnumChanges(name, oldSym, newSym as ApiEnumSymbol);
     case 'class':
@@ -1106,7 +1194,12 @@ function heritageDisplay(list: string[]): string {
   return list.join(', ') || '(none)';
 }
 
-function classifyInterfaceChanges(name: string, oldIf: ApiInterfaceSymbol, newIf: ApiInterfaceSymbol): ApiChange[] {
+function classifyInterfaceChanges(
+  name: string,
+  oldIf: ApiInterfaceSymbol,
+  newIf: ApiInterfaceSymbol,
+  bases?: BaseLookups,
+): ApiChange[] {
   const changes: ApiChange[] = [];
   // Container-level rename so a generic-only rewrite (`interface Box<T>` vs
   // `interface Box<S>`) collapses to a no-op for every nested property /
@@ -1126,9 +1219,10 @@ function classifyInterfaceChanges(name: string, oldIf: ApiInterfaceSymbol, newIf
   for (const n of oldProps.keys()) if (newMethods.has(n)) crossForm.add(n);
   for (const n of oldMethods.keys()) if (newProps.has(n)) crossForm.add(n);
 
-  // Removed properties
+  // Removed properties. A member the new interface inherits from a base did not
+  // leave the surface, it moved up, and no consumer can tell.
   for (const [propName, prop] of oldProps) {
-    if (!newProps.has(propName) && !crossForm.has(propName)) {
+    if (!newProps.has(propName) && !crossForm.has(propName) && !memberDeclaredByBases(newIf.heritage, propName, bases?.new)) {
       changes.push({
         kind: 'property-removed',
         severity: 'major',
@@ -1140,8 +1234,10 @@ function classifyInterfaceChanges(name: string, oldIf: ApiInterfaceSymbol, newIf
   }
 
   // Added properties
+  // Added properties. A member the old interface already inherited was pulled down
+  // from a base, not introduced, so nobody is newly obliged to supply it.
   for (const [propName, prop] of newProps) {
-    if (!oldProps.has(propName) && !crossForm.has(propName)) {
+    if (!oldProps.has(propName) && !crossForm.has(propName) && !memberDeclaredByBases(oldIf.heritage, propName, bases?.old)) {
       if (!prop.isOptional) {
         changes.push({
           kind: 'required-property-added',
@@ -1191,7 +1287,7 @@ function classifyInterfaceChanges(name: string, oldIf: ApiInterfaceSymbol, newIf
         message: `Property '${propName}' type changed in interface '${name}'`,
         oldValue: describe(oldProp),
         newValue: describe(newProp),
-        ...gradedConfidence(propTypeConfidence(read, write)),
+        ...gradedConfidence(propTypeConfidence(read, write, true)),
       });
     }
     if (oldProp.isOptional && !newProp.isOptional) {
@@ -1256,7 +1352,7 @@ function classifyInterfaceChanges(name: string, oldIf: ApiInterfaceSymbol, newIf
         message: `Member '${memberName}' changed between property and method form in '${name}'`,
         oldValue: oldView.typeText,
         newValue: newView.typeText,
-        ...gradedConfidence(propTypeConfidence(read, write)),
+        ...gradedConfidence(propTypeConfidence(read, write, true)),
       });
     }
     if (oldView.isOptional && !newView.isOptional) {
@@ -1295,7 +1391,7 @@ function classifyInterfaceChanges(name: string, oldIf: ApiInterfaceSymbol, newIf
 
   // Methods (maps built above to compute the cross-form set)
   for (const [methodName] of oldMethods) {
-    if (!newMethods.has(methodName) && !crossForm.has(methodName)) {
+    if (!newMethods.has(methodName) && !crossForm.has(methodName) && !memberDeclaredByBases(newIf.heritage, methodName, bases?.new)) {
       changes.push({
         kind: 'interface-method-removed',
         severity: 'major',
@@ -1306,7 +1402,7 @@ function classifyInterfaceChanges(name: string, oldIf: ApiInterfaceSymbol, newIf
   }
 
   for (const [methodName] of newMethods) {
-    if (!oldMethods.has(methodName) && !crossForm.has(methodName)) {
+    if (!oldMethods.has(methodName) && !crossForm.has(methodName) && !memberDeclaredByBases(oldIf.heritage, methodName, bases?.old)) {
       const newMethod = newMethods.get(methodName);
       if (!newMethod) continue;
       changes.push({
@@ -1416,7 +1512,12 @@ function classifyInterfaceChanges(name: string, oldIf: ApiInterfaceSymbol, newIf
       oldValue: oldCalls.join(' | ') || '(none)',
       newValue: newCalls.join(' | ') || '(none)',
       // Conservative text-multiset comparison (no variance); a difference could be
-      // a safe widening as easily as a break, so it is review-only.
+      // a safe widening as easily as a break, so it is review-only. The multiset is
+      // built from printed signature text, so it also moves when only a parameter
+      // NAME changes, which is not part of structural assignability and breaks
+      // nobody. Adding an optional trailing parameter is the other safe case every
+      // existing implementer and call site survives. Promoting this was tried and
+      // fires on both.
       confidence: 'heuristic',
     });
   }
@@ -1462,6 +1563,32 @@ function classifyInterfaceChanges(name: string, oldIf: ApiInterfaceSymbol, newIf
   if (oldIf.heritage !== undefined && newIf.heritage !== undefined) {
     const oldKey = heritageComparisonKey(oldIf.heritage, null);
     const newKey = heritageComparisonKey(newIf.heritage, containerRename);
+    // A base that disappeared takes its inherited members with it, so every
+    // consumer reading one breaks. A base that was only ADDED is the case that
+    // decides nothing: its members are inherited by readers, and they oblige an
+    // implementer or an object-literal builder only if some of them are required,
+    // which this clause cannot see. Factoring shared optional knobs into a base is
+    // how a library ships that in a minor, so adding stays review-only. A swap
+    // drops a spelling and therefore counts as a removal.
+    // A base that disappeared takes its inherited members with it, unless it had
+    // none: dropping `extends Marker` where `Marker` declares nothing is invisible
+    // to every consumer, and the clause text alone cannot tell that from dropping
+    // a base that carried the half of the surface nobody else declares.
+    const newBases = new Set(newIf.heritage.map((h) => renameTypeText(h, containerRename)));
+    const stillProvided = (memberName: string): boolean =>
+      newProps.has(memberName) ||
+      newMethods.has(memberName) ||
+      memberDeclaredByBases(newIf.heritage, memberName, bases?.new);
+    // A base that is still listed under the same name but with different type
+    // arguments was not dropped, it was re-parameterized, and that moves the types
+    // of every member it contributes in a way nothing here can follow. Only a base
+    // whose name is gone from the clause entirely gets the member-loss check.
+    const newBaseNames = new Set([...newBases].map(heritageBaseName));
+    const baseDropped = oldIf.heritage.some((h) => {
+      if (newBases.has(h)) return false;
+      if (newBaseNames.has(heritageBaseName(h))) return true;
+      return droppedBaseLosesMembers(h, bases?.old, stillProvided);
+    });
     if (oldKey !== newKey) {
       changes.push({
         kind: 'interface-heritage-changed',
@@ -1470,10 +1597,7 @@ function classifyInterfaceChanges(name: string, oldIf: ApiInterfaceSymbol, newIf
         message: `Heritage clause of interface '${name}' changed`,
         oldValue: heritageDisplay(oldIf.heritage),
         newValue: heritageDisplay(newIf.heritage),
-        // A bare clause-text difference: removing a base breaks consumers, adding one
-        // breaks implementers, and a swap could be either. Nothing here resolves the
-        // direction, so the major is review-only per the graded-confidence contract.
-        confidence: 'heuristic',
+        confidence: baseDropped ? 'proven' : 'heuristic',
       });
     }
   }
@@ -1627,7 +1751,7 @@ function classifySingleClassPropertyChange(
       message: `Property '${oldProp.name}' type changed in class '${className}'`,
       oldValue: describe(oldProp),
       newValue: describe(newProp),
-      ...gradedConfidence(propTypeConfidence(read, write)),
+      ...gradedConfidence(propTypeConfidence(read, write, true)),
     });
   }
   // isStatic checks only fire in the 1:1 name-only shortcut path (classifyClassPropertyGroupChanges).
@@ -2070,10 +2194,12 @@ function classifyTypeAliasChanges(name: string, oldTA: ApiTypeAliasSymbol, newTA
         message: `Type alias '${name}' changed`,
         oldValue: oldTA.type.text,
         newValue: newTA.type.text,
-        // A non-object alias text difference: proven only when variance resolved
-        // the two as genuinely unrelated; a bail or a one-directional (in this
-        // invariant position) relation is review-only.
-        ...gradedConfidence(typeChangeConfidence(relation, 'invariant')),
+        // A non-object alias text difference. An alias sits in an invariant
+        // position, so a resolved non-equivalence breaks one role or the other:
+        // a widening breaks whoever reads the alias back into the old type, a
+        // narrowing breaks whoever writes it. Only an unresolved probe stays
+        // review-only, since a bail proves nothing either way.
+        ...gradedConfidence(relation === null ? 'heuristic' : 'proven'),
       });
     }
   }

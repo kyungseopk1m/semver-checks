@@ -552,14 +552,19 @@ describe('interface method optionality changes', () => {
 describe('interface heritage changes', () => {
   // Inherited members are not flattened into properties/methods, so a dropped
   // `extends` clause moves no own-member and would otherwise report nothing.
-  it('detects a removed extends clause as MAJOR (review-only)', () => {
+  it('detects a removed extends clause as MAJOR (proven)', () => {
+    // Proven without resolving the direction, because every direction has a
+    // broken role: dropping a base breaks consumers who read the inherited
+    // members, adding one breaks implementers, and a swap does both. An
+    // interface exists to be implemented as well as consumed, which is the same
+    // reason its member rules are proven and the class counterparts are not.
     const report = compareFixture('interface-heritage-removed');
     const change = report.changes.find(
       (c) => c.kind === 'interface-heritage-changed' && c.symbolPath === 'Node',
     );
     expect(change).toBeDefined();
     expect(change?.severity).toBe('major');
-    expect(change?.confidence).toBe('heuristic');
+    expect(change?.confidence).toBe('proven');
     expect(change?.oldValue).toBe('Base');
     expect(change?.newValue).toBe('(none)');
     expect(report.recommended).toBe('major');
@@ -738,7 +743,14 @@ describe('class static/optional changes', () => {
     // and extended, not structurally re-implemented. The interface counterpart
     // stays proven.
     expect(change?.confidence).toBe('heuristic');
-    expect(report.summary.majorProven).toBe(0);
+    // The narrowed write type IS proven, and it is a different break from this
+    // transition: `w.label = undefined` stops compiling whether or not anyone
+    // re-implements the class. So the fixture has a proven major, just not this
+    // one. Asserting that keeps the asymmetry pinned without claiming the whole
+    // fixture is review-only.
+    expect(report.changes.filter((c) => c.confidence === 'proven').map((c) => c.kind)).toEqual([
+      'class-property-type-changed',
+    ]);
     expect(report.recommended).toBe('major');
   });
 
@@ -1863,7 +1875,10 @@ describe('graded confidence', () => {
     const change = report.changes.find((c) => c.kind === 'class-property-became-readonly');
     expect(change?.severity).toBe('major');
     expect(change?.confidence).toBe('heuristic');
-    expect(report.summary.majorProven).toBe(0);
+    // The guard is that THIS rule did not inherit `proven`, not that the fixture
+    // is free of proven majors: losing the write type is separately reported as
+    // `class-property-type-changed`, which did decide and did earn it.
+    expect(report.changes.some((c) => c.kind === 'class-property-became-readonly' && c.confidence === 'proven')).toBe(false);
     expect(report.summary.majorReview).toBeGreaterThan(0);
   });
 
@@ -1922,15 +1937,19 @@ describe('graded confidence', () => {
     // `type-alias-changed`; decomposed it is a structural required-property-added
     // that names the member responsible.
     //
-    // Review-only, not proven: it breaks only a consumer who builds the object
-    // themselves, and against a tsc oracle over real releases the rule scored
-    // 33%. Decomposition is what this test is about; the grade follows the
-    // measured evidence and moves if better evidence arrives.
+    // Proven. This used to be review-only on the grounds that only a consumer
+    // who builds the object themselves is obliged, which the earlier corpus
+    // scored at 33%. Building one is ordinary: p-limit 6.0.0 to 6.1.0 is the
+    // real release this fixture models, and a consumer-owned function taking a
+    // `LimitFunction` called with a hand-written test stub stops compiling
+    // across it. That pair is in the accuracy corpus now, so the grade rests on
+    // a compiled break rather than on an argument about how the object is
+    // "meant" to be obtained.
     const report = compareFixture('object-alias-required-prop-added');
     const added = report.changes.find((c) => c.kind === 'required-property-added' && c.symbolPath === 'LimitFunction.concurrency');
     expect(added).toBeDefined();
     expect(added?.severity).toBe('major');
-    expect(added?.confidence).toBe('heuristic');
+    expect(added?.confidence).toBe('proven');
     expect(report.changes.some((c) => c.kind === 'type-alias-changed')).toBe(false);
     expect(report.recommended).toBe('major');
   });
@@ -1946,17 +1965,81 @@ describe('graded confidence', () => {
     expect(report.recommended).toBe('minor');
   });
 
-  it('tags a non-object union widening as a HEURISTIC (review-only) major', () => {
-    // The clsx `ClassValue` case: a union alias gains a member. Widening an input
-    // union is safe in practice but unprovable from the declaration alone, so it
-    // stays major but review-only — `--strict` does not gate on it.
+  it('tags a non-object union widening as a PROVEN major once variance resolves it', () => {
+    // The clsx `ClassValue` case, and it is not the safe one it was written up
+    // as. "Widening an input union is safe" holds only while the alias stays
+    // inside the library: a consumer that re-declares the accepted union in its
+    // own public prop type and assigns a `ClassValue` into it stops compiling
+    // when the union gains a member, which is what clsx 2.1.0 to 2.1.1 does with
+    // `bigint`. An alias sits in an invariant position and has both roles, so a
+    // resolved non-equivalence has a broken one.
+    //
+    // Only a resolved probe earns this. The real clsx release is still missed,
+    // because `ClassArray | ClassDictionary` sends the variance probe home
+    // without a verdict and a bail proves nothing either way.
     const report = compareFixture('type-alias-union-widened-heuristic');
     const change = report.changes.find((c) => c.kind === 'type-alias-changed' && c.symbolPath === 'ClassValue');
     expect(change).toBeDefined();
     expect(change?.severity).toBe('major');
+    expect(change?.confidence).toBe('proven');
+    expect(report.summary.majorProven).toBeGreaterThan(0);
+  });
+
+  // The three shapes that a promotion pass graded `proven` while no consumer
+  // broke. Each was found by compiling old and new: both sides exit 0. They are
+  // pinned here because the gate corpus contains none of them, so nothing else
+  // would notice them coming back.
+  it('does not claim a renamed or optionally-widened call signature is proven', () => {
+    const report = compareFixture('callsig-safe-widenings');
+    const changes = report.changes.filter((c) => c.kind === 'interface-call-signature-changed');
+    expect(changes.length).toBeGreaterThan(0);
+    expect(changes.every((c) => c.confidence !== 'proven')).toBe(true);
+    expect(report.summary.majorProven).toBe(0);
+  });
+
+  it('does not claim an added all-optional base is proven', () => {
+    // Factoring shared optional knobs into a base is how a library ships them in
+    // a minor. Readers inherit the members, and nothing is obliged to supply one.
+    const report = compareFixture('heritage-added-all-optional');
+    const change = report.changes.find((c) => c.kind === 'interface-heritage-changed');
     expect(change?.confidence).toBe('heuristic');
     expect(report.summary.majorProven).toBe(0);
-    expect(report.summary.majorReview).toBeGreaterThan(0);
+  });
+
+  it('reports nothing when a member moves up into a base it already extended', () => {
+    // `close()` is still on the surface, one level up. Inherited members are not
+    // flattened, so without resolving the base this reads as a removal.
+    const report = compareFixture('heritage-member-moved-to-base');
+    expect(report.changes.some((c) => c.kind === 'interface-method-removed')).toBe(false);
+    expect(report.summary.majorProven).toBe(0);
+  });
+
+  it('does not claim an inlined base lost anything', () => {
+    // The base is gone from the clause and every member it carried is declared
+    // directly now. The clause moved; the surface did not.
+    const report = compareFixture('heritage-base-inlined');
+    expect(report.changes.some((c) => c.kind === 'required-property-added')).toBe(false);
+    expect(report.summary.majorProven).toBe(0);
+  });
+
+  it('does not claim a dropped empty base is proven', () => {
+    // A marker interface carries nothing, so dropping it is invisible.
+    const report = compareFixture('heritage-empty-base-dropped');
+    const change = report.changes.find((c) => c.kind === 'interface-heritage-changed');
+    expect(change?.confidence).toBe('heuristic');
+    expect(report.summary.majorProven).toBe(0);
+  });
+
+  it('does not answer about a DOM global a package shadows with its own name', () => {
+    // `Element | Text` is `Element` here, because this package's `Text` extends
+    // its `Element`. The DOM types of those names are unrelated to either. The
+    // variance probe resolves names in a project of its own, so it must not carry
+    // a lib that defines them, and an unresolvable name has to read as undecidable
+    // rather than as a verdict.
+    const report = compareFixture('dom-shadowed-name-widened');
+    const change = report.changes.find((c) => c.kind === 'property-type-changed' && c.symbolPath === 'Options.target');
+    expect(change?.confidence).not.toBe('proven');
+    expect(report.summary.majorProven).toBe(0);
   });
 
   it('tags a function return-only generic addition as HEURISTIC majors', () => {
