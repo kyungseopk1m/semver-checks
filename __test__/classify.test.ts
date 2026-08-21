@@ -2034,12 +2034,75 @@ describe('graded confidence', () => {
     // `Element | Text` is `Element` here, because this package's `Text` extends
     // its `Element`. The DOM types of those names are unrelated to either. The
     // variance probe resolves names in a project of its own, so it must not carry
-    // a lib that defines them, and an unresolvable name has to read as undecidable
-    // rather than as a verdict.
+    // a lib that defines them, and it now carries the package's own declarations
+    // instead. It reports the pair review-only rather than silently: the new text
+    // names a declaration the old one does not, and mutual assignability is not
+    // strong enough to call that a no-op.
     const report = compareFixture('dom-shadowed-name-widened');
     const change = report.changes.find((c) => c.kind === 'property-type-changed' && c.symbolPath === 'Options.target');
     expect(change?.confidence).not.toBe('proven');
     expect(report.summary.majorProven).toBe(0);
+  });
+
+  it('resolves a union alias through the package types it names', () => {
+    // The clsx shape. `ClassValue` gains `bigint`, and the members that decide
+    // whether that is a widening are `ClassArray` and `ClassDictionary`, which
+    // the package declares itself. With nothing but the ES libs in the probe
+    // program the comparison used to bail and the finding stayed review-only,
+    // which is why `--strict` was silent on a release that breaks any consumer
+    // redeclaring the union it receives.
+    const report = compareFixture('scope-alias-union-widened');
+    const change = report.changes.find((c) => c.kind === 'type-alias-changed' && c.symbolPath === 'ClassValue');
+    expect(change?.confidence).toBe('proven');
+  });
+
+  it('reads a namespace-qualified package type', () => {
+    // `P.Pattern<T> & { tag: string }` reordered to `{ tag: string } & P.Pattern<T>`
+    // is the same type. Resolving it takes the namespace the package exports, so
+    // namespaces are rendered into the scope alongside interfaces and aliases.
+    const report = compareFixture('scope-namespace-qualified-noop');
+    expect(report.changes.filter((c) => c.severity === 'major')).toEqual([]);
+  });
+
+  it('treats a spelled-out `| undefined` on an optional property as a no-op', () => {
+    // `tls?: T` and `tls?: T | undefined` accept the same writes and read the
+    // same, and even under `exactOptionalPropertyTypes` the second is the more
+    // permissive. ioredis 5.9.2 -> 5.9.3 wrote it out on two Sentinel options;
+    // the texts differ, so the probe called it a widening and the gate failed on
+    // a release that broke nobody.
+    const report = compareFixture('scope-optional-undefined-spelled');
+    expect(report.changes.filter((c) => c.severity === 'major')).toEqual([]);
+  });
+
+  it('does not render an enum into the scope, where it would be two types', () => {
+    // The two sides go into separate namespaces, so a rendered enum would be
+    // `__sc_old.Color` on one side and `__sc_new.Color` on the other. Enums are
+    // nominal, so those are unrelated types, and every text mentioning one would
+    // probe as an unrelated change: a confident major on an unchanged enum. The
+    // rewrite here is `readonly string[]` to `ReadonlyArray<string>`, a no-op.
+    const report = compareFixture('scope-enum-member-in-noop-rewrite');
+    expect(report.summary.majorProven).toBe(0);
+  });
+
+  it('does not decide a comparison its stand-ins decided for it', () => {
+    // Both sides name a shape the entry point does not export, so the probe has
+    // nothing to resolve them to and stands each one in as an opaque brand. Two
+    // brands are unrelated by construction, which would make an internal rename
+    // no consumer can even name into a confident break. The rewrite from
+    // `readonly string[]` to `ReadonlyArray<string>` alongside it is a no-op, and
+    // both sides of the pair compile against the same consumer.
+    const report = compareFixture('scope-unexported-internal-swapped');
+    const change = report.changes.find((c) => c.kind === 'property-type-changed' && c.symbolPath === 'Handle.shape');
+    expect(change?.confidence).toBe('heuristic');
+    expect(report.summary.majorProven).toBe(0);
+  });
+
+  it('round-trips a quoted member name through the scope', () => {
+    // A rendered declaration that does not parse is dropped, and a dropped
+    // declaration takes the probe back to bailing. `'content-type'` has to come
+    // back out quoted for the interface to survive that pass.
+    const report = compareFixture('scope-quoted-member-noop');
+    expect(report.changes.filter((c) => c.severity === 'major')).toEqual([]);
   });
 
   it('tags a function return-only generic addition as HEURISTIC majors', () => {
