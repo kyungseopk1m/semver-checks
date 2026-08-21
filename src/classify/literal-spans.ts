@@ -115,3 +115,24 @@ export function isInsideLiteral(
   }
   return true;
 }
+
+// `any` is bidirectionally assignable to every type, so the assignability probe
+// reports `any` <-> T as "equivalent" — which would erase a real breaking change
+// (e.g. `type T = any` -> `type T = string` lets `let x: T = 1` break). When
+// either side mentions `any` and the texts differ, the relation is untrustworthy,
+// so we bail to the conservative `null` (caller keeps the major verdict).
+//
+// Matches inside string / template literal bodies are *not* the `any` keyword —
+// they are string literal types whose textual value happens to be (or contain)
+// the word "any". The shared literal-span tracker handles single quotes, double
+// quotes, backticks, escape sequences, and template-literal placeholders.
+export function mentionsAny(text: string): boolean {
+  const spans = computeLiteralSpans(text);
+  const re = /\bany\b/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    if (isInsideLiteral(spans, m.index, m.index + 2)) continue;
+    return true;
+  }
+  return false;
+}

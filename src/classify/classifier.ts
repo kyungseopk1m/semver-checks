@@ -1,7 +1,7 @@
 import { Project, Node } from 'ts-morph';
 import type { ApiSnapshot, ApiSymbol, ApiFunctionSymbol, ApiInterfaceSymbol, ApiInterfaceProperty, ApiInterfaceMethod, ApiEnumSymbol, ApiClassSymbol, ApiTypeAliasSymbol, ApiVariableSymbol, ApiNamespaceSymbol, ApiTypeParameter, ApiFunctionSignature, ApiIndexSignature } from '../extract/api-snapshot.js';
 import type { ApiChange, Confidence } from '../types.js';
-import { compareTypeText, type TypeRelation } from './variance.js';
+import { clearVarianceScope, compareTypeText, setVarianceScope, type TypeRelation } from './variance.js';
 import { computeLiteralSpans, isInsideLiteral } from './literal-spans.js';
 
 // Confidence for a MAJOR emitted from a type-text comparison. The position
@@ -372,7 +372,20 @@ export function classifyChanges(oldSnap: ApiSnapshot, newSnap: ApiSnapshot): Api
     const newSymbols = newEntries[subpath];
     if (!newSymbols) continue;
     const prefix = subpath === '.' ? '' : `${subpath}#`;
-    changes.push(...classifySymbolMap(oldEntries[subpath], newSymbols, prefix));
+    // The variance probe resolves type texts in a program of its own, which knows
+    // nothing about the package unless it is told. Install this entry point's own
+    // declarations for the duration of its diff so a text naming a package-local
+    // type resolves instead of bailing to review-only. Scoping it per entry point
+    // rather than per package keeps two subpaths that export the same name from
+    // colliding. The scope is module state on the probe rather than a threaded
+    // argument because every one of the probe's callers sits several frames below
+    // here, and the probe already owns a process-wide project singleton.
+    setVarianceScope(oldEntries[subpath], newSymbols);
+    try {
+      changes.push(...classifySymbolMap(oldEntries[subpath], newSymbols, prefix));
+    } finally {
+      clearVarianceScope();
+    }
   }
 
   return changes;
