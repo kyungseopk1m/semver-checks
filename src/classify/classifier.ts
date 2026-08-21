@@ -140,6 +140,22 @@ interface InvariantCompare {
   resolved: boolean;
 }
 
+// An optional property's declared type already admits `undefined`, so whether the
+// author spelled it out is not something a consumer can observe: `tls?: T` and
+// `tls?: T | undefined` read the same and accept the same writes, and even under
+// `exactOptionalPropertyTypes` the spelled-out form is strictly the more
+// permissive of the two. ioredis 5.9.2 -> 5.9.3 wrote it out on two Sentinel
+// options and nothing broke, but the two texts differ, so the probe compared
+// `T` against `T | undefined`, called it a widening, and reported a proven break.
+//
+// Both sides are given the `| undefined` rather than having it stripped, because
+// stripping means parsing a union out of a type text while `(T) | undefined` is
+// a rewrite that cannot go wrong. The parentheses matter: `() => void` would
+// otherwise become a function returning `void | undefined`.
+function optionalAware(text: string, bothOptional: boolean): string {
+  return bothOptional ? `(${text}) | undefined` : text;
+}
+
 // Compare two type texts in an invariant position (interface/class property),
 // alpha-renaming the new text onto the container's generic scope first. Returns
 // whether they are equivalent and, if not, the confidence of the resulting break.
@@ -1270,10 +1286,16 @@ function classifyInterfaceChanges(
     // Properties are invariant; an accessor pair can carry a distinct write
     // (setter) type, so compare both the read type and the effective write type.
     const ifaceCtx = { typeParameters: oldIf.typeParameters };
-    const read = invariantTextCompare(oldProp.type.text, newProp.type.text, containerRename, ifaceCtx);
+    const bothOptional = oldProp.isOptional && newProp.isOptional;
+    const read = invariantTextCompare(
+      optionalAware(oldProp.type.text, bothOptional),
+      optionalAware(newProp.type.text, bothOptional),
+      containerRename,
+      ifaceCtx,
+    );
     const write = invariantTextCompare(
-      oldProp.writeType?.text ?? oldProp.type.text,
-      newProp.writeType?.text ?? newProp.type.text,
+      optionalAware(oldProp.writeType?.text ?? oldProp.type.text, bothOptional),
+      optionalAware(newProp.writeType?.text ?? newProp.type.text, bothOptional),
       containerRename,
       ifaceCtx,
     );
@@ -1734,10 +1756,16 @@ function classifySingleClassPropertyChange(
   // type and the effective write type (which falls back to the read type for
   // plain fields and matched accessors).
   const ctx = classTPs ? { typeParameters: classTPs.old } : undefined;
-  const read = invariantTextCompare(oldProp.type.text, newProp.type.text, containerRename ?? null, ctx);
+  const bothOptional = oldProp.isOptional && newProp.isOptional;
+  const read = invariantTextCompare(
+    optionalAware(oldProp.type.text, bothOptional),
+    optionalAware(newProp.type.text, bothOptional),
+    containerRename ?? null,
+    ctx,
+  );
   const write = invariantTextCompare(
-    oldProp.writeType?.text ?? oldProp.type.text,
-    newProp.writeType?.text ?? newProp.type.text,
+    optionalAware(oldProp.writeType?.text ?? oldProp.type.text, bothOptional),
+    optionalAware(newProp.writeType?.text ?? newProp.type.text, bothOptional),
     containerRename ?? null,
     ctx,
   );
