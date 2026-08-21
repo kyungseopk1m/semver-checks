@@ -38,6 +38,16 @@ function getProject(): Project {
         strict: true,
         noEmit: true,
         skipLibCheck: true,
+        // No DOM. The probe resolves a type by name in a project of its own, so a
+        // package that declares its own `Element`, `Node`, `Response` or `Event`
+        // would otherwise have the global of that name answered about instead: a
+        // confident verdict about a type the package never mentions. Without the
+        // DOM lib those names resolve to nothing, the probe reports undecidable,
+        // and the finding stays review-only, which is the right answer when the
+        // probe cannot see the declaration. The ES libs stay, because `Array`,
+        // `Promise`, `Record` and friends appear in almost every type text and
+        // dropping them would make every probe bail.
+        lib: ['lib.es2022.d.ts'],
       },
     });
   }
