@@ -1,5 +1,10 @@
 node_modules/
-dist/
+# Anchored: the build output lives at the repo root, and an unanchored `dist/`
+# matches at every depth, which silently drops the `dist/` a test fixture ships
+# to stand in for a published package. `git add` on the parent directory says
+# nothing when it skips an ignored file, so the fixture passed here and failed
+# on a clean checkout.
+/dist/
 coverage/
 *.tgz
 .DS_Store
