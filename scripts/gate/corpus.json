@@ -368,6 +368,9 @@
         ],
         "1.16.1->1.17.0": [
           "axios.headers-to-json.ts"
+        ],
+        "1.18.1->1.19.0": [
+          "axios.request-generic.ts"
         ]
       },
       "pairs": [
@@ -394,6 +397,9 @@
       "probes": {
         "11.3.6->11.4.0": [
           "lru-cache.status-context.ts"
+        ],
+        "11.5.0->11.5.1": [
+          "lru-cache.fetch-options-context.ts"
         ]
       },
       "pairs": [
@@ -623,6 +629,9 @@
       "probes": {
         "5.11.0->5.11.1": [
           "ioredis.retry-strategy.ts"
+        ],
+        "5.8.1->5.8.2": [
+          "ioredis.command-flags.ts"
         ]
       },
       "pairs": [
@@ -662,6 +671,9 @@
         "11.8.0->11.9.0": [
           "highlight-js.emitter.ts",
           "highlight-js.keywords-pattern.ts"
+        ],
+        "11.9.0->11.10.0": [
+          "highlight-js.keywords-regexp.ts"
         ]
       },
       "pairs": [
