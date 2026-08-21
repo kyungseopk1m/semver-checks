@@ -1,26 +1,26 @@
 {
   "summary": {
-    "label": "run",
+    "label": "BEFORE",
     "pairs": 111,
     "inconclusive": 0,
     "toolErrors": 0,
     "breaks": 43,
     "strict": {
-      "fired": 35,
-      "truePositives": 34,
+      "fired": 30,
+      "truePositives": 29,
       "falsePositives": 1,
       "breaks": 43,
-      "missed": 9,
-      "precision": 0.9714285714285714,
-      "recall": 0.7906976744186046
+      "missed": 14,
+      "precision": 0.9666666666666667,
+      "recall": 0.6744186046511628
     },
     "any": {
-      "fired": 53,
+      "fired": 54,
       "truePositives": 43,
-      "falsePositives": 10,
+      "falsePositives": 11,
       "breaks": 43,
       "missed": 0,
-      "precision": 0.8113207547169812,
+      "precision": 0.7962962962962963,
       "recall": 1
     },
     "baseline": {
@@ -195,8 +195,8 @@
       "tool": {
         "outcome": "ok",
         "majorProven": 5,
-        "majorReview": 23,
-        "major": 28,
+        "majorReview": 29,
+        "major": 34,
         "minor": 7,
         "recommended": "major",
         "provenKinds": {
@@ -255,15 +255,13 @@
       ],
       "tool": {
         "outcome": "ok",
-        "majorProven": 3,
-        "majorReview": 0,
+        "majorProven": 1,
+        "majorReview": 2,
         "major": 3,
         "minor": 0,
         "recommended": "major",
         "provenKinds": {
-          "type-alias-changed": 1,
-          "class-method-signature-changed": 1,
-          "return-type-changed": 1
+          "type-alias-changed": 1
         }
       },
       "baseline": {
@@ -342,14 +340,14 @@
       ],
       "tool": {
         "outcome": "ok",
-        "majorProven": 12,
-        "majorReview": 4,
+        "majorProven": 4,
+        "majorReview": 12,
         "major": 16,
         "minor": 12,
         "recommended": "major",
         "provenKinds": {
-          "class-method-signature-changed": 6,
-          "return-type-changed": 6
+          "class-method-signature-changed": 2,
+          "return-type-changed": 2
         }
       },
       "baseline": {
@@ -588,14 +586,12 @@
       ],
       "tool": {
         "outcome": "ok",
-        "majorProven": 1,
-        "majorReview": 0,
+        "majorProven": 0,
+        "majorReview": 1,
         "major": 1,
         "minor": 0,
         "recommended": "major",
-        "provenKinds": {
-          "type-alias-changed": 1
-        }
+        "provenKinds": {}
       },
       "baseline": {
         "major": false,
@@ -617,14 +613,12 @@
       ],
       "tool": {
         "outcome": "ok",
-        "majorProven": 1,
-        "majorReview": 0,
+        "majorProven": 0,
+        "majorReview": 1,
         "major": 1,
         "minor": 0,
         "recommended": "major",
-        "provenKinds": {
-          "type-alias-changed": 1
-        }
+        "provenKinds": {}
       },
       "baseline": {
         "major": false,
@@ -647,14 +641,12 @@
       ],
       "tool": {
         "outcome": "ok",
-        "majorProven": 2,
-        "majorReview": 3,
-        "major": 5,
+        "majorProven": 0,
+        "majorReview": 8,
+        "major": 8,
         "minor": 6,
         "recommended": "major",
-        "provenKinds": {
-          "type-alias-changed": 2
-        }
+        "provenKinds": {}
       },
       "baseline": {
         "major": true,
@@ -677,8 +669,8 @@
       "tool": {
         "outcome": "ok",
         "majorProven": 1,
-        "majorReview": 3,
-        "major": 4,
+        "majorReview": 6,
+        "major": 7,
         "minor": 4,
         "recommended": "major",
         "provenKinds": {
@@ -1346,9 +1338,9 @@
       "tool": {
         "outcome": "ok",
         "majorProven": 0,
-        "majorReview": 1,
-        "major": 1,
-        "minor": 14,
+        "majorReview": 2,
+        "major": 2,
+        "minor": 13,
         "recommended": "major",
         "provenKinds": {}
       },
@@ -1421,15 +1413,12 @@
       ],
       "tool": {
         "outcome": "ok",
-        "majorProven": 2,
-        "majorReview": 0,
+        "majorProven": 0,
+        "majorReview": 2,
         "major": 2,
         "minor": 2,
         "recommended": "major",
-        "provenKinds": {
-          "class-method-signature-changed": 1,
-          "return-type-changed": 1
-        }
+        "provenKinds": {}
       },
       "baseline": {
         "major": false,
@@ -2306,8 +2295,8 @@
       "tool": {
         "outcome": "ok",
         "majorProven": 19,
-        "majorReview": 170,
-        "major": 189,
+        "majorReview": 171,
+        "major": 190,
         "minor": 61,
         "recommended": "major",
         "provenKinds": {
@@ -2650,10 +2639,10 @@
       "tool": {
         "outcome": "ok",
         "majorProven": 0,
-        "majorReview": 0,
-        "major": 0,
+        "majorReview": 4,
+        "major": 4,
         "minor": 0,
-        "recommended": "patch",
+        "recommended": "major",
         "provenKinds": {}
       },
       "baseline": {
@@ -2893,14 +2882,12 @@
       ],
       "tool": {
         "outcome": "ok",
-        "majorProven": 2,
-        "majorReview": 0,
+        "majorProven": 0,
+        "majorReview": 2,
         "major": 2,
         "minor": 0,
         "recommended": "major",
-        "provenKinds": {
-          "type-alias-changed": 2
-        }
+        "provenKinds": {}
       },
       "baseline": {
         "major": false,

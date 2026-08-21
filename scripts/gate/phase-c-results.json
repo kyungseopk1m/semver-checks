@@ -6,13 +6,13 @@
     "breaks": 43,
     "understated": 42,
     "declaredBreaks": 1,
-    "fired": 29,
-    "truePositives": 28,
+    "fired": 34,
+    "truePositives": 33,
     "falsePositives": 1,
-    "missed": 14,
-    "precision": 0.9655172413793104,
-    "recall": 0.6666666666666666,
-    "reviewed": 26
+    "missed": 9,
+    "precision": 0.9705882352941176,
+    "recall": 0.7857142857142857,
+    "reviewed": 20
   },
   "gateSummary": {
     "label": "run",
@@ -21,21 +21,21 @@
     "toolErrors": 0,
     "breaks": 43,
     "strict": {
-      "fired": 30,
-      "truePositives": 29,
+      "fired": 35,
+      "truePositives": 34,
       "falsePositives": 1,
       "breaks": 43,
-      "missed": 14,
-      "precision": 0.9666666666666667,
-      "recall": 0.6744186046511628
+      "missed": 9,
+      "precision": 0.9714285714285714,
+      "recall": 0.7906976744186046
     },
     "any": {
-      "fired": 54,
+      "fired": 53,
       "truePositives": 43,
-      "falsePositives": 11,
+      "falsePositives": 10,
       "breaks": 43,
       "missed": 0,
-      "precision": 0.7962962962962963,
+      "precision": 0.8113207547169812,
       "recall": 1
     },
     "baseline": {
@@ -136,7 +136,7 @@
       "suggested": "major",
       "verdict": "mismatch",
       "minor": 7,
-      "majorReview": 29,
+      "majorReview": 23,
       "understated": true,
       "provenKinds": {
         "class-property-removed": 2,
@@ -170,10 +170,12 @@
       "suggested": "major",
       "verdict": "mismatch",
       "minor": 0,
-      "majorReview": 2,
+      "majorReview": 0,
       "understated": true,
       "provenKinds": {
-        "type-alias-changed": 1
+        "type-alias-changed": 1,
+        "class-method-signature-changed": 1,
+        "return-type-changed": 1
       }
     },
     {
@@ -216,11 +218,11 @@
       "suggested": "major",
       "verdict": "mismatch",
       "minor": 12,
-      "majorReview": 12,
+      "majorReview": 4,
       "understated": true,
       "provenKinds": {
-        "class-method-signature-changed": 2,
-        "return-type-changed": 2
+        "class-method-signature-changed": 6,
+        "return-type-changed": 6
       }
     },
     {
@@ -351,13 +353,15 @@
       "nw": "1.9.0",
       "oracle": "TRUE",
       "declared": "minor",
-      "required": "patch",
+      "required": "major",
       "suggested": "major",
-      "verdict": "review",
+      "verdict": "mismatch",
       "minor": 0,
-      "majorReview": 1,
+      "majorReview": 0,
       "understated": true,
-      "provenKinds": {}
+      "provenKinds": {
+        "type-alias-changed": 1
+      }
     },
     {
       "pkg": "ky",
@@ -365,13 +369,15 @@
       "nw": "1.10.0",
       "oracle": "TRUE",
       "declared": "minor",
-      "required": "patch",
+      "required": "major",
       "suggested": "major",
-      "verdict": "review",
+      "verdict": "mismatch",
       "minor": 0,
-      "majorReview": 1,
+      "majorReview": 0,
       "understated": true,
-      "provenKinds": {}
+      "provenKinds": {
+        "type-alias-changed": 1
+      }
     },
     {
       "pkg": "ky",
@@ -379,13 +385,15 @@
       "nw": "1.12.0",
       "oracle": "TRUE",
       "declared": "minor",
-      "required": "patch",
+      "required": "major",
       "suggested": "major",
-      "verdict": "review",
+      "verdict": "mismatch",
       "minor": 6,
-      "majorReview": 8,
+      "majorReview": 3,
       "understated": true,
-      "provenKinds": {}
+      "provenKinds": {
+        "type-alias-changed": 2
+      }
     },
     {
       "pkg": "ky",
@@ -397,7 +405,7 @@
       "suggested": "major",
       "verdict": "mismatch",
       "minor": 4,
-      "majorReview": 6,
+      "majorReview": 3,
       "understated": true,
       "provenKinds": {
         "required-property-added": 1
@@ -777,8 +785,8 @@
       "required": "patch",
       "suggested": "major",
       "verdict": "review",
-      "minor": 13,
-      "majorReview": 2,
+      "minor": 14,
+      "majorReview": 1,
       "understated": true,
       "provenKinds": {}
     },
@@ -816,13 +824,16 @@
       "nw": "1.17.0",
       "oracle": "TRUE",
       "declared": "minor",
-      "required": "patch",
+      "required": "major",
       "suggested": "major",
-      "verdict": "review",
+      "verdict": "mismatch",
       "minor": 2,
-      "majorReview": 2,
+      "majorReview": 0,
       "understated": true,
-      "provenKinds": {}
+      "provenKinds": {
+        "class-method-signature-changed": 1,
+        "return-type-changed": 1
+      }
     },
     {
       "pkg": "axios",
@@ -1323,7 +1334,7 @@
       "suggested": "major",
       "verdict": "mismatch",
       "minor": 61,
-      "majorReview": 171,
+      "majorReview": 170,
       "understated": true,
       "provenKinds": {
         "interface-heritage-changed": 17,
@@ -1521,10 +1532,10 @@
       "oracle": "FALSE",
       "declared": "patch",
       "required": "patch",
-      "suggested": "major",
-      "verdict": "review",
+      "suggested": "patch",
+      "verdict": "ok",
       "minor": 0,
-      "majorReview": 4,
+      "majorReview": 0,
       "understated": false,
       "provenKinds": {}
     },
@@ -1653,13 +1664,15 @@
       "nw": "2.1.1",
       "oracle": "TRUE",
       "declared": "patch",
-      "required": "patch",
+      "required": "major",
       "suggested": "major",
-      "verdict": "review",
+      "verdict": "mismatch",
       "minor": 0,
-      "majorReview": 2,
+      "majorReview": 0,
       "understated": true,
-      "provenKinds": {}
+      "provenKinds": {
+        "type-alias-changed": 2
+      }
     },
     {
       "pkg": "p-limit",
