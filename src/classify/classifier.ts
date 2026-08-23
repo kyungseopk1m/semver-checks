@@ -1882,18 +1882,33 @@ function classifySingleClassPropertyChange(
 // the old side.
 //
 // Only an added *required instance* property can oblige anyone, and even then
-// only a consumer who re-implements the class structurally (`const x: Cls = {...}`).
-// The common shapes — `new Cls(...)` and `class Mine extends Cls` — inherit the
-// new member and keep compiling, which is why this is review-only rather than
-// proven: measured against a tsc oracle over real releases, every
-// `required-class-property-added` was a false positive.
+// only a consumer who re-implements the class structurally (`const x: Cls = {...}`
+// or `class Mine implements Cls`). The common shapes — `new Cls(...)` and
+// `class Mine extends Cls` — inherit the new member and keep compiling.
+//
+// Whether anyone can be in that position is a property of the class, not of the
+// property being added. A class declaring a private or protected instance member
+// is compared nominally: an object literal carrying every public member is still
+// rejected, so there is no structural implementer to break and the addition is
+// safe. A class without one is exactly an interface for this purpose, and
+// `required-property-added` is proven on the interface side.
+//
+// Measured against a tsc oracle over real releases this rule fired three times.
+// `commander` 9.4.1 to 9.5.0 added `Help.showGlobalOptions` and breaks anyone
+// writing `implements Help`; `got` 15.0.7 to 15.1.0 and `lru-cache` 11.4.0 to
+// 11.5.0 both added one to a class carrying private fields, and no consumer could
+// implement either of those to begin with. Grading on the flag separates them.
 //
 // `isStatic` is checked before optionality: a static member lives on the
 // constructor object, so no consumer can be asked to supply it at all. This
 // branch is where that check has to happen — the key-matched path below pairs
 // static with static, so by the time a property reaches it both sides already
 // agree.
-function classAddedProperty(className: string, property: ApiClassProperty): ApiChange {
+function classAddedProperty(
+  className: string,
+  property: ApiClassProperty,
+  structurallyImplementable: boolean,
+): ApiChange {
   const additive = property.isStatic || property.isOptional;
   const label = property.isStatic ? 'Static' : property.isOptional ? 'Optional' : 'Required';
   return {
@@ -1901,7 +1916,7 @@ function classAddedProperty(className: string, property: ApiClassProperty): ApiC
     severity: additive ? 'minor' : 'major',
     symbolPath: `${className}.${property.name}`,
     message: `${label} property '${property.name}' was added to class '${className}'`,
-    ...(additive ? {} : { confidence: 'heuristic' as const }),
+    ...(additive ? {} : { confidence: structurallyImplementable ? ('proven' as const) : ('heuristic' as const) }),
   };
 }
 
@@ -1976,6 +1991,7 @@ function classifyClassPropertyGroupChanges(
   className: string,
   oldGroup: ApiClassProperty[],
   newGroup: ApiClassProperty[],
+  structurallyImplementable: boolean,
   classTPs?: { old: ApiTypeParameter[]; new: ApiTypeParameter[] },
   containerRename?: Map<string, string> | null,
 ): ApiChange[] {
@@ -1983,7 +1999,7 @@ function classifyClassPropertyGroupChanges(
 
   if (oldGroup.length === 0) {
     for (const property of newGroup) {
-      changes.push(classAddedProperty(className, property));
+      changes.push(classAddedProperty(className, property, structurallyImplementable));
     }
     return changes;
   }
@@ -2023,7 +2039,7 @@ function classifyClassPropertyGroupChanges(
 
   for (const [key, newProperty] of newByKey) {
     if (oldByKey.has(key)) continue;
-    changes.push(classAddedProperty(className, newProperty));
+    changes.push(classAddedProperty(className, newProperty, structurallyImplementable));
   }
 
   return changes;
@@ -2182,6 +2198,16 @@ function classifyClassChanges(name: string, oldCls: ApiClassSymbol, newCls: ApiC
   }
 
   // Properties
+  //
+  // Read off the OLD side: the consumer a promoted `required-class-property-added`
+  // claims to break is one that already exists, and it could only have written the
+  // class down by hand if the class was structural before the release. A class that
+  // drops its private member and gains a required property in the same release is
+  // implementable on the new side and still breaks nobody, because there was no
+  // hand-written implementation to break. The comparison is against `false` rather
+  // than a falsy test: a snapshot predating the field leaves it absent, and absent is
+  // "unknown", which must not promote.
+  const structurallyImplementable = oldCls.hasNonPublicMembers === false;
   const oldPropertyGroups = groupByName(oldCls.properties);
   const newPropertyGroups = groupByName(newCls.properties);
   const propertyNames = new Set([...oldPropertyGroups.keys(), ...newPropertyGroups.keys()]);
@@ -2191,6 +2217,7 @@ function classifyClassChanges(name: string, oldCls: ApiClassSymbol, newCls: ApiC
         name,
         oldPropertyGroups.get(propertyName) ?? [],
         newPropertyGroups.get(propertyName) ?? [],
+        structurallyImplementable,
         classTPs,
         containerRename,
       ),
