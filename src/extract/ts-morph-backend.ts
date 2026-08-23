@@ -1161,6 +1161,26 @@ function convertClass(name: string, node: Node): ApiClassSymbol {
   }
   const methods = [...classMethodMap.values()];
 
+  // Private and protected members are excluded from the surface above, one filter
+  // per member kind, which erases the fact that the class has any. That fact is what
+  // makes the class nominal — a consumer cannot write an object literal that
+  // satisfies it — so record it before the members are dropped. Static members are
+  // not counted: a structural implementation is checked against the instance type.
+  // Neither is the constructor itself; a `private constructor` stops `new`, not
+  // assignment, and its visibility is already recorded separately.
+  const nonPublicMember = (m: {
+    hasModifier?: (kind: SyntaxKind) => boolean;
+    getName?: () => string;
+    isStatic?: () => boolean;
+  }): boolean =>
+    !(m.isStatic?.() ?? false) &&
+    ((m.hasModifier?.(SyntaxKind.PrivateKeyword) ?? false) ||
+      (m.hasModifier?.(SyntaxKind.ProtectedKeyword) ?? false) ||
+      (m.getName?.().startsWith('#') ?? false));
+  const hasNonPublicMembers =
+    node.getMembers().some((m) => !Node.isConstructorDeclaration(m) && nonPublicMember(m)) ||
+    node.getConstructors().some((c) => c.getParameters().some((p) => nonPublicMember(p)));
+
   const properties = node.getProperties()
     .filter((p) =>
       !p.hasModifier(SyntaxKind.PrivateKeyword) &&
@@ -1247,6 +1267,23 @@ function convertClass(name: string, node: Node): ApiClassSymbol {
   }
   for (const accessor of accessors.values()) properties.push(accessor);
 
+  // A base the classifier can resolve is what tells a member moved onto one from a
+  // member that left the surface, and an interface extending a class needs the class
+  // read the same way. Resolved through the checker like the interface field, so the
+  // two are comparable; `getExtends()` on a class returns the single clause node or
+  // undefined, where an interface returns a list.
+  const extendsClause = node.getExtends();
+  const heritage = extendsClause ? [serializeType(extendsClause.getType(), node, extendsClause).text] : [];
+
+  // A class may declare `[key: string]: T`, and an interface extending it inherits
+  // that. Neither `getMembers()` nor a `getIndexSignatures()` accessor reports one on
+  // a class, so ask the checker for the instance type's index types instead. Only
+  // existence is kept: nothing compares a class's index signature, and what needs
+  // answering is whether a base that was dropped carried one.
+  const instanceType = node.getType();
+  const hasIndexSignature =
+    instanceType.getStringIndexType() !== undefined || instanceType.getNumberIndexType() !== undefined;
+
   return {
     kind: 'class',
     name,
@@ -1256,6 +1293,9 @@ function convertClass(name: string, node: Node): ApiClassSymbol {
     methods,
     properties,
     typeParameters: convertTypeParams(node),
+    heritage,
+    hasNonPublicMembers,
+    hasIndexSignature,
   };
 }
 

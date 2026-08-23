@@ -140,6 +140,35 @@ export interface ApiClassSymbol {
   // fields and for accessors whose get/set types match.
   properties: Array<{ name: string; type: SerializedType; writeType?: SerializedType; isOptional: boolean; isReadonly: boolean; isStatic: boolean }>;
   typeParameters: ApiTypeParameter[];
+  // `extends Base` heritage, recorded for the same reason as an interface's (see
+  // `ApiInterfaceSymbol.heritage`): inherited members are not flattened into
+  // `properties`/`methods`, so a base is the only record that the class's shape is
+  // larger than its own members. A class carries at most one, kept as a list so the
+  // classifier's base resolution reads a class and an interface the same way.
+  // Checker-resolved text like the interface field, so `extends Base<string>` is the
+  // instance type; a base with no declaration to resolve (a mixin call) serializes to
+  // `any` and simply resolves to nothing, which is what it did before this field.
+  // Optional for backward compatibility with snapshots produced before it existed;
+  // absent is "unknown", not "no bases".
+  heritage?: string[];
+  // True when the class declares a private or protected instance member (`#x`
+  // included). TypeScript compares such a class nominally: an object literal with
+  // every public member still cannot be assigned where the class type is expected,
+  // so no consumer can implement it by hand. The members themselves are not public
+  // surface and stay out of this snapshot, which is why their existence is recorded
+  // as a flag. Static members do not count (a structural implementation is checked
+  // against the instance type), nor does the constructor's own visibility, which
+  // stops `new` rather than assignment. Absent both for a snapshot predating the
+  // field and for a class that has no such member.
+  hasNonPublicMembers?: boolean;
+  // True when the class's instance type carries a string or number index signature.
+  // `getMembers()` does not surface a class index signature at all, so this is read
+  // off the checker; only its existence is recorded, because the one question asked
+  // of it is whether dropping this class as a base takes an index signature with it
+  // (an interface extending it inherits one, and members cannot be checked by name).
+  // Absent both for a snapshot predating the field and for a class that has none,
+  // and the classifier tells those apart by comparing against `false`.
+  hasIndexSignature?: boolean;
 }
 
 export interface ApiVariableSymbol {

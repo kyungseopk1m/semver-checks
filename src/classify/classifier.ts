@@ -24,11 +24,31 @@ function typeChangeConfidence(relation: TypeRelation | null, position: 'param' |
   return position === 'invariant' ? 'heuristic' : 'proven';
 }
 
-// Resolve a heritage entry back to the interface it names, so a clause change can
+// Resolve a heritage entry back to the declaration it names, so a clause change can
 // ask what the base actually carried. `extends Foo<T>` names `Foo`; a qualified
 // `ns.Foo` is looked up under its last segment, and anything the snapshot does not
-// hold (a base from another package, or a non-interface) resolves to undefined.
-type BaseLookup = (name: string) => ApiInterfaceSymbol | undefined;
+// hold (a base from another package, or a declaration that is neither an interface
+// nor a class) resolves to undefined.
+//
+// A class is a base like any other: `interface I extends SomeClass` is legal, and so
+// is hoisting a member onto a base class. Resolving only interfaces made both of
+// those unreadable, and the two callers below fail in opposite directions when a
+// base does not resolve — one counts the members as lost, the other counts them as
+// never declared — so the same refactor read as a proven break through whichever
+// caller saw it.
+type BaseDeclaration = ApiInterfaceSymbol | ApiClassSymbol;
+type BaseLookup = (name: string) => BaseDeclaration | undefined;
+
+// The members a base contributes to something that extends it. A class contributes
+// its instance members only: statics live on the constructor object and are not
+// inherited into the instance type an interface extending it gets.
+function baseMemberNames(base: BaseDeclaration): string[] {
+  if (base.kind === 'interface') return [...base.properties.map((p) => p.name), ...base.methods.map((m) => m.name)];
+  return [
+    ...base.properties.filter((p) => !p.isStatic).map((p) => p.name),
+    ...base.methods.filter((m) => !m.isStatic).map((m) => m.name),
+  ];
+}
 interface BaseLookups {
   old: BaseLookup;
   new: BaseLookup;
@@ -44,8 +64,7 @@ function heritageBaseName(heritage: string): string {
 // carries nothing, and a base whose members the interface now declares itself (or
 // inherits from a base it kept) has been inlined rather than lost. Either way no
 // consumer can tell. A base the snapshot does not hold answers `true`: not having
-// looked is not evidence that nothing left. Call, construct and index signatures
-// cannot be checked by name, so a base carrying any of them counts as a loss.
+// looked is not evidence that nothing left.
 function droppedBaseLosesMembers(
   heritage: string,
   lookup: BaseLookup | undefined,
@@ -57,15 +76,21 @@ function droppedBaseLosesMembers(
   seen.add(baseName);
   const base = lookup?.(baseName);
   if (!base) return true;
+  // Call, construct and index signatures cannot be checked by name, so a base
+  // carrying any of them counts as a loss. On a class the only one of the three that
+  // can exist is an index signature, and a snapshot predating that flag does not know
+  // whether it had one, which is the "not having looked" case and counts as a loss
+  // for the same reason an unresolvable base does.
   if (
-    (base.callSignatures?.length ?? 0) > 0 ||
-    (base.constructSignatures?.length ?? 0) > 0 ||
-    (base.indexSignatures?.length ?? 0) > 0
+    base.kind === 'interface'
+      ? (base.callSignatures?.length ?? 0) > 0 ||
+        (base.constructSignatures?.length ?? 0) > 0 ||
+        (base.indexSignatures?.length ?? 0) > 0
+      : base.hasIndexSignature !== false
   ) {
     return true;
   }
-  for (const p of base.properties) if (!stillProvided(p.name)) return true;
-  for (const m of base.methods) if (!stillProvided(m.name)) return true;
+  for (const memberName of baseMemberNames(base)) if (!stillProvided(memberName)) return true;
   for (const bh of base.heritage ?? []) if (droppedBaseLosesMembers(bh, lookup, stillProvided, seen)) return true;
   return false;
 }
@@ -88,8 +113,7 @@ function memberDeclaredByBases(
     seen.add(baseName);
     const base = lookup?.(baseName);
     if (!base) continue;
-    if (base.properties.some((p) => p.name === memberName)) return true;
-    if (base.methods.some((m) => m.name === memberName)) return true;
+    if (baseMemberNames(base).includes(memberName)) return true;
     if (memberDeclaredByBases(base.heritage, memberName, lookup, seen)) return true;
   }
   return false;
@@ -436,11 +460,11 @@ function classifySymbolMap(
       ...classifySymbolChanges(prefix + name, oldSym, newSym, {
         old: (baseName) => {
           const sym = oldSymbols[baseName];
-          return sym?.kind === 'interface' ? sym : undefined;
+          return sym?.kind === 'interface' || sym?.kind === 'class' ? sym : undefined;
         },
         new: (baseName) => {
           const sym = newSymbols[baseName];
-          return sym?.kind === 'interface' ? sym : undefined;
+          return sym?.kind === 'interface' || sym?.kind === 'class' ? sym : undefined;
         },
       }),
     );
