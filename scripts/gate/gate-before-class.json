@@ -1,18 +1,18 @@
 {
   "summary": {
-    "label": "FINAL-CLASS",
+    "label": "BEFORE-CLASS",
     "pairs": 111,
     "inconclusive": 0,
     "toolErrors": 0,
     "breaks": 43,
     "strict": {
-      "fired": 36,
-      "truePositives": 35,
+      "fired": 35,
+      "truePositives": 34,
       "falsePositives": 1,
       "breaks": 43,
-      "missed": 8,
-      "precision": 0.9722222222222222,
-      "recall": 0.813953488372093
+      "missed": 9,
+      "precision": 0.9714285714285714,
+      "recall": 0.7906976744186046
     },
     "any": {
       "fired": 53,
@@ -32,7 +32,7 @@
       "precision": 0.875,
       "recall": 0.32558139534883723
     },
-    "maxProvenPerPair": 21,
+    "maxProvenPerPair": 19,
     "maxProvenPair": "jose 6.2.4->6.2.5"
   },
   "rows": [
@@ -287,14 +287,12 @@
       ],
       "tool": {
         "outcome": "ok",
-        "majorProven": 1,
-        "majorReview": 1,
+        "majorProven": 0,
+        "majorReview": 2,
         "major": 2,
         "minor": 3,
         "recommended": "major",
-        "provenKinds": {
-          "required-class-property-added": 1
-        }
+        "provenKinds": {}
       },
       "baseline": {
         "major": false,
@@ -344,15 +342,14 @@
       ],
       "tool": {
         "outcome": "ok",
-        "majorProven": 14,
-        "majorReview": 2,
+        "majorProven": 12,
+        "majorReview": 4,
         "major": 16,
         "minor": 12,
         "recommended": "major",
         "provenKinds": {
           "class-method-signature-changed": 6,
-          "return-type-changed": 6,
-          "required-class-property-added": 2
+          "return-type-changed": 6
         }
       },
       "baseline": {
@@ -2308,15 +2305,14 @@
       ],
       "tool": {
         "outcome": "ok",
-        "majorProven": 21,
-        "majorReview": 168,
+        "majorProven": 19,
+        "majorReview": 170,
         "major": 189,
         "minor": 61,
         "recommended": "major",
         "provenKinds": {
           "interface-heritage-changed": 17,
-          "property-type-changed": 2,
-          "required-class-property-added": 2
+          "property-type-changed": 2
         }
       },
       "baseline": {
