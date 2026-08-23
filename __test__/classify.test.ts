@@ -291,12 +291,13 @@ describe('class changes', () => {
     const change = report.changes.find((c) => c.kind === 'required-class-property-added');
     expect(change).toBeDefined();
     expect(change?.severity).toBe('major');
-    // Review-only on purpose: it breaks only a consumer who re-implements the
-    // class structurally, and measured against a tsc oracle over real releases
-    // every instance of this kind was a false positive. Do not promote it back
-    // to proven without evidence from structurally-implemented classes.
-    expect(change?.confidence).toBe('heuristic');
-    expect(report.summary.majorProven).toBe(0);
+    // `Config` declares no private or protected member, so an object literal is a
+    // legal `Config` and this addition breaks anyone holding one: compiling a
+    // consumer that assigns `{ name: 'x' }` is clean on the old side and `TS2741`
+    // on the new. The oracle used to score every instance of this kind a false
+    // positive because the classes it met were nominal; grading on that is what
+    // separates the two, and the nominal case is pinned under `graded confidence`.
+    expect(change?.confidence).toBe('proven');
     expect(report.recommended).toBe('major');
   });
 
@@ -641,6 +642,40 @@ describe('interface heritage changes', () => {
     expect((snap.entrypoints['.']['Node'] as { heritage?: string[] }).heritage).toEqual([
       'Missing<string, number>',
     ]);
+  });
+
+  // A class is a legal base for an interface, and until the snapshot carried a class's
+  // own members the lookup could not read one. The two callers of that lookup fail in
+  // opposite directions on a base they cannot resolve — a dropped base counts as a
+  // loss, a member found on no base counts as gone — so a class base turned both of
+  // these harmless refactors into a proven break.
+  it('reads a class base when a clause drops it', () => {
+    const report = compareFixture('class-base-empty-dropped-noop');
+    const fired = report.changes.filter((c) => c.kind === 'interface-heritage-changed');
+    expect(fired.map((c) => c.symbolPath)).toEqual(['Thing']);
+    // The clause did change, so it is still reported; what the class base decides is
+    // that nothing left with it, which is the difference between review-only and a
+    // gate failure.
+    expect(fired[0]?.confidence).toBe('heuristic');
+  });
+
+  // Reading a class base has to stop where the snapshot stops. A class can declare an
+  // index signature, an interface extending it inherits one, and dropping that base
+  // takes it away: compiled, a consumer reading an arbitrary key is clean on the old
+  // side and `TS2339` on the new. `getMembers()` reports no index signature on a
+  // class, so its existence is carried as its own flag and a base that has one is
+  // still a loss.
+  it('counts an index signature a class base carried', () => {
+    const report = compareFixture('class-base-index-signature-dropped');
+    const fired = report.changes.filter((c) => c.kind === 'interface-heritage-changed');
+    expect(fired.map((c) => c.symbolPath)).toEqual(['Store']);
+    expect(fired[0]?.confidence).toBe('proven');
+  });
+
+  it('reads a class base when a member is hoisted onto it', () => {
+    const report = compareFixture('class-base-member-hoisted-noop');
+    expect(report.changes.filter((c) => c.kind === 'property-removed')).toEqual([]);
+    expect(report.changes.filter((c) => c.confidence === 'proven')).toEqual([]);
   });
 
   // `heritage` is optional for backward compatibility and `diff` is a public export
@@ -1865,6 +1900,62 @@ describe('graded confidence', () => {
     const removed = report.changes.find((c) => c.kind === 'export-removed');
     expect(removed?.confidence).toBe('proven');
     expect(report.summary.majorProven).toBeGreaterThan(0);
+  });
+
+  // A required property added to a class breaks whoever implements the class by
+  // hand, and only them: `new Cls(...)` and `class Mine extends Cls` inherit it.
+  // Whether such a consumer can exist is decided by the class, not by the property
+  // — a private or protected instance member makes TypeScript compare the class
+  // nominally, so no object literal satisfies it and there is nobody to break.
+  // Both fixtures were compiled to confirm the verdicts: the implementable one goes
+  // from clean to `TS2741` on a consumer assigning an object literal, and the
+  // nominal one is clean on both sides because that same consumer already fails on
+  // the old side over the private field it cannot supply.
+  it('grades a required class property added to an implementable class as PROVEN', () => {
+    const report = compareFixture('class-required-property-added-implementable');
+    const change = report.changes.find((c) => c.kind === 'required-class-property-added');
+    expect(change?.confidence).toBe('proven');
+  });
+
+  it('leaves the same addition review-only on a class nobody can implement', () => {
+    const report = compareFixture('class-required-property-added-nominal');
+    const change = report.changes.find((c) => c.kind === 'required-class-property-added');
+    expect(change?.severity).toBe('major');
+    expect(change?.confidence).toBe('heuristic');
+    expect(report.summary.majorProven).toBe(0);
+  });
+
+  // Grading reads the OLD side, because the consumer this rule claims to break is one
+  // that already wrote the class down by hand — impossible while the class carried a
+  // private member, whatever the new side looks like. Compiled both ways: a reader is
+  // clean on both sides, and the object literal that would have to break fails on the
+  // old side over the private field.
+  it('leaves the addition review-only when the class only became implementable now', () => {
+    const report = compareFixture('class-required-property-added-was-nominal');
+    const change = report.changes.find((c) => c.kind === 'required-class-property-added');
+    expect(change?.severity).toBe('major');
+    expect(change?.confidence).toBe('heuristic');
+  });
+
+  // The flag is optional for backward compatibility, and `diff` is a public export
+  // fed by persisted `semver_snapshot` output. Absent has to read as "unknown"
+  // rather than "implementable", or every such addition grades proven against a
+  // snapshot written before the field existed.
+  it('stays review-only against a snapshot that predates the flag', () => {
+    const oldDir = fixtureDir('class-required-property-added-implementable', 'old');
+    const newDir = fixtureDir('class-required-property-added-implementable', 'new');
+    ensureFixtureTsConfig(oldDir);
+    ensureFixtureTsConfig(newDir);
+    const oldSnap = extractFromPath(oldDir, 'index.ts');
+    const newSnap = extractFromPath(newDir, 'index.ts');
+    for (const snap of [oldSnap, newSnap]) {
+      for (const symbol of Object.values(snap.entrypoints['.'])) {
+        delete (symbol as { hasNonPublicMembers?: boolean }).hasNonPublicMembers;
+      }
+    }
+    const report = diff(oldSnap, newSnap);
+    const change = report.changes.find((c) => c.kind === 'required-class-property-added');
+    expect(change?.confidence).toBe('heuristic');
   });
 
   it('grades a major rule that never decided as review-only, not proven', () => {
