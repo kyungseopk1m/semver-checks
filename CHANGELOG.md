@@ -2,7 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [0.11.0] - 2026-08-24
+
+This release is about recall. `0.10.0` reported 100% of it, and that number was a fact about the corpus rather than about the tool: every pair it held had been scored by a `tsc` oracle, but the pairs it did not hold were never asked. Widening the corpus to 111 adjacent release pairs across 24 packages, and re-reading every pair the oracle had scored safe by writing a consumer that uses the changed symbol the way the package's own README does, took the same measurement to 37.8%. Everything else here is the work of getting it back, and it is at 81.4% with precision at 97.2%.
+
+Three things were in the way. Most rules were graded review-only for want of evidence rather than on it, so `--strict` stayed quiet on breaks it had already found. The variance probe, which decides whether an invariant position really changed, resolved type texts in a program holding nothing but the ES libs, so any text naming a type the package declares about itself came back undecidable. And a class could not be read as a base at all, which made two harmless refactors — dropping an empty class base, hoisting a member onto one — fail the gate as proven breaks.
+
+Two packages were being read wrongly, and both are fixed here: `kysely` resolved its root entry to a three-symbol version-gate stub, so every `kysely` comparison came back with no changes and exited 0, and subpaths that name only their runtime file resolved to nothing at all.
+
+The 45-line exported-name-and-arity baseline the tool is scored against no longer catches a single break the type analysis misses.
+
+### Breaking
+
+- **`--strict` fails on releases it used to pass, and passes one it used to fail.** The grade the gate keys on is now claimed by rules that showed evidence for it, so a CI pipeline pinned to this tool will see verdicts move in both directions. Newly failing: `interface-method-removed`, `required-interface-method-added` and `required-property-added`; `interface-heritage-changed` when a base disappeared; `property-type-changed`, `class-property-type-changed` and `type-alias-changed` when the variance probe reaches a verdict; and `required-class-property-added` on a class carrying no private or protected instance member. Newly passing: `interface-call-signature-changed`, which went back to review-only because separating an added overload from an added optional parameter takes signature-level variance this does not do. `--strict-review` is unaffected: it fails on any MAJOR, whatever its grade.
+- **A package whose types were being read wrongly now produces real verdicts.** `kysely` exited 0 on every comparison because its root entry resolved to a version-gate stub identical in every release; its extracted surface goes from 3 symbols to 599, so a pipeline comparing `kysely` releases will start seeing the changes that were always there. Any package shipping an `exports` subpath that names only its runtime file is in the same position.
 
 ### Fixed
 
@@ -468,6 +481,7 @@ Initial release.
 
 ---
 
+[0.11.0]: https://github.com/kyungseopk1m/semver-checks/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/kyungseopk1m/semver-checks/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/kyungseopk1m/semver-checks/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/kyungseopk1m/semver-checks/compare/v0.7.0...v0.8.0
