@@ -5,17 +5,16 @@
 //
 //   npm run build && node scripts/accuracy-probe.mjs
 //
-// Frozen scorecard (2026-06-26, semver-checks @ graded confidence):
-//   analyzable 37/44 | exact 19 | stricter-than-published 9 | looser 9 | OOM 3 | ERROR 4
-//   Of the 9 stricter rows, `--strict` (proven majors only) fires on 4 — real
+// Frozen scorecard (2026-08-23, semver-checks @ class symmetry):
+//   analyzable 32/44 | exact 16 | stricter 10 | looser 6 | OOM 3 | ERROR 9
+//   Of the 10 stricter rows, `--strict` (proven majors only) fires on 6 — real
 //   breaks the author under-bumped (p-limit 6.1.0 + ky 1.14.0 added a required
-//   property to an exported type, commander 12.1.0/14.0.2 removed/narrowed a
-//   public member) — and demotes the other 5 to review-only heuristic majors
-//   (equivalence rewrites, input-union widening, return-only generics).
-//
-// Each row: [package, oldVersion, newVersion, publishedBump, apiShape].
-// shapes: pure=pure types, dual=ESM/CJS, esm=single ESM, esmOnly=modern ESM-only,
-// ns=namespace/declaration-merging heavy, subpath=multi-subpath exports.
+//   property to an exported type, commander 12.1.0 removed a public method,
+//   clsx 2.1.1 widened an input union an exported alias re-declares, uuid 11.1.0
+//   and zod 4.4.2). The other 4 demote to review-only and pass the gate.
+//   ERROR went 4 -> 9 when an extraction that yields nothing became an exit 2
+//   instead of a silent `patch` (picocolors, escape-string-regexp, yargs,
+//   ts-toolbelt ship no usable bundled declarations).
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
