@@ -2188,6 +2188,49 @@ describe('graded confidence', () => {
     expect(report.summary.majorProven).toBe(0);
   });
 
+  // jose 6.2.10 shipped this in a patch and came back with 42 `proven` breaks
+  // against a consumer that compiles on both sides. Inherited members are not
+  // flattened into `methods`/`properties`, so a member hoisted onto a base reads
+  // as removed unless the bases are resolved — which the interface path had been
+  // doing all along and the class path was not.
+  it('reads a class member hoisted onto a mixin base as still there', () => {
+    // `declare const X_base: new () => Iface` is what TypeScript emits for
+    // `class X extends Mixin(Base)`. The checker resolves it to the interface
+    // name like any other base, so nothing here is special-cased for mixins.
+    const report = compareFixture('class-member-hoisted-to-mixin-base');
+    expect(report.summary.majorProven).toBe(0);
+    expect(report.changes.filter((c) => c.kind === 'class-method-removed')).toEqual([]);
+  });
+
+  it('reads a class member hoisted onto a plain base as still there', () => {
+    const report = compareFixture('class-member-hoisted-to-base');
+    expect(report.summary.majorProven).toBe(0);
+    expect(report.changes.filter((c) => c.kind === 'class-method-removed')).toEqual([]);
+  });
+
+  it('will not call a class member removed when it cannot see the base', () => {
+    // The base is named but lives outside the snapshot, so whether the member is
+    // still inherited is unknowable. It stays a MAJOR for review; what it must
+    // not be is `proven`, which is a claim that the member is gone.
+    const report = compareFixture('class-member-lost-with-unresolved-base');
+    const change = report.changes.find((c) => c.kind === 'class-method-removed');
+    expect(change?.confidence).toBe('heuristic');
+    expect(report.summary.majorProven).toBe(0);
+  });
+
+  it('does not let a scope stub shadow a generic of the same name', () => {
+    // The stubs sit at file scope, and so do the synthesized type parameters, so
+    // a generic named after one is a duplicate identifier and the whole probe
+    // errors out. That made a scope actively harmful: the same comparison
+    // answers fine with no scope installed at all. Widening a parameter union is
+    // a minor, and it stays one whether or not `Hidden` needed a stub. Only the
+    // colliding stub is withheld, so a probe whose generic collides with one
+    // still reads the rest of the scope.
+    const report = compareFixture('scope-stub-shadows-type-param');
+    expect(report.summary.major).toBe(0);
+    expect(report.changes.map((c) => c.kind)).toContain('param-type-widened');
+  });
+
   it('round-trips a quoted member name through the scope', () => {
     // A rendered declaration that does not parse is dropped, and a dropped
     // declaration takes the probe back to bailing. `'content-type'` has to come
