@@ -95,15 +95,19 @@ export function resolveDeclaration(
   return judgeDeclaration(found.bump, found.source, summary, caretDepth(version));
 }
 
-// Validates what a caller passed for `--declared`. An empty string has to be
-// rejected rather than treated as absent: `--declared "$BUMP"` with an unset
+// Validates what a caller passed for the declared bump. An empty string has to
+// be rejected rather than treated as absent: `--declared "$BUMP"` with an unset
 // variable would otherwise drop the gate without a word about it.
+//
+// The message names the value rather than the CLI flag, because the MCP server
+// takes the same argument under the name `declared` and an agent that passed it
+// should not get back the name of a flag it never used.
 export function parseDeclaredBump(input: unknown): DeclaredBump | 'auto' | undefined {
   if (input === undefined) return undefined;
   if (input === 'auto' || input === 'major' || input === 'minor' || input === 'patch' || input === 'none') {
     return input;
   }
-  throw new Error(`--declared must be one of: major, minor, patch, none, auto`);
+  throw new Error(`declared must be one of: major, minor, patch, none, auto`);
 }
 
 export interface FoundDeclaration {

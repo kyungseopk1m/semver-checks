@@ -433,9 +433,11 @@ describe('parseDeclaredBump', () => {
   it('rejects an empty value rather than dropping the gate', () => {
     // `--declared "$BUMP"` with an unset variable would otherwise run as though
     // no gate had been asked for, and exit 0 without a word about it.
-    expect(() => parseDeclaredBump('')).toThrow(/--declared must be one of/);
-    expect(() => parseDeclaredBump(true)).toThrow(/--declared must be one of/);
-    expect(() => parseDeclaredBump('MAJOR')).toThrow(/--declared must be one of/);
+    // The message names the value, not the CLI flag: the MCP server takes the
+    // same argument as `declared` and its callers never see a flag.
+    expect(() => parseDeclaredBump('')).toThrow(/^declared must be one of/);
+    expect(() => parseDeclaredBump(true)).toThrow(/^declared must be one of/);
+    expect(() => parseDeclaredBump('MAJOR')).toThrow(/^declared must be one of/);
   });
 });
 

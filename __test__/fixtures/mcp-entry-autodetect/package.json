@@ -1,0 +1,10 @@
+{
+  "name": "detect-me",
+  "version": "1.0.0",
+  "exports": {
+    ".": {
+      "types": "./surface.ts",
+      "default": "./surface.js"
+    }
+  }
+}
