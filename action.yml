@@ -17,6 +17,18 @@ inputs:
     description: "Entry file (for example, src/index.ts). Auto-detected from package.json when omitted."
     required: false
     default: ''
+  old-as:
+    description: "Force old to be read as path, git, or npm. Needed when auto-detection would take it for the wrong kind, which is what a monorepo tag like pkg@1.2.3 looks like."
+    required: false
+    default: ''
+  new-as:
+    description: "Force new to be read as path, git, or npm."
+    required: false
+    default: ''
+  install-deps:
+    description: "Install dependencies before analysis. Only affects local path inputs; a git ref or an npm spec installs on its own."
+    required: false
+    default: 'false'
   format:
     description: "Output format: text, json, markdown, or github for inline PR annotations. Forced to markdown when comment is true."
     required: false
@@ -54,6 +66,9 @@ runs:
         SEMVER_CHECKS_OLD: ${{ inputs.old }}
         SEMVER_CHECKS_NEW: ${{ inputs.new }}
         SEMVER_CHECKS_ENTRY: ${{ inputs.entry }}
+        SEMVER_CHECKS_OLD_AS: ${{ inputs.old-as }}
+        SEMVER_CHECKS_NEW_AS: ${{ inputs.new-as }}
+        SEMVER_CHECKS_INSTALL_DEPS: ${{ inputs.install-deps }}
         SEMVER_CHECKS_FORMAT: ${{ inputs.format }}
         SEMVER_CHECKS_STRICT: ${{ inputs.strict }}
         SEMVER_CHECKS_STRICT_REVIEW: ${{ inputs.strict-review }}
@@ -76,6 +91,9 @@ runs:
         args=(compare "$SEMVER_CHECKS_OLD")
         if [ -n "$SEMVER_CHECKS_NEW" ]; then args+=("$SEMVER_CHECKS_NEW"); fi
         if [ -n "$SEMVER_CHECKS_ENTRY" ]; then args+=(--entry "$SEMVER_CHECKS_ENTRY"); fi
+        if [ -n "$SEMVER_CHECKS_OLD_AS" ]; then args+=(--old-as "$SEMVER_CHECKS_OLD_AS"); fi
+        if [ -n "$SEMVER_CHECKS_NEW_AS" ]; then args+=(--new-as "$SEMVER_CHECKS_NEW_AS"); fi
+        if [ "$SEMVER_CHECKS_INSTALL_DEPS" = "true" ]; then args+=(--install-deps); fi
         args+=(--format "$format")
         if [ -n "$SEMVER_CHECKS_DECLARED" ]; then args+=(--declared "$SEMVER_CHECKS_DECLARED"); fi
         if [ "$SEMVER_CHECKS_STRICT" = "true" ]; then args+=(--strict); fi
