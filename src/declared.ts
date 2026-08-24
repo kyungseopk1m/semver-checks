@@ -102,6 +102,44 @@ export function resolveDeclaration(
 // The message names the value rather than the CLI flag, because the MCP server
 // takes the same argument under the name `declared` and an agent that passed it
 // should not get back the name of a flag it never used.
+/**
+ * Whether a gate fails on this report, under the flags the caller set.
+ *
+ * This is the whole of what the CLI's exit code says, and the MCP surface
+ * reports it for the same reason the CLI does not make people count changes:
+ * the rule is two branches deep and rebuilding it from `summary` is a place to
+ * get it subtly wrong.
+ *
+ * A declared bump replaces the strict flags as the gate. The question stops
+ * being "is anything breaking here" and becomes "does the release admit to it",
+ * so a proven break the release already declares is not a failure. The verdict
+ * keeps the same graded-confidence line the strict flags draw: only a proven
+ * break fails the run, and an addition that argues for a higher bump is a note
+ * on a passing one.
+ *
+ * Without a declaration, `strict` gates on confident (proven) breaks only, and
+ * review-only majors do not fail unless `strictReview` opts into the prior "any
+ * major fails" behaviour. `strictReview` keeps its meaning under a declaration
+ * rather than being cancelled by it: it promotes the review note to a failure.
+ * `strict` is the one a declaration subsumes, since its question is the half the
+ * declaration already answers.
+ */
+export function gateFails(
+  report: SemverReport,
+  flags: { strict?: boolean; strictReview?: boolean },
+): boolean {
+  if (report.declaration) {
+    return (
+      report.declaration.verdict === 'mismatch' ||
+      (!!flags.strictReview && report.declaration.verdict === 'review')
+    );
+  }
+  return (
+    (!!flags.strictReview && report.summary.major > 0) ||
+    (!!flags.strict && report.summary.majorProven > 0)
+  );
+}
+
 export function parseDeclaredBump(input: unknown): DeclaredBump | 'auto' | undefined {
   if (input === undefined) return undefined;
   if (input === 'auto' || input === 'major' || input === 'minor' || input === 'patch' || input === 'none') {

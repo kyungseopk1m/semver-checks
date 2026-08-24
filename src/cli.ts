@@ -1,6 +1,6 @@
 import { defineCommand, runMain } from 'citty';
 import { compare } from './index.js';
-import { parseDeclaredBump } from './declared.js';
+import { gateFails, parseDeclaredBump } from './declared.js';
 import { parseEntryArg } from './entry-arg.js';
 import { textReport } from './report/text-reporter.js';
 import { jsonReport } from './report/json-reporter.js';
@@ -93,27 +93,9 @@ const compareCommand = defineCommand({
 
       console.log(renderReport(report, args.format));
 
-      // A declared bump replaces the strict flags as the gate. The question stops
-      // being "is anything breaking here" and becomes "does the release admit to
-      // it", so a proven break the release already declares is not a failure.
-      // The verdict keeps the same graded-confidence line the strict flags draw:
-      // only a proven break fails the run, and an addition that argues for a
-      // higher bump is a note on a passing one.
-      //
-      // Without it, `--strict` gates on confident (proven) breaks only, and
-      // review-only majors do not fail CI unless `--strict-review` opts into the
-      // prior "any major fails" behaviour.
-      // `--strict-review` keeps its meaning under a declaration rather than
-      // being cancelled by it: it promotes the review note to a failure, so a
-      // release that understates a review-only finding fails for whoever asked
-      // for that. `--strict` is the one the declaration subsumes, since its
-      // question is the half the declaration already answers.
-      const failBuild = report.declaration
-        ? report.declaration.verdict === 'mismatch' ||
-          (args.strictReview && report.declaration.verdict === 'review')
-        : (args.strictReview && report.summary.major > 0) ||
-          (args.strict && report.summary.majorProven > 0);
-      if (failBuild) {
+      // The rule lives in `gateFails`, so the MCP surface reports the same
+      // verdict this exit code carries instead of a second copy of it.
+      if (gateFails(report, { strict: args.strict, strictReview: args.strictReview })) {
         process.exit(1);
       }
     } catch (err: any) {
