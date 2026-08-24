@@ -622,7 +622,7 @@ jobs:
           node-version: "20"
       - run: npm ci
 
-      - uses: kyungseopk1m/semver-checks@v0.11.0
+      - uses: kyungseopk1m/semver-checks@v0.12.0
         with:
           old: "your-package@latest" # the published version to compare against
           format: "github" # inline ::error:: / ::warning:: annotations
@@ -663,7 +663,7 @@ jobs:
           node-version: "20"
       - run: npm ci
 
-      - uses: kyungseopk1m/semver-checks@v0.11.0
+      - uses: kyungseopk1m/semver-checks@v0.12.0
         with:
           old: "your-package@latest"
           declared: "auto"
