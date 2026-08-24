@@ -77,9 +77,9 @@ On that corpus `--strict` fires on 36 of 111 pairs. 35 of those 36 are real brea
 
 Read the recall, not the precision. An earlier revision of this file reported 100% recall on a 75-pair corpus, and that was a fact about which shapes the corpus contained rather than about the tool: widening a corpus to 111 pairs, and re-examining every pair it had scored safe by reading the shipped `.d.ts` and writing a consumer that uses the changed symbol the way the package's own README does, took the same number to 37.8%. Grading recovered it to 67.4%, giving the variance probe the package's own declarations to read took it to 79.1%, and reading a class the way an interface was already read took it from there. Nothing was suppressed to get the precision figure; the one remaining false positive is described below.
 
-`any confidence` still fires on all 43 pairs, so nothing here is a detection gap in the sense of the tool not noticing. What kept `--strict` quiet on most of the 14 that used to remain was that the variance probe had no verdict to give: a serialized type text is printed by the checker, so it names the types the package declares about itself, and the probe resolved those names in a program that held nothing but the ES libs. `ClassArray | ClassDictionary` in `clsx`, `P.Pattern<T> & UnknownProperties` in `ts-pattern` and `core.$ZodTypeDiscriminable<Disc>` in `zod` all sent it home empty. The probe now reads both snapshots' own declarations (see [What the probe will and will not answer about](#what-the-probe-will-and-will-not-answer-about)), which is what closes five of them.
+`any confidence` fires on all 43, so nothing here is a detection gap in the sense of the tool not noticing. Two of those 43 are a coincidence rather than a catch, described below. What kept `--strict` quiet on most of the 14 that used to remain was that the variance probe had no verdict to give: a serialized type text is printed by the checker, so it names the types the package declares about itself, and the probe resolved those names in a program that held nothing but the ES libs. `ClassArray | ClassDictionary` in `clsx`, `P.Pattern<T> & UnknownProperties` in `ts-pattern` and `core.$ZodTypeDiscriminable<Disc>` in `zod` all sent it home empty. The probe now reads both snapshots' own declarations (see [What the probe will and will not answer about](#what-the-probe-will-and-will-not-answer-about)), which is what closes five of them.
 
-Of the 8 left, three are not a probe question at all: on `hono` 4.12.18 -> 4.12.19, `hono` 4.12.19 -> 4.12.20 and `ky` 1.14.1 -> 1.14.2 the reported findings are provably inert while the change that actually breaks a consumer is reported nowhere, so even the `any confidence` figure is a per-pair coincidence on those three. Of the rest, `got` 14.6.4 -> 14.6.5 needs signature-level variance, `ts-pattern` 5.6.0 -> 5.6.1 is a `generic-constraint-changed`, which fires on a loosened constraint as readily as on a tightened one, and `bullmq` 5.80.11 -> 5.80.12 replaces a callback type with one that mentions `any`, where the probe bails on purpose. The last two are the probe declining to guess: `hono` 4.12.28 -> 4.12.29 widens a return type with a second `aws-lambda` type the old text never named, so the verdict would rest on two stand-ins being unrelated, and `valibot` 1.3.1 -> 1.4.0 turns a tuple parameter `readonly` through an alias the scope could not resolve.
+Of the 8 left, two are not a probe question at all: on `hono` 4.12.18 -> 4.12.19 and `ky` 1.14.1 -> 1.14.2 the change that actually breaks a consumer is reported nowhere, and the findings that do fire are on other symbols entirely, so the `any confidence` figure is a per-pair coincidence on those two rather than a catch. `hono` 4.12.19 -> 4.12.20 reads the same from the summary but is not the same: its `./jsx#jsx.children` finding is the break, held at review-only by the guard described under [What the probe will and will not answer about](#what-the-probe-will-and-will-not-answer-about). Of the rest, `got` 14.6.4 -> 14.6.5 needs signature-level variance, `ts-pattern` 5.6.0 -> 5.6.1 is a `generic-constraint-changed`, which fires on a loosened constraint as readily as on a tightened one, and `bullmq` 5.80.11 -> 5.80.12 replaces a callback type with one that mentions `any`, where the probe bails on purpose. The last two are the probe declining to guess: `hono` 4.12.28 -> 4.12.29 widens a return type with a second `aws-lambda` type the old text never named, so the verdict would rest on two stand-ins being unrelated, and `valibot` 1.3.1 -> 1.4.0 turns a tuple parameter `readonly` through an alias the scope could not resolve.
 
 Two shapes account for most of what the grading now catches, and both were invisible on the narrower corpus:
 
@@ -110,11 +110,24 @@ One false positive remains, and it is a deliberate over-report rather than a def
 
 Each shape is pinned by a fixture, because the corpus contains none of them and its numbers did not move when they were fixed. That is the same blindness the recall figure above is about, seen from the other side.
 
+### Which gate to run
+
+`--strict` and `--strict-review` are not two strengths of the same check. They carry different contracts, and the corpus above measures each separately.
+
+| Flag | Fails on | Corpus (111 pairs, 43 real breaks) | The contract it can hold |
+|---|---|---|---|
+| `--strict` | `proven` MAJORs only | fires on 36 pairs, 35 of them real: **precision 97.2%, recall 81.4%** | A failure is a strong signal. A pass is not a clean bill of health |
+| `--strict-review` | every MAJOR, `heuristic` included | fires on all 43 real breaks and on 10 pairs that hold none: **recall 100%, precision 81.1%** (43 of 53) | Green means the analysis reported nothing breaking anywhere |
+
+So "green means safe" is a claim only `--strict-review` can make, and even there it is a claim about what the analysis reached rather than a proof: on two of the 43 it fires on a symbol other than the one that breaks, so the pair is red for the wrong reason. `--strict` is tuned to be quiet enough that a failure is worth acting on, which is exactly what makes it safe to leave on every build and exactly why it stays silent on 8 of the 43. Those 8 are listed above; each one is a guard declining to call two unresolved names unrelated, a rule graded review-only on purpose, or a limit in [Known limitations](#known-limitations).
+
+A practical split: leave `--strict` on for every push, because a red build there is almost always a real under-bump, and run `--strict-review` where someone reads the output before it ships, on a release pull request or a prepublish step. One in five of its failures will be a MAJOR that turns out to be safe, which is a fine trade when a person is going to look at it and a bad one when nobody is.
+
 ### What the probe will and will not answer about
 
 The variance probe decides whether one serialized type text is assignable to the other by synthesizing both into one in-memory program and asking the compiler. That program is given the two snapshots' own declarations, rendered back into ambient form, the old side under one namespace and the new side under another. Without them a text naming anything the package declares about itself resolves to nothing and the probe reports undecidable, which is what kept `--strict` quiet on releases it had already noticed.
 
-Three limits are deliberate, and each one is a place the probe answers "I cannot tell" rather than guessing:
+Five limits are deliberate, and each one is a place the probe answers "I cannot tell" rather than guessing:
 
 - **Enums and classes are not rendered.** The two sides go into separate namespaces, and those two constructs are nominal, so the same unchanged enum would appear as two unrelated types and every text mentioning it would probe as an unrelated change. A name left out this way is left unresolved, not stood in for, because a stand-in is an object type carrying a brand and an interface extending an omitted class would inherit a member the class never had.
 - **A declaration mentioning `any` is not installed.** `any` is assignable in both directions, so one member typed `any` makes its whole containing type bidirectionally assignable, and `Sink` compares equivalent to `Sink & { write(chunk: Uint8Array): void }`. The probe already bails when either *compared* text mentions `any`; installing a declaration that mentions one routes around that guard, because neither compared text has to say the word. The name is left to a stand-in instead, which is assignable to nothing it is not.
@@ -436,7 +449,7 @@ All four carry the `--declared` verdict when one was asked for.
 > A `<package>@<version>` shape that is not an existing path is resolved from the npm registry.
 > A plain ref (`v1.2.3`, `main`) has no `@version` and is resolved as a git ref.
 > A git ref that happens to share the `name@version` shape (e.g. a lerna/monorepo tag like `pkg@1.0.0`) would be auto-detected as an npm spec — force git resolution with `--old-as ref` in that case.
-> Use `--old-as ref` / `--new-as ref` (or `--old-as npm`) when auto-detection guesses wrong.
+> Use `--old-as ref` / `--new-as ref` (or `--old-as npm`) when auto-detection guesses wrong. The action takes the same two as `old-as` / `new-as`.
 
 > When using git refs, the command must run inside a git repository. The ref is resolved
 > against the working directory's repo.
@@ -566,8 +579,8 @@ Relative paths and git refs are resolved from the MCP server process's current w
 | `old`         | string                                                     | Yes      | Filesystem path, git ref (tag, branch, SHA), or npm spec (`lodash@4.17.21`)             |
 | `new`         | string                                                     |          | Same three forms. Defaults to `.`                                                       |
 | `entry`       | string \| string[]                                         |          | Entry file(s) (e.g. `src/index.ts`). Comma-separated or an array. Auto-detected if omitted; an empty value is refused |
-| `oldAs`       | `"path"` \| `"git"` \| `"npm"`                              |          | Force interpretation of `old`                                                           |
-| `newAs`       | `"path"` \| `"git"` \| `"npm"`                              |          | Force interpretation of `new`                                                           |
+| `oldAs`       | `"path"` \| `"git"` (or `"ref"`) \| `"npm"`                  |          | Force interpretation of `old`                                                           |
+| `newAs`       | `"path"` \| `"git"` (or `"ref"`) \| `"npm"`                  |          | Force interpretation of `new`                                                           |
 | `declared`    | `"major"` \| `"minor"` \| `"patch"` \| `"none"` \| `"auto"` |          | Grade the bump the release declares, the same gate `--declared` applies on the CLI      |
 | `maxChanges`  | integer                                                    |          | How many changes to include. Defaults to 50                                             |
 | `installDeps` | boolean                                                    |          | Install dependencies before analysis                                                    |
@@ -580,6 +593,12 @@ A `name@version` that is not an existing path resolves to npm on its own, so com
 
 `declared` adds a `declaration` object to the report with the same verdicts the CLI prints: `mismatch` when a proven break outranks what the release wrote down, `review` when the changes argue for more than that, `ok` otherwise. `"auto"` reads the declaration from `.changeset/*.md` and then the two `package.json` versions, and errors when it finds neither rather than reporting a pass.
 
+Every report carries a `gate` object saying what each CLI gate would do with it, which is what the exit code carries on the command line: `{ "strict": "pass" | "fail", "strictReview": "pass" | "fail" }`. The two are different contracts, not two strengths of one check, and [Which gate to run](#which-gate-to-run) has the numbers: a passing `strict` is not a clean bill of health, because a real break the analyzer could not prove stays review-only. Passing `declared` changes the question both gates answer, exactly as it does on the CLI: the release is graded against the bump it writes down, so a proven break it already declares passes both, and `strictReview` promotes the ⚠️ review verdict rather than firing on every major.
+
+Failures come back with a code the caller can branch on, in the message text and in an `error` field: `invalid_argument` for something a different call would fix (a misspelled argument, a value outside an enum, a wrong type, a source that is empty or malformed) and `analysis_failed` for a call that was well-formed and could not be answered (a ref or a package that does not exist, a project that would not compile). Retrying the second with the same arguments is wasted work.
+
+The message text reads `Error: [code] message`. The `Error: ` prefix is what it has always been, but the code sits inside it, so a consumer that took the message as everything past a fixed offset needs the `error` field or a parse rather than a slice.
+
 `maxChanges` bounds the response. A large major release runs to hundreds of findings, which is more than a tool result can carry, so changes come back ordered proven breaks first, then additions, then review-only ones, and the list stops at the cap. `summary` always counts every change, and an `omitted` field reports the number left out along with the `maxChanges` value that would return all of them.
 
 #### `semver_snapshot`
@@ -588,7 +607,7 @@ A `name@version` that is not an existing path resolves to npm on its own, so com
 | ------------- | ------------------------------- | -------- | -------------------------------------------------------------------- |
 | `path`        | string                          |          | Filesystem path, git ref, or npm spec. Defaults to `.`                |
 | `entry`       | string \| string[]              |          | Entry file(s). Comma-separated or an array                           |
-| `pathAs`      | `"path"` \| `"git"` \| `"npm"` |          | Force interpretation of `path`                                       |
+| `pathAs`      | `"path"` \| `"git"` (or `"ref"`) \| `"npm"` |          | Force interpretation of `path`                          |
 | `detail`      | boolean                         |          | Return each symbol's full type shape instead of its kind             |
 | `maxBytes`    | integer                         |          | Byte budget for the returned symbols. Defaults to 40000              |
 | `installDeps` | boolean                         |          | Install dependencies before analysis                                 |
@@ -634,6 +653,9 @@ jobs:
 | `old`           | Old version — an npm spec (`pkg@latest`), git ref, or path                                | _(required)_               |
 | `new`           | New version — git ref or path                                                             | `.`                        |
 | `entry`         | Entry file (auto-detected from `package.json` when omitted)                               | _(auto)_                   |
+| `old-as`        | Force `old` to be read as `path`, `git`, or `npm`. What a monorepo tag like `pkg@1.2.3` needs, since auto-detection reads that shape as an npm spec | _(auto-detect)_ |
+| `new-as`        | Force `new` to be read as `path`, `git`, or `npm`                                         | _(auto-detect)_            |
+| `install-deps`  | Install dependencies before analysis. Only affects local path inputs                      | `false`                    |
 | `format`        | `text`, `json`, `markdown`, or `github`                                                   | `github`                   |
 | `strict`        | Fail the step (exit 1) on a **confident (proven)** breaking change                        | `false`                    |
 | `strict-review` | Fail the step (exit 1) on **any** breaking change, including review-only (heuristic) ones | `false`                    |
