@@ -232,10 +232,26 @@ function namespacesFor(typeParameters: ApiTypeParameter[]): typeof SCOPED | type
   return typeParameters.some((tp) => scope!.declNames.has(tp.name)) ? BARE : SCOPED;
 }
 
-function writeScopeFile(): void {
+// A stub the probe must not see, because one of its generics carries that name.
+// The stubs sit at file scope and so do the synthesized type parameter aliases,
+// so the two collide outright rather than shadowing, and the probe errors out
+// whole — leaving a comparison *worse off* for having a scope installed than for
+// having none. Only the colliding stub is withheld; the rest of the scope is
+// still what the probe is here to read, and switching to BARE would not help
+// anyway, since BARE empties the namespaces and leaves file scope alone.
+function withheldStubs(typeParameters: ApiTypeParameter[]): string[] {
+  const s = scope;
+  if (!s || s.stubs.size === 0) return [];
+  return typeParameters.map((tp) => tp.name).filter((name) => s.stubs.has(name));
+}
+
+function writeScopeFile(withheld: readonly string[] = []): void {
   const s = scope;
   if (!s) return;
-  getProject().createSourceFile(SCOPE_FILE, [...s.stubs.values(), ...s.lines].join('\n') + '\n', {
+  const stubs = [...s.stubs.entries()]
+    .filter(([name]) => !withheld.includes(name))
+    .map(([, text]) => text);
+  getProject().createSourceFile(SCOPE_FILE, [...stubs, ...s.lines].join('\n') + '\n', {
     overwrite: true,
   });
 }
@@ -322,30 +338,38 @@ function isAssignable(
     `declare const __from: ${from}.${PROBE_ALIAS};\n` +
     `const __to: ${to}.${PROBE_ALIAS} = __from;\n`;
 
-  const sourceFile = project.createSourceFile('__variance_probe__.ts', content, { overwrite: true });
+  const withheld = withheldStubs(typeParameters);
   try {
-    const errors = sourceFile
-      .getPreEmitDiagnostics()
-      .filter((d) => d.getCategory() === DiagnosticCategory.Error);
-
-    if (errors.length === 0) {
-      return true;
-    }
-
-    // An error on either namespace definition (or the declaration) means the
-    // type text could not be resolved standalone -> undecidable.
-    const hasDefinitionError = errors.some((d) => {
-      const line = d.getLineNumber();
-      return line === undefined || line < assignLine;
+    if (withheld.length > 0) writeScopeFile(withheld);
+    const sourceFile = project.createSourceFile('__variance_probe__.ts', content, {
+      overwrite: true,
     });
-    if (hasDefinitionError) {
-      return null;
-    }
+    try {
+      const errors = sourceFile
+        .getPreEmitDiagnostics()
+        .filter((d) => d.getCategory() === DiagnosticCategory.Error);
 
-    // Errors confined to the assignment line: the value is not assignable.
-    return false;
+      if (errors.length === 0) {
+        return true;
+      }
+
+      // An error on either namespace definition (or the declaration) means the
+      // type text could not be resolved standalone -> undecidable.
+      const hasDefinitionError = errors.some((d) => {
+        const line = d.getLineNumber();
+        return line === undefined || line < assignLine;
+      });
+      if (hasDefinitionError) {
+        return null;
+      }
+
+      // Errors confined to the assignment line: the value is not assignable.
+      return false;
+    } finally {
+      project.removeSourceFile(sourceFile);
+    }
   } finally {
-    project.removeSourceFile(sourceFile);
+    if (withheld.length > 0) writeScopeFile();
   }
 }
 
