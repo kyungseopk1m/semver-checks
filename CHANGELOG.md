@@ -2,6 +2,38 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.12.0] - 2026-08-24
+
+The MCP server was narrower than the CLI it wraps. `--declared`, the one flag that turns a recommendation into a verdict about the release under review, had no argument at all, and comparing against a published version worked but was undocumented and impossible to force. An agent reading the tool schema learned about neither.
+
+`semver_snapshot` was narrower in the same two ways and worse in degree: it could not read from npm at all, and it handed back every type shape it found, which for `zod` 4.4.0 is 2,323 symbols and 2.6MB of indented JSON, twenty times the largest comparison.
+
+What both tools returned was everything they found, which on a large package is more than a tool result can carry. That is what moves existing callers here.
+
+The library surface does not move: `semver-checks compare npm:semver-checks@0.11.0 . --declared auto` reports `patch` and no API changes. Everything below is the MCP transport except the last entry, which changes an error string the CLI prints too.
+
+### Breaking
+
+- **`semver_compare` returns at most 50 changes by default, ordered rather than as found.** A large major release runs to hundreds of findings: `jose` 5.9.6 to 6.0.0 serializes to 401 changes and 137KB, which is past what a tool result can carry, so a client that truncates at its own limit was handing the agent JSON that no longer parses. Changes now come back ordered proven breaks first, then additions, then the review-only majors the tool could not prove, and the list stops at `maxChanges`. On that `jose` pair the cap reaches only the review-only pile, since its 33 proven breaks and 12 additions come to 45. `summary` still counts every change, and an `omitted` field reports the count left out along with the `maxChanges` value that returns all of them, so nothing is unreachable, only unsent. Both halves of this are observable: a caller reading `changes.length` sees 50 where it saw 401, and one reading `changes[0]` sees a proven break where it saw whatever the differ emitted first. Ordering rather than filtering by confidence is what makes one argument enough, since a package with more proven breaks than the cap still gets its most actionable end, which a confidence filter would not bound at all. `SemverReport` is untouched and the CLI's `--format json` still prints every change in differ order, so nothing consuming the library or the CLI moves.
+
+- **`semver_snapshot` returns names and kinds by default, bounded by a byte budget, serialized without indentation, and its `asGitRef` argument is gone.** The full type shapes are what make a snapshot large, by more than an order of magnitude over the names and kinds that describe the same surface; `detail: true` asks for the shapes back. `maxBytes` bounds either form at 40000 and an `omitted` field reports what was dropped along with the total, which is a separate job from `detail`: a budget alone leaves a few dozen of `zod`'s 2,323 symbols and describes nothing, and names alone are unbounded. No symbol is exempt from the budget, so a package whose first symbol is wider than it returns none of them and says so, rather than overshooting by however much that symbol costs. Only the entrypoint keys and the `omitted` field sit outside it. Dropping the indentation is what lets the budget be counted rather than guessed at, since how much it adds depends on nesting depth. `asGitRef` was a boolean where `semver_compare` takes a three-value kind, so it is replaced by `pathAs`, which also accepts `npm`. Passing `asGitRef` is refused by name rather than ignored, since ignoring it would resolve a git ref as a filesystem path and answer about the wrong project.
+- **An empty snapshot is an error over MCP, as it already was on the CLI and in `compare`.** `semver_snapshot` returned `{"entrypoints":{}}` and no error for a project nothing could be extracted from, which reads as a package with no public API rather than as the extraction failure it is. It now refuses the same way, on what was extracted rather than on what the budget kept, so a budget too small to fit a symbol is not mistaken for an empty package.
+- **An `entry` that was given but names nothing is refused.** `--entry ""`, an empty array, and a string of only commas all normalized to "no entry given" and silently widened the analysis to the whole auto-detected surface. This is the CLI's behaviour too, and it is the same silent broadening an empty `--declared` has been refused for since 0.9.0.
+
+### Added
+
+- **`semver_compare` takes a `declared` argument**, the same gate `--declared` applies on the CLI: `major`, `minor`, `patch`, `none`, or `auto` to read the declaration from `.changeset/*.md` and then the two `package.json` versions. The report gains a `declaration` object carrying the verdict, and `auto` errors when it finds nothing to read rather than reporting a pass, which is the contract the CLI already holds. The tool could tell an agent what bump a release needs; it could not tell it whether the release was about to ship the wrong one.
+- **`semver_snapshot` reads from npm.** The CLI has had `snapshot --npm` since 0.5.0, but the MCP handler never went through the shared resolver, so `zod@4.4.0` was read as a filesystem path and failed to extract. It takes the same three forms `semver_compare` does now, auto-detection included.
+- **`oldAs` and `newAs` accept `npm`, and both source arguments document the npm form.** Nothing behind the schema changed: MCP hands its input to the same resolver the CLI uses, so `lodash@4.17.21` has always resolved to the registry. The schema said `a filesystem path or a git ref` and offered a two-value enum, so an agent had no reason to try it and no way to force it when auto-detection would read the input as a git ref. Comparing a working tree against the published release is the case this unblocks, and it needs no checkout.
+
+### Fixed
+
+- **`entry` takes several entry points over MCP.** The CLI splits `--entry a.ts,b.ts` into two and accepts the flag repeated, and `compare` has always taken `string | string[]`, but the MCP argument was checked as a plain string: a comma-separated value was looked up as one filename and came back `Entry file not found`, and an array was refused outright. A package whose surface is spread across entry points, which is what the subpath work in 0.11.0 was about, could not be pointed at from an agent. Both tools take both shapes now, and the parser is the CLI's own rather than a second copy of it.
+
+### Changed
+
+- **The error for an invalid declared bump no longer names a CLI flag.** It read `--declared must be one of: ...`, which is the wrong name for an agent that passed `declared` and never saw a flag.
+
 ## [0.11.0] - 2026-08-24
 
 This release is about recall. `0.10.0` reported 100% of it, and that number was a fact about the corpus rather than about the tool: every pair it held had been scored by a `tsc` oracle, but the pairs it did not hold were never asked. Widening the corpus to 111 adjacent release pairs across 24 packages, and re-reading every pair the oracle had scored safe by writing a consumer that uses the changed symbol the way the package's own README does, took the same measurement to 37.8%. Everything else here is the work of getting it back, and it is at 81.4% with precision at 97.2%.
@@ -481,6 +513,7 @@ Initial release.
 
 ---
 
+[0.12.0]: https://github.com/kyungseopk1m/semver-checks/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/kyungseopk1m/semver-checks/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/kyungseopk1m/semver-checks/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/kyungseopk1m/semver-checks/compare/v0.8.0...v0.9.0

@@ -561,25 +561,43 @@ Relative paths and git refs are resolved from the MCP server process's current w
 
 #### `semver_compare`
 
-| Argument      | Type                | Required | Description                                                |
-| ------------- | ------------------- | -------- | ---------------------------------------------------------- |
-| `old`         | string              | Yes      | Filesystem path or git ref (tag, branch, SHA)              |
-| `new`         | string              |          | Filesystem path or git ref. Defaults to `.`                |
-| `entry`       | string              |          | Entry file (e.g. `src/index.ts`). Auto-detected if omitted |
-| `oldAs`       | `"path"` \| `"git"` |          | Force interpretation of `old`                              |
-| `newAs`       | `"path"` \| `"git"` |          | Force interpretation of `new`                              |
-| `installDeps` | boolean             |          | Install dependencies before analysis                       |
+| Argument      | Type                                                       | Required | Description                                                                            |
+| ------------- | ---------------------------------------------------------- | -------- | -------------------------------------------------------------------------------------- |
+| `old`         | string                                                     | Yes      | Filesystem path, git ref (tag, branch, SHA), or npm spec (`lodash@4.17.21`)             |
+| `new`         | string                                                     |          | Same three forms. Defaults to `.`                                                       |
+| `entry`       | string \| string[]                                         |          | Entry file(s) (e.g. `src/index.ts`). Comma-separated or an array. Auto-detected if omitted; an empty value is refused |
+| `oldAs`       | `"path"` \| `"git"` \| `"npm"`                              |          | Force interpretation of `old`                                                           |
+| `newAs`       | `"path"` \| `"git"` \| `"npm"`                              |          | Force interpretation of `new`                                                           |
+| `declared`    | `"major"` \| `"minor"` \| `"patch"` \| `"none"` \| `"auto"` |          | Grade the bump the release declares, the same gate `--declared` applies on the CLI      |
+| `maxChanges`  | integer                                                    |          | How many changes to include. Defaults to 50                                             |
+| `installDeps` | boolean                                                    |          | Install dependencies before analysis                                                    |
 
-`oldAs` and `newAs` accept only `"path"` or `"git"` in MCP mode.
+A `name@version` that is not an existing path resolves to npm on its own, so comparing a working tree against the published release needs no checkout:
+
+```json
+{ "old": "your-lib@latest", "new": ".", "declared": "auto" }
+```
+
+`declared` adds a `declaration` object to the report with the same verdicts the CLI prints: `mismatch` when a proven break outranks what the release wrote down, `review` when the changes argue for more than that, `ok` otherwise. `"auto"` reads the declaration from `.changeset/*.md` and then the two `package.json` versions, and errors when it finds neither rather than reporting a pass.
+
+`maxChanges` bounds the response. A large major release runs to hundreds of findings, which is more than a tool result can carry, so changes come back ordered proven breaks first, then additions, then review-only ones, and the list stops at the cap. `summary` always counts every change, and an `omitted` field reports the number left out along with the `maxChanges` value that would return all of them.
 
 #### `semver_snapshot`
 
-| Argument      | Type    | Required | Description                                 |
-| ------------- | ------- | -------- | ------------------------------------------- |
-| `path`        | string  |          | Filesystem path or git ref. Defaults to `.` |
-| `entry`       | string  |          | Entry file                                  |
-| `asGitRef`    | boolean |          | Treat `path` as a git ref                   |
-| `installDeps` | boolean |          | Install dependencies before analysis        |
+| Argument      | Type                            | Required | Description                                                          |
+| ------------- | ------------------------------- | -------- | -------------------------------------------------------------------- |
+| `path`        | string                          |          | Filesystem path, git ref, or npm spec. Defaults to `.`                |
+| `entry`       | string \| string[]              |          | Entry file(s). Comma-separated or an array                           |
+| `pathAs`      | `"path"` \| `"git"` \| `"npm"` |          | Force interpretation of `path`                                       |
+| `detail`      | boolean                         |          | Return each symbol's full type shape instead of its kind             |
+| `maxBytes`    | integer                         |          | Byte budget for the returned symbols. Defaults to 40000              |
+| `installDeps` | boolean                         |          | Install dependencies before analysis                                 |
+
+The three source forms are the same ones `semver_compare` takes, so `zod@4.4.0` snapshots from the registry without a checkout.
+
+By default each symbol comes back as its kind, because the full shapes are what make a snapshot large: for a package the size of `zod` they run more than an order of magnitude past the names and kinds that describe the same surface. `detail` asks for the shapes, and `maxBytes` bounds either form, with an `omitted` field reporting the count left out and the total. A response that drops nothing carries no such field.
+
+The budget covers the symbols, and no symbol is exempt from it. A wide interface under `detail` can cost tens of kilobytes on its own, so a budget smaller than that returns no symbols and says so in `omitted`, rather than overshooting the number you passed. Only the entrypoint keys and the `omitted` field sit on top of the budget. Snapshots are serialized without indentation, which is what makes the budget a count rather than an estimate.
 
 ## CI Integration
 
