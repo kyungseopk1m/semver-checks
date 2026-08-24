@@ -63,6 +63,10 @@ const compareCommand = defineCommand({
     installDeps: {
       type: 'boolean',
       description: 'Install dependencies before analysis for local path inputs',
+      // Without the alias `--install-deps` lands under that literal key while the
+      // camelCase default keeps winning the lookup, so the flag parses and then
+      // does nothing. Every documented spelling of it is the kebab one.
+      alias: 'install-deps',
       default: false,
     },
     oldAs: {
@@ -170,6 +174,7 @@ const snapshotCommand = defineCommand({
     installDeps: {
       type: 'boolean',
       description: 'Install dependencies before analysis for local path inputs',
+      alias: 'install-deps',
       default: false,
     },
   },
