@@ -653,7 +653,7 @@ function classifySymbolChanges(name: string, oldSym: ApiSymbol, newSym: ApiSymbo
     case 'enum':
       return classifyEnumChanges(name, oldSym, newSym as ApiEnumSymbol);
     case 'class':
-      return classifyClassChanges(name, oldSym, newSym as ApiClassSymbol);
+      return classifyClassChanges(name, oldSym, newSym as ApiClassSymbol, bases);
     case 'type-alias':
       return classifyTypeAliasChanges(name, oldSym as ApiTypeAliasSymbol, newSym as ApiTypeAliasSymbol);
     case 'variable':
@@ -2091,7 +2091,56 @@ function classifyEnumChanges(name: string, oldEnum: ApiEnumSymbol, newEnum: ApiE
   return changes;
 }
 
-function classifyClassChanges(name: string, oldCls: ApiClassSymbol, newCls: ApiClassSymbol): ApiChange[] {
+// A class member that one side no longer declares, but one of that side's bases
+// does. Hoisting a member onto a base leaves every consumer compiling, and the
+// interface path has resolved bases for exactly this since inherited members are
+// deliberately not flattened; the class path was reading the same refactor as a
+// removal on one side and an addition on the other.
+//
+// `jose` 6.2.10 is what this costs in practice: `SignJWT` moved to
+// `extends SignJWT_base` where the base's instance type is the `ProduceJWT`
+// interface it used to implement, and a patch release came back with 42 `proven`
+// breaks against a consumer that compiles fine on both sides. The mixin spelling
+// is not special — the checker resolves it to the interface name like any other
+// base, and a plain `extends Base` broke the same way.
+function movedOntoABase(
+  oldCls: ApiClassSymbol,
+  newCls: ApiClassSymbol,
+  memberName: string,
+  oldCount: number,
+  newCount: number,
+  bases: BaseLookups | undefined,
+): boolean {
+  if (newCount === 0) return memberDeclaredByBases(newCls.heritage, memberName, bases?.new);
+  if (oldCount === 0) return memberDeclaredByBases(oldCls.heritage, memberName, bases?.old);
+  return false;
+}
+
+// Whether either side names a base the snapshot does not hold. A subpath entry is
+// often one symbol wide — `jose`'s `./jwt/sign` exports `SignJWT` and nothing else,
+// while the base it extends lives in `./types` — so the members a base carries are
+// simply not visible from there. Reporting them as removed turns "we could not
+// look" into "it left", which is the one thing a `proven` grade must never do.
+// The finding still surfaces for review; only the claim that it is certain goes.
+function namesAnUnresolvedBase(cls: ApiClassSymbol, lookup: BaseLookup | undefined): boolean {
+  return (cls.heritage ?? []).some((h) => !lookup?.(heritageBaseName(h)));
+}
+
+// Removals only. An addition is not a claim about where something went.
+function demoteRemovals(changes: ApiChange[]): ApiChange[] {
+  return changes.map((change) =>
+    change.kind === 'class-method-removed' || change.kind === 'class-property-removed'
+      ? { ...change, ...gradedConfidence('heuristic') }
+      : change,
+  );
+}
+
+function classifyClassChanges(
+  name: string,
+  oldCls: ApiClassSymbol,
+  newCls: ApiClassSymbol,
+  bases?: BaseLookups,
+): ApiChange[] {
   const changes: ApiChange[] = [];
   // Container generic scope shared by constructor / methods / properties, and
   // the matching alpha-rename so a class-level rename (`class Bag<T>` vs
@@ -2099,6 +2148,9 @@ function classifyClassChanges(name: string, oldCls: ApiClassSymbol, newCls: ApiC
   // references the parameter.
   const classTPs = { old: oldCls.typeParameters, new: newCls.typeParameters };
   const containerRename = buildTypeParamRenameMap(oldCls.typeParameters, newCls.typeParameters);
+  const blindToABase =
+    namesAnUnresolvedBase(oldCls, bases?.old) || namesAnUnresolvedBase(newCls, bases?.new);
+  const graded = (produced: ApiChange[]) => (blindToABase ? demoteRemovals(produced) : produced);
 
   // Constructor changes. Skipped entirely when either side's constructor is
   // unknown (no explicit constructor on a class with a heritage clause — see
@@ -2186,14 +2238,11 @@ function classifyClassChanges(name: string, oldCls: ApiClassSymbol, newCls: ApiC
   const newMethodGroups = groupByName(newCls.methods);
   const methodNames = new Set([...oldMethodGroups.keys(), ...newMethodGroups.keys()]);
   for (const methodName of methodNames) {
+    const oldGroup = oldMethodGroups.get(methodName) ?? [];
+    const newGroup = newMethodGroups.get(methodName) ?? [];
+    if (movedOntoABase(oldCls, newCls, methodName, oldGroup.length, newGroup.length, bases)) continue;
     changes.push(
-      ...classifyClassMethodGroupChanges(
-        name,
-        oldMethodGroups.get(methodName) ?? [],
-        newMethodGroups.get(methodName) ?? [],
-        classTPs,
-        containerRename,
-      ),
+      ...graded(classifyClassMethodGroupChanges(name, oldGroup, newGroup, classTPs, containerRename)),
     );
   }
 
@@ -2212,14 +2261,19 @@ function classifyClassChanges(name: string, oldCls: ApiClassSymbol, newCls: ApiC
   const newPropertyGroups = groupByName(newCls.properties);
   const propertyNames = new Set([...oldPropertyGroups.keys(), ...newPropertyGroups.keys()]);
   for (const propertyName of propertyNames) {
+    const oldGroup = oldPropertyGroups.get(propertyName) ?? [];
+    const newGroup = newPropertyGroups.get(propertyName) ?? [];
+    if (movedOntoABase(oldCls, newCls, propertyName, oldGroup.length, newGroup.length, bases)) continue;
     changes.push(
-      ...classifyClassPropertyGroupChanges(
-        name,
-        oldPropertyGroups.get(propertyName) ?? [],
-        newPropertyGroups.get(propertyName) ?? [],
-        structurallyImplementable,
-        classTPs,
-        containerRename,
+      ...graded(
+        classifyClassPropertyGroupChanges(
+          name,
+          oldGroup,
+          newGroup,
+          structurallyImplementable,
+          classTPs,
+          containerRename,
+        ),
       ),
     );
   }
