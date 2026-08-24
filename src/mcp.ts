@@ -5,11 +5,11 @@ import {
   CallToolRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { compare } from './index.js';
-import { parseDeclaredBump } from './declared.js';
+import { gateFails, parseDeclaredBump } from './declared.js';
 import { parseEntryArg } from './entry-arg.js';
 import { extract } from './extract/extractor.js';
 import { describeUnusableSnapshot } from './extract/api-snapshot.js';
-import { resolveSourceInput, type SourceInputKind } from './resolve/source-ref.js';
+import { InvalidSourceInput, resolveSourceInput, type SourceInputKind } from './resolve/source-ref.js';
 import { resolvePath } from './resolve/path-resolver.js';
 import { resolveNpmSpec } from './resolve/npm-resolver.js';
 import { resolveGitRef, cleanupTmpDir } from './resolve/git-resolver.js';
@@ -18,10 +18,22 @@ import { getPackageVersion } from './package-info.js';
 import type { ApiChange, SemverReport } from './types.js';
 import type { ApiSnapshot } from './extract/api-snapshot.js';
 
-function errorResult(message: string) {
+// A caller that cannot re-read its own request has to tell two failures apart
+// from one string: one it can fix by sending different arguments, and one where
+// the arguments were fine and the project could not be analyzed. Retrying the
+// second is wasted work, and rewriting arguments for the first is the only thing
+// that helps, so the distinction is carried as a code rather than left in prose.
+class InvalidArgument extends Error {}
+
+type ErrorCode = 'invalid_argument' | 'analysis_failed';
+
+function errorResult(message: string, code: ErrorCode = 'analysis_failed') {
   return {
-    content: [{ type: 'text' as const, text: `Error: ${message}` }],
+    content: [{ type: 'text' as const, text: `Error: [${code}] ${message}` }],
     isError: true,
+    // Alongside the text, because a client that only renders content still shows
+    // the message while one that reads the result can branch on the code.
+    error: { code, message },
   };
 }
 
@@ -29,7 +41,7 @@ function getOptionalString(args: Record<string, unknown>, key: string): string |
   const value = args[key];
   if (value === undefined) return undefined;
   if (typeof value !== 'string') {
-    throw new Error(`"${key}" argument must be a string`);
+    throw new InvalidArgument(`"${key}" argument must be a string`);
   }
   return value;
 }
@@ -37,7 +49,7 @@ function getOptionalString(args: Record<string, unknown>, key: string): string |
 function getRequiredString(args: Record<string, unknown>, key: string): string {
   const value = getOptionalString(args, key);
   if (value === undefined) {
-    throw new Error(`"${key}" argument is required and must be a string`);
+    throw new InvalidArgument(`"${key}" argument is required and must be a string`);
   }
   return value;
 }
@@ -46,7 +58,7 @@ function getOptionalBoolean(args: Record<string, unknown>, key: string): boolean
   const value = args[key];
   if (value === undefined) return undefined;
   if (typeof value !== 'boolean') {
-    throw new Error(`"${key}" argument must be a boolean`);
+    throw new InvalidArgument(`"${key}" argument must be a boolean`);
   }
   return value;
 }
@@ -56,11 +68,18 @@ function getOptionalSourceInputKind(
   key: string,
 ): SourceInputKind | undefined {
   const value = getOptionalString(args, key);
-  if (value === undefined) return undefined;
+  // An empty string is how a template or a shell wrapper spells "I did not set
+  // this", and `parseSourceInputKind` on the CLI already reads it that way.
+  // Refusing it here made the same call succeed on one surface and fail on the
+  // other.
+  if (value === undefined || value === '') return undefined;
+  // `ref` is the CLI's spelling for the same thing, and the README uses it in
+  // the monorepo-tag advice, so a caller that read either lands on it.
+  if (value === 'ref') return 'git';
   if (value === 'path' || value === 'git' || value === 'npm') {
     return value;
   }
-  throw new Error(`"${key}" argument must be one of: path, git, npm`);
+  throw new InvalidArgument(`"${key}" argument must be one of: path, ref (or git), npm`);
 }
 
 // `entry` arrives as one path, several, or a comma-separated string, the same
@@ -70,18 +89,29 @@ function getOptionalSourceInputKind(
 function getOptionalEntry(args: Record<string, unknown>, key: string): string | string[] | undefined {
   const value = args[key];
   if (value === undefined) return undefined;
-  if (typeof value === 'string') return parseEntryArg(value);
+  if (typeof value === 'string') return asArgumentError(() => parseEntryArg(value));
   if (Array.isArray(value) && value.every((e) => typeof e === 'string')) {
-    return parseEntryArg(value as string[]);
+    return asArgumentError(() => parseEntryArg(value as string[]));
   }
-  throw new Error(`"${key}" argument must be a string or an array of strings`);
+  throw new InvalidArgument(`"${key}" argument must be a string or an array of strings`);
+}
+
+// `parseEntryArg` and `parseDeclaredBump` are shared with the CLI, where every
+// error is the same kind, so they throw a plain Error. Reaching them means the
+// caller sent a value, which makes the failure a fixable one either way.
+function asArgumentError<T>(read: () => T): T {
+  try {
+    return read();
+  } catch (err: any) {
+    throw new InvalidArgument(err.message);
+  }
 }
 
 function getOptionalCount(args: Record<string, unknown>, key: string): number | undefined {
   const value = args[key];
   if (value === undefined) return undefined;
   if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
-    throw new Error(`"${key}" argument must be a non-negative integer`);
+    throw new InvalidArgument(`"${key}" argument must be a non-negative integer`);
   }
   return value;
 }
@@ -106,12 +136,24 @@ function changeRank(change: ApiChange): number {
 
 // Truncation lives here rather than in `SemverReport`, because a field on that
 // type is public library surface and this is a property of one transport.
+// What each CLI gate would do with this report. The CLI answers it with an exit
+// code; a caller here would otherwise have to rebuild a two-branch rule out of
+// `summary` and `declaration`, which is a place to be subtly wrong about the one
+// thing the tool exists to say.
+function gateFor(report: SemverReport) {
+  const verdict = (flags: { strict?: boolean; strictReview?: boolean }) =>
+    gateFails(report, flags) ? 'fail' : 'pass';
+  return { strict: verdict({ strict: true }), strictReview: verdict({ strictReview: true }) };
+}
+
 function forAgent(report: SemverReport, maxChanges: number): unknown {
   const ordered = [...report.changes].sort((a, b) => changeRank(a) - changeRank(b));
-  if (ordered.length <= maxChanges) return { ...report, changes: ordered };
+  const gate = gateFor(report);
+  if (ordered.length <= maxChanges) return { ...report, gate, changes: ordered };
   const shown = ordered.slice(0, maxChanges);
   return {
     ...report,
+    gate,
     changes: shown,
     omitted: {
       count: ordered.length - shown.length,
@@ -193,112 +235,150 @@ function snapshotForAgent(
   };
 }
 
+const TOOLS = [
+  {
+    name: 'semver_compare',
+    description:
+      'Compare two versions of a TypeScript library and detect breaking API changes. Either side can be a filesystem path, a git ref, or an npm spec, so a working tree can be compared against the published release without checking anything out. Returns the recommended SemVer bump (major/minor/patch) and a list of changes. Each change carries a confidence: "proven" (a structurally confident break — gate on these) or "heuristic" (a conservative major the tool could not prove safe — surface for review). summary.majorProven / majorReview split the major count accordingly. Pass "declared" to have the tool grade the bump the release writes down instead of just recommending one. The "gate" field answers what each CLI gate would do with this report, which is what its exit code carries: "strict" fails only on a proven break and is the one safe to leave on every build, while "strictReview" also fails on a major the analyzer could not prove. They are not two strengths of the same check. A passing "strict" is not a clean bill of health, because a real break it could not prove stays review-only; "green means safe" is a claim only "strictReview" can make. Report both rather than reading "strict": "pass" as "nothing broke". Passing "declared" changes the question both gates answer: the release is then graded against the bump it writes down, so a major it already declares passes both.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        old: {
+          type: 'string',
+          description: 'Old version: a filesystem path, a git ref (tag, branch, commit SHA), or an npm spec. A "name@version" that is not an existing path is read as npm (e.g. "lodash@4.17.21", "lodash@latest"); prefix with "npm:" to say so outright.',
+        },
+        new: {
+          type: 'string',
+          description: 'New version: a filesystem path, a git ref, or an npm spec. Defaults to current directory.',
+          default: '.',
+        },
+        entry: {
+          anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }],
+          description: 'Entry file relative to project root (e.g. "src/index.ts"). Pass an array or a comma-separated string for a package with several entry points. Auto-detected from package.json if omitted.',
+        },
+        oldAs: {
+          type: 'string',
+          enum: ['path', 'git', 'ref', 'npm'],
+          description: 'Force "old" to be treated as a filesystem path, a git ref, or an npm spec. "ref" is an accepted spelling of "git". Only needed when auto-detection would read the input as the wrong kind, which is what a monorepo tag shaped like "pkg@1.2.3" needs.',
+        },
+        newAs: {
+          type: 'string',
+          enum: ['path', 'git', 'ref', 'npm'],
+          description: 'Force "new" to be treated as a filesystem path, a git ref, or an npm spec. "ref" is an accepted spelling of "git".',
+        },
+        declared: {
+          type: 'string',
+          enum: ['major', 'minor', 'patch', 'none', 'auto'],
+          description: 'The bump this release declares, or "auto" to read it from .changeset/*.md and then the two package.json versions. Adds a "declaration" verdict to the report: "mismatch" when a proven break outranks the declaration, "review" when the changes argue for more than was declared, "ok" otherwise. Errors when "auto" finds nothing to read, rather than reporting a pass.',
+        },
+        maxChanges: {
+          type: 'integer',
+          minimum: 0,
+          description: 'How many changes to include (default 50). They are ordered proven breaks first, then additions, then review-only ones, so the cap drops the least actionable end. "summary" always counts every change, and an "omitted" field reports what was left out and the number to pass to get all of it.',
+          default: 50,
+        },
+        installDeps: {
+          type: 'boolean',
+          description: 'Install dependencies before analysis (needed for local paths without node_modules)',
+          default: false,
+        },
+      },
+      required: ['old'],
+      // A `tools/call` carries the tool's own schema as its arguments, so a
+      // field that is not in it is a mistake — most often a caller reaching
+      // for a name the CLI uses. Refusing it says so; accepting it runs the
+      // analysis with the flag silently dropped and hands back a confident
+      // answer to a question nobody asked. That trade is worse when the
+      // caller is a model that will not notice its argument went missing.
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'semver_snapshot',
+    description:
+      'Extract the public API surface of a TypeScript project as a structured JSON snapshot, keyed by export subpath. Useful for inspecting what a library exports. The source can be a filesystem path, a git ref, or an npm spec, the same three forms semver_compare takes. Returns each symbol\'s name and kind by default; pass "detail" for full type shapes, which is far larger.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: {
+          type: 'string',
+          description: 'Project source: a filesystem path, a git ref, or an npm spec such as "lodash@4.17.21". Defaults to current directory.',
+          default: '.',
+        },
+        entry: {
+          anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }],
+          description: 'Entry file relative to project root (e.g. "src/index.ts"). Pass an array or a comma-separated string for a package with several entry points.',
+        },
+        pathAs: {
+          type: 'string',
+          enum: ['path', 'git', 'ref', 'npm'],
+          description: 'Force "path" to be treated as a filesystem path, a git ref, or an npm spec. "ref" is an accepted spelling of "git". Only needed when auto-detection would read the input as the wrong kind.',
+        },
+        detail: {
+          type: 'boolean',
+          description: 'Include each symbol\'s full type shape instead of just its kind. A shape runs a median of about 370 bytes and a wide interface tens of kilobytes, against about 35 for a name and a kind, so a large package will hit the byte budget after a few dozen symbols.',
+          default: false,
+        },
+        maxBytes: {
+          type: 'integer',
+          minimum: 0,
+          description: 'Byte budget for the symbols in the response (default 40000). Symbols are included while it lasts, and an "omitted" field then reports how many were left out along with the total. No symbol is exempt: under "detail" a single wide interface can cost tens of kilobytes, so a budget smaller than that returns no symbols and says so rather than overshooting. Only the entrypoint keys and the "omitted" field sit outside the budget, a few hundred bytes.',
+          default: 40000,
+        },
+        installDeps: {
+          type: 'boolean',
+          description: 'Install dependencies before analysis',
+          default: false,
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+];
+
+// `additionalProperties: false` on the schemas above is a statement to the
+// caller, not a check: the SDK hands `tools/call` arguments through untouched,
+// so an argument that is not in the schema reaches the handler and is dropped by
+// the `get*` readers without a word. A caller reaching for a CLI flag name would
+// get an analysis that ignored it and no sign that anything went wrong, which is
+// the worst shape for a caller that cannot re-read its own request.
+// An argument that was renamed rather than merely mistyped, answered with what
+// replaced it. `asGitRef` was `pathAs` until 0.12.0, and ignoring it would
+// resolve a git ref as a filesystem path and answer confidently about the wrong
+// project.
+const RENAMED_ARGUMENTS: Record<string, string> = {
+  asGitRef: '"asGitRef" was replaced by "pathAs". Pass pathAs: "git" instead.',
+};
+
+function rejectUnknownArguments(name: string, args: Record<string, unknown>): void {
+  const tool = TOOLS.find((t) => t.name === name);
+  if (!tool) return;
+  const allowed = Object.keys(tool.inputSchema.properties);
+  const unknown = Object.keys(args).filter((key) => !allowed.includes(key));
+  for (const key of unknown) {
+    if (RENAMED_ARGUMENTS[key]) throw new InvalidArgument(RENAMED_ARGUMENTS[key]);
+  }
+  if (unknown.length > 0) {
+    throw new InvalidArgument(
+      `Unknown argument${unknown.length > 1 ? 's' : ''} for ${name}: ${unknown.join(', ')}. ` +
+        `Accepted: ${allowed.join(', ')}.`,
+    );
+  }
+}
+
 export function createMcpServer(): Server {
   const server = new Server(
     { name: 'semver-checks', version: getPackageVersion() },
     { capabilities: { tools: {} } },
   );
 
-  server.setRequestHandler(ListToolsRequestSchema, () => ({
-    tools: [
-      {
-        name: 'semver_compare',
-        description:
-          'Compare two versions of a TypeScript library and detect breaking API changes. Either side can be a filesystem path, a git ref, or an npm spec, so a working tree can be compared against the published release without checking anything out. Returns the recommended SemVer bump (major/minor/patch) and a list of changes. Each change carries a confidence: "proven" (a structurally confident break — gate on these) or "heuristic" (a conservative major the tool could not prove safe — surface for review). summary.majorProven / majorReview split the major count accordingly. Pass "declared" to have the tool grade the bump the release writes down instead of just recommending one.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            old: {
-              type: 'string',
-              description: 'Old version: a filesystem path, a git ref (tag, branch, commit SHA), or an npm spec. A "name@version" that is not an existing path is read as npm (e.g. "lodash@4.17.21", "lodash@latest"); prefix with "npm:" to say so outright.',
-            },
-            new: {
-              type: 'string',
-              description: 'New version: a filesystem path, a git ref, or an npm spec. Defaults to current directory.',
-              default: '.',
-            },
-            entry: {
-              anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }],
-              description: 'Entry file relative to project root (e.g. "src/index.ts"). Pass an array or a comma-separated string for a package with several entry points. Auto-detected from package.json if omitted.',
-            },
-            oldAs: {
-              type: 'string',
-              enum: ['path', 'git', 'npm'],
-              description: 'Force "old" to be treated as a filesystem path, a git ref, or an npm spec. Only needed when auto-detection would read the input as the wrong kind.',
-            },
-            newAs: {
-              type: 'string',
-              enum: ['path', 'git', 'npm'],
-              description: 'Force "new" to be treated as a filesystem path, a git ref, or an npm spec.',
-            },
-            declared: {
-              type: 'string',
-              enum: ['major', 'minor', 'patch', 'none', 'auto'],
-              description: 'The bump this release declares, or "auto" to read it from .changeset/*.md and then the two package.json versions. Adds a "declaration" verdict to the report: "mismatch" when a proven break outranks the declaration, "review" when the changes argue for more than was declared, "ok" otherwise. Errors when "auto" finds nothing to read, rather than reporting a pass.',
-            },
-            maxChanges: {
-              type: 'integer',
-              minimum: 0,
-              description: 'How many changes to include (default 50). They are ordered proven breaks first, then additions, then review-only ones, so the cap drops the least actionable end. "summary" always counts every change, and an "omitted" field reports what was left out and the number to pass to get all of it.',
-              default: 50,
-            },
-            installDeps: {
-              type: 'boolean',
-              description: 'Install dependencies before analysis (needed for local paths without node_modules)',
-              default: false,
-            },
-          },
-          required: ['old'],
-        },
-      },
-      {
-        name: 'semver_snapshot',
-        description:
-          'Extract the public API surface of a TypeScript project as a structured JSON snapshot, keyed by export subpath. Useful for inspecting what a library exports. The source can be a filesystem path, a git ref, or an npm spec, the same three forms semver_compare takes. Returns each symbol\'s name and kind by default; pass "detail" for full type shapes, which is far larger.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            path: {
-              type: 'string',
-              description: 'Project source: a filesystem path, a git ref, or an npm spec such as "lodash@4.17.21". Defaults to current directory.',
-              default: '.',
-            },
-            entry: {
-              anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }],
-              description: 'Entry file relative to project root (e.g. "src/index.ts"). Pass an array or a comma-separated string for a package with several entry points.',
-            },
-            pathAs: {
-              type: 'string',
-              enum: ['path', 'git', 'npm'],
-              description: 'Force "path" to be treated as a filesystem path, a git ref, or an npm spec. Only needed when auto-detection would read the input as the wrong kind.',
-            },
-            detail: {
-              type: 'boolean',
-              description: 'Include each symbol\'s full type shape instead of just its kind. A shape runs a median of about 370 bytes and a wide interface tens of kilobytes, against about 35 for a name and a kind, so a large package will hit the byte budget after a few dozen symbols.',
-              default: false,
-            },
-            maxBytes: {
-              type: 'integer',
-              minimum: 0,
-              description: 'Byte budget for the symbols in the response (default 40000). Symbols are included while it lasts, and an "omitted" field then reports how many were left out along with the total. No symbol is exempt: under "detail" a single wide interface can cost tens of kilobytes, so a budget smaller than that returns no symbols and says so rather than overshooting. Only the entrypoint keys and the "omitted" field sit outside the budget, a few hundred bytes.',
-              default: 40000,
-            },
-            installDeps: {
-              type: 'boolean',
-              description: 'Install dependencies before analysis',
-              default: false,
-            },
-          },
-        },
-      },
-    ],
-  }));
+  server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: TOOLS }));
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: rawArgs = {} } = request.params;
     const args = rawArgs as Record<string, unknown>;
-
     try {
+      rejectUnknownArguments(name, args);
       switch (name) {
         case 'semver_compare': {
           const oldInput = getRequiredString(args, 'old');
@@ -307,7 +387,7 @@ export function createMcpServer(): Server {
           const oldAs = getOptionalSourceInputKind(args, 'oldAs');
           const newAs = getOptionalSourceInputKind(args, 'newAs');
           const installDeps = getOptionalBoolean(args, 'installDeps') ?? false;
-          const declared = parseDeclaredBump(getOptionalString(args, 'declared'));
+          const declared = asArgumentError(() => parseDeclaredBump(getOptionalString(args, 'declared')));
           const maxChanges = getOptionalCount(args, 'maxChanges') ?? DEFAULT_MAX_CHANGES;
 
           const report = await compare({
@@ -326,12 +406,6 @@ export function createMcpServer(): Server {
         case 'semver_snapshot': {
           const pathInput = getOptionalString(args, 'path') ?? '.';
           const entry = getOptionalEntry(args, 'entry');
-          // `asGitRef` was this argument until 0.12.0. Ignoring it would resolve
-          // a git ref as a filesystem path and answer with the wrong project
-          // rather than an error, so it is refused by name.
-          if (args.asGitRef !== undefined) {
-            throw new Error('"asGitRef" was replaced by "pathAs". Pass pathAs: "git" instead.');
-          }
           const pathAs = getOptionalSourceInputKind(args, 'pathAs');
           const detail = getOptionalBoolean(args, 'detail') ?? false;
           const maxBytes = getOptionalCount(args, 'maxBytes') ?? DEFAULT_MAX_BYTES;
@@ -383,10 +457,13 @@ export function createMcpServer(): Server {
         }
 
         default:
-          return errorResult(`Unknown tool: ${name}`);
+          return errorResult(`Unknown tool: ${name}`, 'invalid_argument');
       }
     } catch (err: any) {
-      return errorResult(err.message);
+      // `InvalidSourceInput` is thrown for a source that is malformed rather than
+      // missing, which is the same kind of mistake a misspelled argument is.
+      const fixable = err instanceof InvalidArgument || err instanceof InvalidSourceInput;
+      return errorResult(err.message, fixable ? 'invalid_argument' : 'analysis_failed');
     }
   });
 

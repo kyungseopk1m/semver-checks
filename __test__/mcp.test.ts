@@ -111,7 +111,7 @@ describe('MCP server', () => {
       const { client } = await createConnectedClient();
       const result = await client.listTools();
       const props = (result.tools.find((t) => t.name === 'semver_snapshot')!.inputSchema as any).properties;
-      expect(props.pathAs.enum).toEqual(['path', 'git', 'npm']);
+      expect(props.pathAs.enum).toEqual(['path', 'git', 'ref', 'npm']);
       expect(props.asGitRef).toBeUndefined();
       expect(props.detail.type).toBe('boolean');
       expect(props.maxBytes).toBeDefined();
@@ -176,11 +176,68 @@ describe('MCP server', () => {
       const { client } = await createConnectedClient();
       const result = await client.callTool({
         name: 'semver_compare',
-        arguments: { old: 'HEAD', oldAs: 'ref' },
+        arguments: { old: 'HEAD', oldAs: 'sideways' },
       });
       expect(result.isError).toBe(true);
       const text = (result.content as Array<{ type: string; text: string }>)[0].text;
-      expect(text).toContain('"oldAs" argument must be one of: path, git, npm');
+      expect(text).toContain('"oldAs" argument must be one of: path, ref (or git), npm');
+      expect((result as any).error.code).toBe('invalid_argument');
+    });
+
+    // An empty source used to fall through to the path branch, where an empty
+    // path is the working directory: `old: ""` analyzed the current tree against
+    // itself and answered "no changes". A green run on a question nobody asked is
+    // the worst failure a gate has.
+    it('refuses an empty source instead of answering about the working directory', async () => {
+      const { client } = await createConnectedClient();
+      for (const old of ['', '   ']) {
+        const result = await client.callTool({ name: 'semver_compare', arguments: { old } });
+        expect(result.isError).toBe(true);
+        expect((result as any).error.code).toBe('invalid_argument');
+        expect((result.content as Array<{ text: string }>)[0].text).toContain('Source is empty');
+      }
+    });
+
+    // Malformed is the caller's to fix; missing is not. Sending the first one
+    // again unchanged cannot work, and that is the whole point of the split.
+    it('separates a malformed source from one that could not be found', async () => {
+      const { client } = await createConnectedClient();
+      const codeFor = async (args: Record<string, unknown>) => {
+        const result = await client.callTool({ name: 'semver_compare', arguments: args });
+        return (result as any).error.code;
+      };
+      expect(await codeFor({ old: 'pkg@', oldAs: 'npm' })).toBe('invalid_argument');
+      expect(await codeFor({ old: 'a b', oldAs: 'ref' })).toBe('invalid_argument');
+      expect(await codeFor({ old: 'no-such-ref-anywhere', oldAs: 'ref' })).toBe('analysis_failed');
+    });
+
+    // `parseSourceInputKind` on the CLI reads a falsy kind as "not specified",
+    // which is how a template that leaves the input blank spells it. The two
+    // surfaces have to accept the same set or the same call means two things.
+    it('reads an empty source kind as unset, like the CLI does', async () => {
+      const { client } = await createConnectedClient();
+      const dir = path.join(FIXTURES, 'export-added', 'old');
+      const result = await client.callTool({
+        name: 'semver_compare',
+        arguments: { old: dir, new: dir, oldAs: '', newAs: '' },
+      });
+      expect(result.isError).toBeFalsy();
+    });
+
+    // The CLI takes `ref` and `git` for the same thing, and the README's advice
+    // about monorepo tags is written with `ref`, so a caller that read either one
+    // has to land somewhere sensible.
+    it('takes ref as a spelling of git', async () => {
+      const { client } = await createConnectedClient();
+      const result = await client.callTool({
+        name: 'semver_compare',
+        arguments: { old: 'no-such-ref-anywhere', oldAs: 'ref' },
+      });
+      expect(result.isError).toBe(true);
+      const text = (result.content as Array<{ type: string; text: string }>)[0].text;
+      // Resolved as a git ref and failed there, rather than refused as a value.
+      expect(text).not.toContain('must be one of');
+      expect((result as any).error.code).toBe('analysis_failed');
     });
 
     // Only the second entry file changes, so a comma that is not split reads as
@@ -231,6 +288,44 @@ describe('MCP server', () => {
 
       const covered = JSON.parse((await call('major')).content[0].text);
       expect(covered.declaration.verdict).toBe('ok');
+    });
+
+    // The gate is the one thing the tool exists to say, and over MCP there is no
+    // exit code to say it with. These assert the same rule the CLI runs, so the
+    // two cannot drift: a proven break fails both gates, a review-only major
+    // fails only `strictReview`, and a declaration takes over from both.
+    it('reports what each CLI gate would do', async () => {
+      const { client } = await createConnectedClient();
+      const call = (fixture: string, extra: Record<string, unknown> = {}) =>
+        client.callTool({
+          name: 'semver_compare',
+          arguments: {
+            old: path.join(FIXTURES, fixture, 'old'),
+            new: path.join(FIXTURES, fixture, 'new'),
+            oldAs: 'path',
+            newAs: 'path',
+            ...extra,
+          },
+        });
+      const gateOf = async (fixture: string, extra?: Record<string, unknown>) =>
+        JSON.parse((await call(fixture, extra)).content[0].text).gate;
+
+      expect(await gateOf('export-removed')).toEqual({ strict: 'fail', strictReview: 'fail' });
+      expect(await gateOf('export-added')).toEqual({ strict: 'pass', strictReview: 'pass' });
+      // A major the analyzer could not prove is exactly the gap between the two.
+      expect(await gateOf('fn-return-only-generic-heuristic')).toEqual({
+        strict: 'pass',
+        strictReview: 'fail',
+      });
+      // A declaration that covers the break passes both, flags or not.
+      expect(await gateOf('export-removed', { declared: 'major' })).toEqual({
+        strict: 'pass',
+        strictReview: 'pass',
+      });
+      expect(await gateOf('export-removed', { declared: 'patch' })).toEqual({
+        strict: 'fail',
+        strictReview: 'fail',
+      });
     });
 
     it('omits the declaration when none was asked for', async () => {
@@ -612,6 +707,57 @@ describe('MCP server', () => {
         const compareResponse = await receiveStdioMessage(stdout, 20_000);
         const report = JSON.parse(compareResponse.result.content[0].text);
         expect(report.recommended).toBe('minor');
+      } finally {
+        await server.close();
+      }
+    });
+
+    it('refuses an argument that is not in the tool schema', async () => {
+      // `additionalProperties: false` is advertised but not enforced by the SDK,
+      // which passes `tools/call` arguments through as they arrive. Without the
+      // handler's own check a caller reaching for a CLI flag name would get an
+      // analysis that quietly ignored it. Over stdio because that is the
+      // transport a real client uses, and the in-process suite covers the rest
+      // of the handler.
+      const server = createMcpServer();
+      const stdin = new PassThrough();
+      const stdout = new PassThrough();
+      await server.connect(new StdioServerTransport(stdin, stdout));
+
+      try {
+        sendStdioMessage(stdin, {
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'initialize',
+          params: {
+            protocolVersion: '2025-11-25',
+            capabilities: {},
+            clientInfo: { name: 'stdio-test-client', version: '1.0.0' },
+          },
+        });
+        await receiveStdioMessage(stdout);
+        sendStdioMessage(stdin, { jsonrpc: '2.0', method: 'notifications/initialized', params: {} });
+
+        sendStdioMessage(stdin, {
+          jsonrpc: '2.0',
+          id: 2,
+          method: 'tools/call',
+          params: {
+            name: 'semver_compare',
+            arguments: {
+              old: path.join(FIXTURES, 'export-added', 'old'),
+              new: path.join(FIXTURES, 'export-added', 'new'),
+              oldAs: 'path',
+              newAs: 'path',
+              instalDeps: true,
+            },
+          },
+        });
+
+        const response = await receiveStdioMessage(stdout);
+        expect(response.result.isError).toBe(true);
+        expect(response.result.content[0].text).toContain('instalDeps');
+        expect(response.result.content[0].text).toContain('installDeps');
       } finally {
         await server.close();
       }
