@@ -2,12 +2,14 @@ import { execFileSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { InvalidSourceInput } from './source-ref.js';
 
 const SAFE_REF_RE = /^[a-zA-Z0-9._\-\/^~@{}:]+$/;
 
 export function resolveGitRef(ref: string, cwd?: string): string {
   if (!SAFE_REF_RE.test(ref)) {
-    throw new Error(`Invalid git ref: '${ref}'`);
+    // Shape, not existence: this ref could never name anything.
+    throw new InvalidSourceInput(`Invalid git ref: '${ref}'`);
   }
 
   const workingDir = cwd ?? process.cwd();

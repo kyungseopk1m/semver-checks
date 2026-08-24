@@ -30,6 +30,14 @@ function looksLikeVersion(v: string): boolean {
  * like `legacy`) is accepted. Auto-detection keeps the strict check to avoid
  * misreading a `name@branch`-shaped git ref as an npm spec.
  */
+/**
+ * A source argument that is malformed, as opposed to one that is well-formed and
+ * could not be found. The first is fixed by sending something else; retrying the
+ * second unchanged is the wasted work, and a caller that cannot re-read its own
+ * request has only the error to tell them apart.
+ */
+export class InvalidSourceInput extends Error {}
+
 export function parseNpmSpec(
   input: string,
   opts?: { explicit?: boolean },
@@ -48,9 +56,18 @@ export function parseNpmSpec(
 }
 
 export function resolveSourceInput(input: string, preferredKind?: SourceInputKind): SourceRef {
+  // An empty source is not a source. Left alone it falls through to the path
+  // branch, where `resolvePath('')` is the working directory, so `compare "" x`
+  // quietly analyzed the current tree and answered about a version nobody named.
+  // On a gate that is the worst possible failure: a green run on a question that
+  // was never asked. Both surfaces reach resolution through here.
+  if (input.trim() === '') {
+    throw new InvalidSourceInput('Source is empty. Pass a path, a git ref, or an npm spec.');
+  }
+
   if (preferredKind === 'npm') {
     const spec = parseNpmSpec(input, { explicit: true });
-    if (!spec) throw new Error(`Invalid npm spec: '${input}'. Expected '<package>@<version>'.`);
+    if (!spec) throw new InvalidSourceInput(`Invalid npm spec: '${input}'. Expected '<package>@<version>'.`);
     return { type: 'npm', spec: `${spec.name}@${spec.version}` };
   }
 
@@ -65,7 +82,7 @@ export function resolveSourceInput(input: string, preferredKind?: SourceInputKin
   // Explicit `npm:` scheme always wins over path/git auto-detection.
   if (input.startsWith('npm:')) {
     const spec = parseNpmSpec(input);
-    if (!spec) throw new Error(`Invalid npm spec: '${input}'. Expected '<package>@<version>'.`);
+    if (!spec) throw new InvalidSourceInput(`Invalid npm spec: '${input}'. Expected '<package>@<version>'.`);
     return { type: 'npm', spec: `${spec.name}@${spec.version}` };
   }
 
