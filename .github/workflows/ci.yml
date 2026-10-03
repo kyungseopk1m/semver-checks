@@ -44,7 +44,7 @@ jobs:
       # Node-independent, and pinned to the version publish.yml uses so the
       # packaging check runs where the package is actually built for release.
       - name: Package quality check
-        if: matrix.node-version == '22'
+        if: matrix.node-version == '24'
         run: npm run check
 
       # Dogfood: run semver-checks on itself against the last published release.
