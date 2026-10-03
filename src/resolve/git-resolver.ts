@@ -4,7 +4,12 @@ import os from 'os';
 import path from 'path';
 import { InvalidSourceInput } from './source-ref.js';
 
-const SAFE_REF_RE = /^[a-zA-Z0-9._\-\/^~@{}:]+$/;
+// No leading '-': `git archive` would read it as an option, and `-o<path>`
+// opens that path for writing (truncating it) before failing for want of a tree.
+// Such a ref never worked here anyway, since git took it as an option. A ref
+// created as refs/heads/-x (git branch refuses the name; update-ref does not)
+// is still reachable as heads/-x.
+const SAFE_REF_RE = /^(?!-)[a-zA-Z0-9._\-\/^~@{}:]+$/;
 
 export function resolveGitRef(ref: string, cwd?: string): string {
   if (!SAFE_REF_RE.test(ref)) {

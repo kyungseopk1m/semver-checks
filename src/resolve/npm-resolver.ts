@@ -9,7 +9,8 @@ import path from 'path';
 // class must cover everything a valid version/range/dist-tag can contain — notably
 // `+` for semver build metadata (e.g. 1.0.0+build.5) and a space for ranges
 // (e.g. ">=1 <2") — so a spec that source-ref already accepted never trips here.
-export const SAFE_SPEC_RE = /^(@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*@[a-zA-Z0-9-._~^><=|*+. ]+$/;
+// A leading '-' would reach npm as an option rather than a spec.
+export const SAFE_SPEC_RE = /^(?!-)(@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*@[a-zA-Z0-9-._~^><=|*+. ]+$/;
 
 export interface NpmResolution {
   /** Directory containing the extracted package (the tarball's `package/` root). */

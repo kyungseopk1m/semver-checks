@@ -3,6 +3,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { resolveSourceInput, parseNpmSpec } from '../src/resolve/source-ref.js';
+import { resolveGitRef } from '../src/resolve/git-resolver.js';
+import { resolveNpmSpec } from '../src/resolve/npm-resolver.js';
 
 const tmpDirs: string[] = [];
 
@@ -126,5 +128,24 @@ describe('parseNpmSpec', () => {
     expect(parseNpmSpec('pkg@my-tag')).toBeNull();
     // Even when explicit, a name without a version is still not a spec.
     expect(parseNpmSpec('@scope/pkg', { explicit: true })).toBeNull();
+  });
+});
+
+describe('option-shaped inputs', () => {
+  // `git archive -o<path>` opens <path> for writing before it fails, so a ref
+  // that reached git would truncate the file even though the call throws.
+  it('rejects a git ref that starts with "-" before git sees it', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'semver-checks-optref-'));
+    tmpDirs.push(dir);
+    const victim = path.join(dir, 'victim.txt');
+    fs.writeFileSync(victim, 'keep');
+    for (const ref of [`-o${victim}`, '--list', '-v']) {
+      expect(() => resolveGitRef(ref)).toThrow(/Invalid git ref/);
+    }
+    expect(fs.readFileSync(victim, 'utf8')).toBe('keep');
+  });
+
+  it('rejects an npm spec that starts with "-"', () => {
+    expect(() => resolveNpmSpec('-x@1.0.0')).toThrow(/Invalid npm spec/);
   });
 });
