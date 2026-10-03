@@ -14,7 +14,7 @@ import { resolveNpmSpec } from './resolve/npm-resolver.js';
 import { resolveSourceInput, type SourceInputKind } from './resolve/source-ref.js';
 import type { SemverReport } from './types.js';
 import { ensureProjectDeps } from './resolve/dependency-installer.js';
-import { getPackageVersion } from './package-info.js';
+import { defaultOldSource, getPackageVersion } from './package-info.js';
 
 const compareCommand = defineCommand({
   meta: {
@@ -24,8 +24,8 @@ const compareCommand = defineCommand({
   args: {
     old: {
       type: 'positional',
-      description: 'Old version (git ref or path)',
-      required: true,
+      description: 'Old version (git ref, path, or npm spec; defaults to this package\'s latest release)',
+      required: false,
     },
     new: {
       type: 'positional',
@@ -79,10 +79,13 @@ const compareCommand = defineCommand({
     },
   },
   async run({ args }) {
-    const oldRef = args.old;
     const newRef = args.new ?? '.';
 
     try {
+      // Inside the try so a package.json that cannot answer this reports one
+      // line and exit 2, the way every other unusable input does.
+      const oldRef = args.old ?? defaultOldSource(process.cwd());
+
       const report = await compare({
         oldSource: resolveSourceInput(oldRef, parseSourceInputKind(args.oldAs, '--old-as')),
         newSource: resolveSourceInput(newRef, parseSourceInputKind(args.newAs, '--new-as')),
@@ -214,6 +217,21 @@ const main = defineCommand({
   },
 });
 
+/**
+ * citty picks the subcommand off the first non-flag argument, and a command
+ * that has subCommands but no `run` of its own can only print usage without
+ * one. `compare` is what the tool is for, so an argv naming no subcommand runs
+ * that instead of the usage screen.
+ *
+ * `--help` and `--version` are left alone so they keep answering for the
+ * top-level command, which is where both subcommands are listed.
+ */
+function withDefaultSubCommand(argv: string[]): string[] {
+  if (argv.some((arg) => !arg.startsWith('-'))) return argv;
+  if (argv.some((arg) => arg === '--help' || arg === '-h' || arg === '--version')) return argv;
+  return ['compare', ...argv];
+}
+
 if (process.argv.includes('--mcp')) {
   import('./mcp.js')
     .then((m) => m.startMcpServer())
@@ -222,5 +240,5 @@ if (process.argv.includes('--mcp')) {
       process.exit(2);
     });
 } else {
-  runMain(main);
+  runMain(main, { rawArgs: withDefaultSubCommand(process.argv.slice(2)) });
 }

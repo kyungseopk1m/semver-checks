@@ -355,15 +355,24 @@ function parseVersion(version: string): ParsedVersion | null {
 
 // ---------------------------------------------------------------- files
 
-function readPackageField(projectPath: string, field: 'name' | 'version'): string | null {
+// Null covers every way there is nothing to read: no file, unreadable, not
+// valid JSON, or JSON that is not an object. No caller can act on which one it
+// was, so they are not told apart. Exported for `defaultOldSource`, which needs
+// a field this reader's string-only contract cannot carry.
+export function readPackageJson(projectPath: string): Record<string, unknown> | null {
   const text = readFile(path.join(projectPath, 'package.json'));
   if (text === null) return null;
   try {
-    const value = (JSON.parse(text) as Record<string, unknown>)[field];
-    return typeof value === 'string' && value.length > 0 ? value : null;
+    const parsed = JSON.parse(text) as Record<string, unknown> | null;
+    return typeof parsed === 'object' && parsed !== null ? parsed : null;
   } catch {
     return null;
   }
+}
+
+function readPackageField(projectPath: string, field: 'name' | 'version'): string | null {
+  const value = readPackageJson(projectPath)?.[field];
+  return typeof value === 'string' && value.length > 0 ? value : null;
 }
 
 function readFile(file: string): string | null {

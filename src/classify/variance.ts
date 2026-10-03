@@ -96,6 +96,9 @@ interface InstalledScope {
   lines: string[];
 }
 let scope: InstalledScope | null = null;
+// Stand-ins a probe had to invent for the comparison in progress, so they can be
+// taken back out when it ends.
+let probeStubNames: string[] = [];
 
 // How many times to re-render after repairing what the compiler rejected. A
 // repair cascades (dropping one declaration invalidates another that referenced
@@ -221,6 +224,9 @@ export function setVarianceScope(
 /** Drop the installed scope. Callers must do this when a comparison ends. */
 export function clearVarianceScope(): void {
   scope = null;
+  // The stand-in list belongs to the scope being dropped. Leaving it behind would
+  // let the next comparison's first probe take back names it never invented.
+  probeStubNames = [];
   const existing = getProject().getSourceFile(SCOPE_FILE);
   if (existing) getProject().removeSourceFile(existing);
 }
@@ -276,6 +282,40 @@ function stubMissingNames(errors: Diagnostic[]): boolean {
   }
   if (added) writeScopeFile();
   return added;
+}
+
+// Stand in for what a probe could not resolve, and report whether anything was
+// added. `stubMissingNames` repairs the names a rendered *declaration* reaches,
+// so a name only the two type texts reach is never stood in for and the probe
+// bails on that alone. A generic of the probe's own is left out: it already has
+// a file-scope alias of that name, and a stub would collide with it.
+//
+// These go into the installed scope, so `restsOnDifferentStubs` weighs them like
+// any other stand-in, and `dropProbeStubs` removes them when the comparison ends:
+// what one probe had to invent must not change what the next one decides.
+function stubProbeNames(errors: Diagnostic[], typeParameters: ApiTypeParameter[]): boolean {
+  const s = scope;
+  if (!s) return false;
+  const taken = new Set(typeParameters.map((tp) => tp.name));
+  let added = false;
+  for (const d of errors) {
+    const hit = MISSING_NAME.exec(diagnosticText(d));
+    if (!hit) continue;
+    const name = hit[1];
+    if (taken.has(name) || RESERVED_TYPE_NAMES.has(name)) continue;
+    if (s.stubs.has(name) || s.declNames.has(name) || s.neverStub.has(name)) continue;
+    s.stubs.set(name, renderOpaqueStub(name));
+    probeStubNames.push(name);
+    added = true;
+  }
+  return added;
+}
+
+function dropProbeStubs(): void {
+  if (probeStubNames.length === 0) return;
+  for (const name of probeStubNames) scope?.stubs.delete(name);
+  probeStubNames = [];
+  writeScopeFile();
 }
 
 // Synthesize one nominal `type T = Constraint & { [brand]: 'nominal' };` per
@@ -341,32 +381,40 @@ function isAssignable(
   const withheld = withheldStubs(typeParameters);
   try {
     if (withheld.length > 0) writeScopeFile(withheld);
-    const sourceFile = project.createSourceFile('__variance_probe__.ts', content, {
-      overwrite: true,
-    });
-    try {
-      const errors = sourceFile
-        .getPreEmitDiagnostics()
-        .filter((d) => d.getCategory() === DiagnosticCategory.Error);
-
-      if (errors.length === 0) {
-        return true;
-      }
-
-      // An error on either namespace definition (or the declaration) means the
-      // type text could not be resolved standalone -> undecidable.
-      const hasDefinitionError = errors.some((d) => {
-        const line = d.getLineNumber();
-        return line === undefined || line < assignLine;
+    // Two passes at most: the second reads the same probe against stand-ins for
+    // the names the first could not resolve, and a name still unresolved after
+    // that is one nothing here can supply.
+    for (let pass = 0; ; pass++) {
+      const sourceFile = project.createSourceFile('__variance_probe__.ts', content, {
+        overwrite: true,
       });
-      if (hasDefinitionError) {
-        return null;
-      }
+      try {
+        const errors = sourceFile
+          .getPreEmitDiagnostics()
+          .filter((d) => d.getCategory() === DiagnosticCategory.Error);
 
-      // Errors confined to the assignment line: the value is not assignable.
-      return false;
-    } finally {
-      project.removeSourceFile(sourceFile);
+        if (errors.length === 0) {
+          return true;
+        }
+
+        // An error on either namespace definition (or the declaration) means the
+        // type text could not be resolved standalone -> undecidable, unless what
+        // it could not resolve was a name.
+        const hasDefinitionError = errors.some((d) => {
+          const line = d.getLineNumber();
+          return line === undefined || line < assignLine;
+        });
+        if (!hasDefinitionError) {
+          // Errors confined to the assignment line: the value is not assignable.
+          return false;
+        }
+        if (pass > 0 || !stubProbeNames(errors, typeParameters)) {
+          return null;
+        }
+        writeScopeFile(withheld);
+      } finally {
+        project.removeSourceFile(sourceFile);
+      }
     }
   } finally {
     if (withheld.length > 0) writeScopeFile();
@@ -515,6 +563,18 @@ function namesDifferentDeclarations(oldText: string, newText: string): boolean {
 }
 
 export function compareTypeText(
+  oldText: string,
+  newText: string,
+  context?: VarianceContext,
+): TypeRelation | null {
+  try {
+    return compare(oldText, newText, context);
+  } finally {
+    dropProbeStubs();
+  }
+}
+
+function compare(
   oldText: string,
   newText: string,
   context?: VarianceContext,

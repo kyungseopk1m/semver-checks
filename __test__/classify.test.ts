@@ -2231,6 +2231,32 @@ describe('graded confidence', () => {
     expect(report.changes.map((c) => c.kind)).toContain('param-type-widened');
   });
 
+  it('stands in for a name only the probe reaches', () => {
+    // The repair rounds stand in for what a rendered *declaration* names, and a
+    // function is not rendered, so a parameter type reaching a non-exported
+    // interface had nothing to resolve against and the probe bailed on the name
+    // alone. Widening a parameter union is a minor whether or not `Ghost` had to
+    // be invented to see that.
+    const report = compareFixture('scope-probe-stub-stands-in');
+    expect(report.summary.major).toBe(0);
+    expect(report.changes.map((c) => c.kind)).toEqual(['param-type-widened']);
+  });
+
+  it('reads a generic the same way whether or not a stand-in came before it', () => {
+    // A stand-in the probe invents belongs to the comparison that needed it: it
+    // is in the scope while `restsOnDifferentStubs` weighs it, and out again when
+    // that comparison ends. Left behind, it would meet `beta`, whose generic
+    // carries the same name, and turn a widening the pair decides on its own into
+    // a conservative major that depends on which finding was read first.
+    const alone = compareFixture('scope-probe-generic-alone');
+    const after = compareFixture('scope-probe-generic-after-stub');
+    const beta = (report: ReturnType<typeof compareFixture>) =>
+      report.changes.find((c) => c.symbolPath === 'beta.items');
+    expect(beta(alone)?.kind).toBe('param-type-widened');
+    expect(beta(after)).toEqual(beta(alone));
+    expect(after.summary.major).toBe(0);
+  });
+
   it('round-trips a quoted member name through the scope', () => {
     // A rendered declaration that does not parse is dropped, and a dropped
     // declaration takes the probe back to bailing. `'content-type'` has to come

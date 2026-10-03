@@ -26,7 +26,7 @@ inputs:
     required: false
     default: ''
   install-deps:
-    description: "Install dependencies before analysis. Only affects local path inputs; a git ref or an npm spec installs on its own."
+    description: "Install dependencies on both sides before analysis, whatever their source kind. Needed for a local path; a git ref already installs on its own."
     required: false
     default: 'false'
   format:
@@ -46,7 +46,7 @@ inputs:
     required: false
     default: ''
   comment:
-    description: "Post the report to the pull request as a single comment, edited in place on later pushes."
+    description: "Post the report to the pull request as a comment, updating the token owner's most recent one on later pushes."
     required: false
     default: 'false'
   token:
