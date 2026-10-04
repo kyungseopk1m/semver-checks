@@ -5,20 +5,29 @@
 
 # semver-checks
 
-`p-limit` 6.1.0 added a required `concurrency` property to its exported `LimitFunction` object type and released it as a minor. Consumer-owned stubs that satisfied 6.0.0 without that property no longer compile.
+`pino` 10.4.0, a minor release, added `export { pino as default, pino }` inside its `pino` namespace. That turns off implicit export for 9 members of the namespace, so `const t: pino.TimeFn = () => ''` compiles against 10.3.1 and fails against 10.4.0 with TS2694, "Namespace 'pino' has no exported member 'TimeFn'".
 
 ```bash
-npx semver-checks compare p-limit@6.0.0 p-limit@6.1.0
+npx semver-checks compare pino@10.3.1 pino@10.4.0
 ```
+
+Run with no arguments in a publishable package directory, `npx semver-checks` compares `<name>@latest` against `.`. This default is CLI-only: the GitHub Action and the MCP `semver_compare` tool need `old` explicitly.
 
 ```
 semver-checks — Recommended bump: MAJOR
-  major: 1 (confident: 1, review: 0)  minor: 0  patch: 0
+  major: 20 (confident: 11, review: 9)  minor: 88  patch: 0
 
   Breaking Changes — confident (MAJOR)
-  ✗ Required property 'concurrency' was added to interface 'LimitFunction'
-      now: number
+  ✗ Export 'TimeFn' was removed
+      was: type-alias
+  ✗ Export 'MixinFn' was removed
+      was: type-alias
+  ✗ Export 'MixinMergeStrategyFn' was removed
+      was: type-alias
+  ...
 ```
+
+The output is trimmed to the bump counts and three of the 9 removed exports (`...` marks the cut, and stderr warnings are omitted); the full run also lists the other six, plus review-only findings and the added exports.
 
 semver-checks compares the TypeScript declarations on both sides and recommends the bump the type changes require, so the answer comes from the API rather than from the commit message. Neither side needs a checkout: each can be an npm spec, a git ref, or the working tree.
 
@@ -38,7 +47,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
       - run: npm ci
       - uses: kyungseopk1m/semver-checks@v0.14.0
         with:
@@ -216,7 +225,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
       - run: npm ci
 
       - uses: kyungseopk1m/semver-checks@v0.14.0
@@ -246,7 +255,7 @@ A full example lives in [`examples/github-actions.yml`](examples/github-actions.
 
 #### On a release pull request
 
-The check that has no equivalent elsewhere: does the bump this release declares cover what its API surface did? `declared: auto` reads the bump from `.changeset/*.md` and falls back to the two `package.json` versions, and `comment: true` puts the verdict on the pull request instead of leaving it in the log.
+Does the bump this release declares cover what its API surface did? `@clerk/break-check` and `semvet` also score the declared bump from the two `package.json` versions; reading it from `.changeset` files is what is specific here. `declared: auto` reads the bump from `.changeset/*.md` and falls back to the two `package.json` versions, and `comment: true` puts the verdict on the pull request instead of leaving it in the log.
 
 ```yaml
 permissions:
@@ -260,7 +269,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
       - run: npm ci
 
       - uses: kyungseopk1m/semver-checks@v0.14.0
@@ -408,6 +417,12 @@ Two tools: `semver_compare` and `semver_snapshot`. Setup for other clients and t
 | Recommendation | Automatic       | Based on message format | Manual per change           | Dependency updates only |
 
 semver-checks is a verification layer, not a release tool. Use it alongside `semantic-release` or `changesets` to check whether the declared bump matches the API changes.
+
+### How it differs
+
+[`ts-semver-checks`](https://www.npmjs.com/package/ts-semver-checks), [`@clerk/break-check`](https://www.npmjs.com/package/@clerk/break-check) and [`semvet`](https://github.com/Nithinfgs/semvet) each compare a local build against a baseline. `ts-semver-checks` and `semvet` use compiler assignability; `ts-semver-checks` takes the bump you expect through `--expect` and has no Action or MCP server, while `semvet` scores the declared bump from `package.json`. `@clerk/break-check` diffs API Extractor snapshots, adds an LLM review pass, scores the declared bump from `package.json`, and handles multi-package monorepos.
+
+semver-checks can compare two published npm releases directly (`compare pkg@x pkg@y`), reads the declared bump from `.changeset` files, ships an MCP server, and publishes its accuracy numbers in [docs/accuracy.md](docs/accuracy.md).
 
 ## How It Works
 

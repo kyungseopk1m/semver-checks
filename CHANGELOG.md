@@ -2,6 +2,37 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Breaking
+
+The first change can turn a script that passed into one that fails, so check wrappers around the CLI.
+
+- **An unknown flag or command exits 2.** An unrecognized flag used to be ignored, so a misspelled `--stirct` turned a failing gate into a silent pass; an unknown command (`semver-checks compre a b`) did not exit 2 either. Both now print an error and exit 2. Flags are checked against the command they belong to, `--` ends flag parsing, and every spelling that worked before (`--strict-review`, `--strictReview`, `--install-deps`) still does.
+- **Flags written before an omitted command run the default `compare`.** `semver-checks --format json` used to read the flag value as a command name (`Unknown command json`, exit 1).
+- **A string flag with no usable value is a usage error.** `--entry -x.d.ts`, or a string flag at the end of the line, used to run with the flag silently empty. It now exits 2 and suggests `--entry=-x.d.ts`.
+- **Sources after `--` are never read as options.** `--help`, `-h`, `--version` and `--mcp` after `--` are treated as sources.
+- **`--version` prints the version wherever it appears.** It no longer depends on being the only argument.
+
+### Fixed
+
+- **Extraction runs in a worker thread.** A package whose types exhaust the heap used to abort the whole process, skip the cleanup of its temp directories and exit 134. The worker gets a heap limit taken from the process's (approximately the same), and one that runs out of memory now ends the run with exit 2 and a message naming the package and the `NODE_OPTIONS=--max-old-space-size=<MB>` knob, with temp directories removed. The two sides are extracted one after the other instead of together.
+- **A type too large to print is bounded and reported as not compared.** Printing the type is cut off at a fixed node budget instead of expanding without limit. When its declared text differs between the two sides it is review-only; when it is identical it compares equal. A heritage clause that carries the marker is never graded `proven`. This fixes the heap exhaustion on `pino` 10.4.0, `drizzle-orm` 0.45.3 and `type-fest`.
+- **`SIGHUP`, `SIGINT` and `SIGTERM` remove the temp directories.** The CLI exits 129, 130 or 143, the shell's 128 plus the signal number, after removing what the resolvers created.
+- **stdout is no longer cut off at 64 KB when a gate fails and the output is piped.** The CLI sets `process.exitCode` instead of calling `process.exit()` while the report is still being written.
+- **A namespace that re-exports itself no longer overflows the stack.** `namespace foo { export { foo as default, foo } }` merged with `function foo`, including when the namespace is merged across several blocks, is walked once.
+- **`types@<range>` export conditions are honoured in the order they are written.** The compiler takes the first matching condition, and `jotai` 3.0.1 lists `types@>=5.5` before a `types` that points at an empty stub, which used to be read instead.
+- **The MCP tools return `invalid_argument` for a malformed npm name such as `-x@1`.** A name may no longer start with `-`, so it is rejected before it can reach `npm pack` as an option.
+- **`git archive` has a 120 second timeout.** A hung archive of a git ref now fails the run instead of waiting forever.
+- **The GitHub Action passes `--` before the `old` and `new` inputs.** An input that begins with `-` is read as a source, never as a flag.
+- **`--help` shows the kebab-case flag names** (`--strict-review`, `--install-deps`, `--old-as`, `--new-as`), which is how the docs spell them.
+
+### Docs
+
+- README: the first example is now `pino` 10.3.1 to 10.4.0, a "How it differs" section compares semver-checks with `ts-semver-checks`, `@clerk/break-check` and `semvet`, and the workflow examples use Node 22.
+- `docs/accuracy.md`: a short note on when to choose `--strict` over `--strict-review`, and the limitation on oversized types is rewritten for the bounded behaviour above.
+- `docs/cli.md`: the exit-2 row covers misuse, the default `old` is noted as CLI-only (the Action and MCP require it), and the worker-thread and signal behaviour are described.
+
 ## [0.14.0] - 2026-10-03
 
 ### Security
