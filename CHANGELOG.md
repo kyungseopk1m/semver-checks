@@ -6,31 +6,43 @@ All notable changes to this project will be documented in this file.
 
 ### Breaking
 
-The first change can turn a script that passed into one that fails, so check wrappers around the CLI.
+Each change below can turn a command that used to pass into one that fails, so check wrappers around the CLI and the Action.
 
 - **An unknown flag or command exits 2.** An unrecognized flag used to be ignored, so a misspelled `--stirct` turned a failing gate into a silent pass; an unknown command (`semver-checks compre a b`) did not exit 2 either. Both now print an error and exit 2. Flags are checked against the command they belong to, `--` ends flag parsing, and every spelling that worked before (`--strict-review`, `--strictReview`, `--install-deps`) still does.
-- **Flags written before an omitted command run the default `compare`.** `semver-checks --format json` used to read the flag value as a command name (`Unknown command json`, exit 1).
-- **A string flag with no usable value is a usage error.** `--entry -x.d.ts`, or a string flag at the end of the line, used to run with the flag silently empty. It now exits 2 and suggests `--entry=-x.d.ts`.
-- **Sources after `--` are never read as options.** `--help`, `-h`, `--version` and `--mcp` after `--` are treated as sources.
-- **`--version` prints the version wherever it appears.** It no longer depends on being the only argument.
+- **A string flag with no usable value is a usage error.** `--entry -x.d.ts`, or a string flag at the end of the line, used to run with the flag silently empty. It now exits 2 and suggests the `--entry=<value>` form.
 - **A boolean flag takes only `true` or `false` as a value, a value after `=` cannot be empty, and a short flag that takes a value must end its bundle.** `--strict=yes` used to read `yes` as true, `--entry=` was reported as an entry naming no file, and `-fs json` was reported as an invalid format. Each now exits 2 with a message that names the mistake. `--strict=true` and `--strict=false` still work.
+- **A boolean flag followed by a bare `true` or `false`, a lone `-`, and `--help`, `-h` or `--version` with a value are usage errors.** `--strict false v1 .` used to turn the gate off and drop a source, `--entry - v1 .` compared the working tree with itself, and `--version=true` ran a full compare. Each now exits 2 and says what to write instead (`--strict=false`, `--entry=<value>`, or a source named `-` after `--`).
+- **Sources after `--` are never read as options.** `--help`, `-h`, `--version` and `--mcp` after `--` are treated as sources, so `semver-checks -- --help` no longer prints help and exits 0.
+- **`--strict-review` can fail on a release that changed nothing, when an inferred type is too large to print.** Such a type has no written annotation to compare instead, so it is always reported as not compared (see Fixed). A type with an annotation is unaffected.
+- **Extraction has a time limit.** A side that does not answer within 600 seconds ends the run with exit 2, where it used to run to completion. The slowest side measured for this release took 85 seconds; `SEMVER_CHECKS_EXTRACT_TIMEOUT` moves the limit.
 
 ### Security
 
 - **Symlinks that point outside an extracted package are removed before it is read.** A tarball or a git archive could carry a link to a file elsewhere on the machine, and extraction followed it into the snapshot. Links whose target is outside the temp directory, or missing, are removed right after extraction; links that stay inside it are kept.
 
+### Accuracy
+
+Unchanged on the 111-pair gate: `--strict` fires on 37 pairs, 36 of them real, precision 97.3% and recall 83.7%; `--strict-review` stays at recall 100%, precision 81.1%. No pair's verdict differs from 0.14.0's.
+
+### Changed
+
+- **`compare()` and `extract()` run extraction in a worker thread, one at a time per process.** The library loads the compiled `extract-worker.js` that ships next to the module; when it is missing, as in a single-file bundle, extraction runs on the calling thread as before, without the heap isolation or the time limit. The worker does not inherit the parent's `execArgv` (`--require`, `--import`). Concurrent calls, such as parallel MCP tool calls, wait for each other, so each worker can have the whole heap.
+- **Flags written before an omitted command run the default `compare`.** `semver-checks --format json` used to read the flag value as a command name (`Unknown command json`, exit 1).
+- **`--version` prints the version wherever it appears.** It no longer depends on being the only argument.
+
 ### Fixed
 
-- **Extraction runs in a worker thread.** A package whose types exhaust the heap used to abort the whole process, skip the cleanup of its temp directories and exit 134. The worker gets a heap limit taken from the process's (approximately the same), and one that runs out of memory now ends the run with exit 2 and a message naming the package and the `NODE_OPTIONS=--max-old-space-size=<MB>` knob, with temp directories removed. The two sides are extracted one after the other instead of together.
-- **A type too large to print is bounded and reported as not compared.** Printing the type is cut off at a fixed node budget instead of expanding without limit. When its declared text differs between the two sides it is review-only; when it is identical it compares equal. A heritage clause that carries the marker is never graded `proven`. This fixes the heap exhaustion on `pino` 10.4.0, `drizzle-orm` 0.45.3 and `type-fest`.
+- **A package whose types exhaust the heap exits 2 instead of crashing.** It used to abort the whole process, skip the cleanup of its temp directories and exit 134. Each side is extracted in its own worker, one at a time, with a heap limit taken from the process's (approximately the same); one that runs out of memory ends the run with exit 2 and a message naming the package and the `NODE_OPTIONS=--max-old-space-size=<MB>` knob, with temp directories removed.
+- **A type too large to print is bounded and reported as not compared.** Printing the type is cut off at a fixed node budget instead of expanding without limit. When the type has a written annotation, the annotation is recorded instead: it compares equal when identical and is review-only when it differs. An inferred type with no annotation is always review-only, even when unchanged, and its `snapshot` text differs between runs. A heritage clause that carries the marker is never graded `proven`. This fixes the heap exhaustion on `pino` 10.4.0, `drizzle-orm` 0.45.3 and `type-fest`.
 - **A declaration the type checker cannot analyze is kept instead of dropped.** When the checker threw on an exported declaration, the name was left out of the snapshot and the run reported it as a proven removal. `type-fest` 5.6.0 to 5.7.0, a minor release, failed `--strict` with two such removals (`IntRange` and `IntClosedRange`, both still exported and unchanged). The name is now recorded with its declared text and the same not-compared marker as a type too large to print, so it compares equal when unchanged and is review-only when it differs.
-- **Extraction has a time limit.** A side that does not answer within 600 seconds ends the run with exit 2 and the temp directories removed, instead of hanging until the CI job is killed. `SEMVER_CHECKS_EXTRACT_TIMEOUT` sets the limit in seconds.
 - **`SIGHUP`, `SIGINT` and `SIGTERM` remove the temp directories.** The CLI exits 129, 130 or 143, the shell's 128 plus the signal number, after removing what the resolvers created.
 - **stdout is no longer cut off at 64 KB when a gate fails and the output is piped.** The CLI sets `process.exitCode` instead of calling `process.exit()` while the report is still being written.
+- **`snapshot` removes its temp directory when it fails.** `process.exit(2)` used to skip the cleanup of an `--npm` or `--ref` snapshot that could not be taken.
 - **A namespace that re-exports itself no longer overflows the stack.** `namespace foo { export { foo as default, foo } }` merged with `function foo`, including when the namespace is merged across several blocks, is walked once.
 - **`types@<range>` export conditions are honoured in the order they are written.** The compiler takes the first matching condition, and `jotai` 3.0.1 lists `types@>=5.5` before a `types` that points at an empty stub, which used to be read instead.
 - **The MCP tools return `invalid_argument` for a malformed npm name such as `-x@1`.** A name may no longer start with `-`, so it is rejected before it can reach `npm pack` as an option.
-- **`git archive` has a 120 second timeout.** A hung archive of a git ref now fails the run instead of waiting forever.
+- **Resolving a git ref no longer fails now and then when several run at once.** `tar` stops reading at the end-of-archive marker, and writing the padding `git archive` adds after it could fail (`EPIPE`) after a complete extraction, so the ref was reported as unresolvable with exit 2. About 2% of resolutions failed with ten in parallel; this goes back to 0.1.0.
+- **`git archive` and unpacking an npm tarball have a 120 second timeout.** A hung archive or unpack now fails the run with a message naming the step, instead of waiting forever.
 - **The GitHub Action passes `--` before the `old` and `new` inputs.** An input that begins with `-` is read as a source, never as a flag.
 - **`--help` shows the kebab-case flag names** (`--strict-review`, `--install-deps`, `--old-as`, `--new-as`), which is how the docs spell them.
 
@@ -38,7 +50,7 @@ The first change can turn a script that passed into one that fails, so check wra
 
 - README: the first example is now `pino` 10.3.1 to 10.4.0, a "How it differs" section compares semver-checks with `ts-semver-checks`, `@clerk/break-check` and `semvet`, and the workflow examples use Node 22.
 - `docs/accuracy.md`: a short note on when to choose `--strict` over `--strict-review`, and the limitation on oversized types is rewritten for the bounded behaviour above.
-- `docs/cli.md`: the exit-2 row covers misuse, the default `old` is noted as CLI-only (the Action and MCP require it), the worker-thread, time limit and signal behaviour are described, and `SEMVER_CHECKS_EXTRACT_TIMEOUT` is listed.
+- `docs/cli.md`: the exit-2 row covers misuse, the default `old` is noted as CLI-only (the Action and MCP require it), `--` and boolean flag values are described, the worker-thread, time limit and signal behaviour are described, and `SEMVER_CHECKS_EXTRACT_TIMEOUT` is listed.
 
 ### Build
 

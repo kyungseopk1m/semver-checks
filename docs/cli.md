@@ -24,6 +24,8 @@ With no subcommand, `semver-checks` runs `compare`, so `npx semver-checks` alone
 - `[old]`: an npm spec (`pkg@version`), a git ref (tag, branch, commit SHA), or a local directory path for the old version; defaults to `npm:<name>@latest`, read from the `package.json` in the current directory (exit 2 when it has no `name` or is `private`). This default is CLI-only: the GitHub Action (`old` is `required: true` in `action.yml`) and the MCP `semver_compare` tool (`required: ['old']`) need `old` explicitly
 - `[new]`: npm spec, git ref, or path for the new version; defaults to `.` (current directory)
 
+`--` ends the options: everything after it is a source, which is the way to pass one that starts with `-`. A boolean flag accepts `=true` or `=false` and no other value (`--strict false`, with a space, is an error), `--help` and `--version` take no value, a lone `-` is not accepted before `--`, and a short flag that takes a value must come last in a bundle (`-sf json`, not `-fs json`).
+
 **Exit codes:**
 
 | Code | Meaning                                                                                       |
@@ -123,5 +125,5 @@ Exits 2 when nothing usable could be extracted, rather than printing an empty su
 | Variable                                  | Description                                                                                 |
 | ----------------------------------------- | ------------------------------------------------------------------------------------------- |
 | `SEMVER_CHECKS_VERBOSE=1`                 | Print warnings for skipped symbols, type resolution failures, and dependency install issues |
-| `SEMVER_CHECKS_EXTRACT_TIMEOUT=<seconds>` | Time limit for extracting one side (default 600); past it the run exits 2                   |
+| `SEMVER_CHECKS_EXTRACT_TIMEOUT=<seconds>` | Time limit for extracting one side (default 600); past it the run exits 2. A value that is not a positive number falls back to 600 |
 

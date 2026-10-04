@@ -27,7 +27,7 @@ semver-checks — Recommended bump: MAJOR
   ...
 ```
 
-The output is trimmed to the bump counts and three of the 9 removed exports (`...` marks the cut, and stderr warnings are omitted); the full run also lists the other six, plus review-only findings and the added exports.
+The output is trimmed to the bump counts and three of the 9 removed exports (`...` marks the cut, and stderr warnings are omitted); the full run also lists the other six, two required properties added to `MultiStreamRes`, the review-only findings and the additions.
 
 semver-checks compares the TypeScript declarations on both sides and recommends the bump the type changes require, so the answer comes from the API rather than from the commit message. Neither side needs a checkout: each can be an npm spec, a git ref, or the working tree.
 
