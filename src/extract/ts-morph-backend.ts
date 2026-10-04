@@ -507,6 +507,19 @@ function collectContainerExports(
         if (process.env['SEMVER_CHECKS_VERBOSE']) {
           process.stderr.write(`[semver-checks] warning: could not analyze '${name}': ${err}\n`);
         }
+        // The checker itself can throw on a declaration (type-fest 5.7.0's
+        // `IntRange` builds a tuple too large to represent). Dropping the name
+        // would read as a proven removal, so keep it as an alias whose text is the
+        // declaration's own source plus the not-compared marker: an unchanged
+        // declaration compares equal, a changed one stays review-only, and a
+        // successful analysis on the other side is a review-only kind or text change.
+        const typeNode = Node.isTypeAliasDeclaration(valueDecls[0]) ? valueDecls[0].getTypeNode() : undefined;
+        result[name] = {
+          kind: 'type-alias',
+          name,
+          type: unprintableType(typeNode ?? valueDecls[0]),
+          typeParameters: convertTypeParams(valueDecls[0]),
+        };
       }
     }
 
