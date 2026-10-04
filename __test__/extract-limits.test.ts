@@ -69,6 +69,34 @@ describe('extracted archives', () => {
     }
   });
 
+  it('accepts a git archive that tar stops reading before its end', () => {
+    // tar quits at the end-of-archive marker; trailing bytes it never reads used
+    // to fail the write with EPIPE and the whole ref with it. A stand-in `git`
+    // pads the real archive so that happens every time, not only under load.
+    const repo = mkScratch();
+    fs.writeFileSync(path.join(repo, 'index.d.ts'), 'export declare const ok: number;\n');
+    const realGit = execFileSync('which', ['git'], { encoding: 'utf8' }).trim();
+    const git = (...args: string[]) => execFileSync(realGit, args, { cwd: repo, stdio: 'ignore' });
+    git('init', '-q');
+    git('add', '-A');
+    git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'x');
+    const bin = mkScratch();
+    fs.writeFileSync(path.join(bin, 'git'), `#!/bin/sh\n'${realGit}' "$@" && head -c 8388608 /dev/zero\n`, { mode: 0o755 });
+
+    const savedPath = process.env.PATH;
+    process.env.PATH = `${bin}${path.delimiter}${savedPath}`;
+    try {
+      const tmpDir = resolveGitRef('HEAD', repo);
+      try {
+        expect(fs.readFileSync(path.join(tmpDir, 'index.d.ts'), 'utf8')).toContain('ok');
+      } finally {
+        cleanupTmpDir(tmpDir);
+      }
+    } finally {
+      process.env.PATH = savedPath;
+    }
+  });
+
   it('drops a symlink out of an npm tarball', () => {
     // A stand-in `npm` on PATH that "downloads" a tarball built here, so the
     // real resolver runs end to end without the registry.
@@ -105,6 +133,15 @@ describe('extraction time limit', () => {
       /extracting 'slow-pkg@1\.0\.0' did not finish within 0\.2 s, not an answer/,
     );
     expect(Date.now() - started).toBeLessThan(5_000);
+  });
+
+  it('runs one worker at a time, and a failed one does not block the next', async () => {
+    // Parallel MCP calls each started a worker with the full heap limit.
+    const order: string[] = [];
+    const slow = runWorker(path.join(workers, 'hang.mjs'), null, 'slow', undefined, 300).catch(() => void order.push('hang'));
+    const fast = runWorker(path.join(workers, 'echo.mjs'), 1, 'fast', undefined, 10_000).then(() => void order.push('echo'));
+    await Promise.all([slow, fast]);
+    expect(order).toEqual(['hang', 'echo']);
   });
 
   it('leaves a worker that answers in time alone', async () => {

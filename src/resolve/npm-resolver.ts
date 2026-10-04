@@ -39,7 +39,10 @@ export function resolveNpmSpec(spec: string): NpmResolution {
     const filename = parsePackFilename(out, tmpDir);
     const tgzPath = path.join(tmpDir, filename);
 
-    execFileSync('tar', ['-xzf', tgzPath, '-C', tmpDir]);
+    // A gzip bomb would otherwise hang the run, and a signal is only handled once tar ends.
+    execFileSync('tar', ['-xzf', tgzPath, '-C', tmpDir], { timeout: 120_000 });
+    // Writes through a symlink during extraction are refused or deferred by the
+    // system tar (bsdtar, GNU tar); this only guards the reads that come after.
     removeEscapingSymlinks(tmpDir);
 
     const pkgDir = locatePackageRoot(tmpDir, spec);
@@ -60,6 +63,11 @@ export function resolveNpmSpec(spec: string): NpmResolution {
 // user unable to tell a typo from a registry outage from a missing npm binary.
 export function explainNpmError(spec: string, err: any): string {
   if (err?.code === 'ENOENT') return 'npm was not found on your PATH. Install Node.js/npm and try again.';
+  // err.path is the program that ran out of time: npm pack (60 s) or tar (120 s).
+  if (err?.code === 'ETIMEDOUT')
+    return err.path === 'tar'
+      ? `unpacking '${spec}' with tar did not finish within 120 s.`
+      : `npm pack of '${spec}' did not finish within 60 s.`;
   const out = `${err?.stderr?.toString?.() ?? ''}${err?.stdout?.toString?.() ?? ''}`;
   if (/E404|404 Not Found/i.test(out))
     return `'${spec}' was not found in the npm registry. Check the package name and that the version/tag is published.`;

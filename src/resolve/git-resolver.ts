@@ -1,4 +1,4 @@
-import { execFileSync } from 'child_process';
+import { execFileSync, spawnSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -29,7 +29,16 @@ export function resolveGitRef(ref: string, cwd?: string): string {
       stdio: ['ignore', 'pipe', 'pipe'],
       timeout: 120_000,
     });
-    execFileSync('tar', ['-x', '-C', tmpDir], { input: archive });
+    // tar stops at the end-of-archive marker without reading the padding git
+    // archive writes after it, so writing the rest can fail (EPIPE, or ENOTCONN on
+    // macOS) after a complete, successful extraction. Judge tar by its exit status
+    // alone.
+    const tar = spawnSync('tar', ['-x', '-C', tmpDir], { input: archive });
+    if (tar.status !== 0) {
+      // A killed tar also fails the write, so its spawn error is only the story when it never ran.
+      if (tar.status === null && !tar.signal && tar.error) throw tar.error;
+      throw Object.assign(new Error(`tar exited with ${tar.signal ?? `status ${tar.status}`}`), { stderr: tar.stderr });
+    }
     removeEscapingSymlinks(tmpDir);
   } catch (err: any) {
     cleanupTmpDir(tmpDir);
@@ -43,6 +52,7 @@ export function resolveGitRef(ref: string, cwd?: string): string {
 // git missing, not inside a repo, and a ref that doesn't exist.
 export function explainGitError(ref: string, err: any): string {
   if (err?.code === 'ENOENT') return 'git was not found on your PATH.';
+  if (err?.code === 'ETIMEDOUT') return `git archive of '${ref}' did not finish within 120 s.`;
   const out = `${err?.stderr?.toString?.() ?? ''}${err?.stdout?.toString?.() ?? ''}`;
   if (/not a git repository/i.test(out))
     return 'not inside a git repository. Run from your repo root, or pass a directory path instead of a ref.';

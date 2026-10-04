@@ -25,6 +25,15 @@ describe('explainNpmError', () => {
     const err = { stderr: Buffer.from('some other npm failure line') };
     expect(explainNpmError('pkg@1.0.0', err)).toContain('some other npm failure line');
   });
+
+  it('names the step and the limit when npm pack or tar times out', () => {
+    expect(explainNpmError('pkg@1.0.0', { code: 'ETIMEDOUT', path: 'tar' })).toBe(
+      "unpacking 'pkg@1.0.0' with tar did not finish within 120 s.",
+    );
+    expect(explainNpmError('pkg@1.0.0', { code: 'ETIMEDOUT', path: 'npm' })).toBe(
+      "npm pack of 'pkg@1.0.0' did not finish within 60 s.",
+    );
+  });
 });
 
 describe('explainGitError', () => {
@@ -40,5 +49,10 @@ describe('explainGitError', () => {
   it('detects a ref that does not exist', () => {
     const err = { stderr: Buffer.from('fatal: not a valid object name: v9.9.9') };
     expect(explainGitError('v9.9.9', err)).toMatch(/was not found|check it exists/i);
+  });
+
+  it('names the ref and the limit when git archive times out', () => {
+    const err = { code: 'ETIMEDOUT', message: 'spawnSync git ETIMEDOUT' };
+    expect(explainGitError('v1.0.0', err)).toBe("git archive of 'v1.0.0' did not finish within 120 s.");
   });
 });

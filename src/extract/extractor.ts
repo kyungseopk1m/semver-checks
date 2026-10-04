@@ -43,6 +43,11 @@ function extractTimeoutMs(): number {
   return Math.min(seconds > 0 ? seconds : 600, 2_147_483) * 1000;
 }
 
+// One worker at a time, process-wide. Each gets the main thread's whole heap, and
+// the MCP server does not serialize requests, so parallel calls would multiply it.
+// ponytail: a hung worker holds the queue up to its timeout; a pool if throughput matters.
+let queue: Promise<unknown> = Promise.resolve();
+
 /** @internal Exported for tests, which pass a small heap or timeout to provoke the failure paths. */
 export function runWorker<T>(
   file: string,
@@ -51,6 +56,13 @@ export function runWorker<T>(
   heapMb = mainThreadHeapMb(),
   timeoutMs = extractTimeoutMs(),
 ): Promise<T> {
+  const run = queue.then(() => startWorker<T>(file, workerData, label, heapMb, timeoutMs));
+  // A failed run must not block the ones queued after it.
+  queue = run.catch(() => {});
+  return run;
+}
+
+function startWorker<T>(file: string, workerData: unknown, label: string, heapMb: number, timeoutMs: number): Promise<T> {
   return new Promise((resolve, reject) => {
     // execArgv: [] because a worker inherits the parent's by default, and some of
     // them refuse a file entry point (`node --input-type=module -e ...` would
