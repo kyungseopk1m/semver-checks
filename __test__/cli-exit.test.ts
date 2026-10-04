@@ -163,6 +163,34 @@ describe('CLI exit codes', () => {
     expect(JSON.parse(run.stdout).summary.majorProven).toBe(1);
   });
 
+  it('exits 2 on a lone - before --, which citty read as a flag', async () => {
+    let run = await runCli('compare', '--strict', '--entry', '-', OLD, NEW);
+    expect(run.code).toBe(2);
+    expect(run.stderr).toContain('--entry=<value>');
+    run = await runCli('compare', '--strict', '-', OLD, NEW);
+    expect(run.code).toBe(2);
+    expect(run.stderr).toContain("'-' is not an option");
+  });
+
+  it('exits 2 when a boolean flag is followed by a bare true or false', async () => {
+    // `--strict false OLD NEW` used to turn the gate off and drop OLD.
+    for (const word of ['true', 'false']) {
+      const run = await runCli('compare', '--strict', word, OLD, NEW);
+      expect(run.code).toBe(2);
+      expect(run.stderr).toContain(`write --strict=${word}`);
+    }
+    expect((await runCli('compare', '-s', 'false', OLD, NEW)).stderr).toContain('write -s=false');
+  });
+
+  it('exits 2 on a value given to --help, -h or --version', async () => {
+    // These ran a full compare instead of answering.
+    for (const flag of ['--help=true', '-h=true', '--version=true', '--version=false']) {
+      const run = await runCli('compare', OLD, NEW, flag);
+      expect(run.code).toBe(2);
+      expect(run.stderr).toContain(`Option '${flag.split('=')[0]}' takes no value`);
+    }
+  });
+
   it('prints the kebab spellings in compare --help', async () => {
     const run = await runCli('compare', '--help');
     expect(run.code).toBeUndefined();

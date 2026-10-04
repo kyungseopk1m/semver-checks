@@ -277,7 +277,10 @@ function scanArgs(argv: string[], args: ArgsDef): { first: number; argv: string[
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--') break;
-    if (!arg.startsWith('-') || arg === '-') {
+    // citty reads a lone '-' as a flag and swallows the next word, so
+    // `--entry - v1 .` compared '.' with '.'. It names no stdin or source here.
+    if (arg === '-') throw new UsageError("'-' is not an option; put a source named '-' after '--'");
+    if (!arg.startsWith('-')) {
       if (first === -1) first = i;
       continue;
     }
@@ -310,11 +313,19 @@ function scanArgs(argv: string[], args: ArgsDef): { first: number; argv: string[
       throw new UsageError(`Option '${flag}' takes no value other than true or false`);
     }
     if (value === '') throw new UsageError(`Option '${flag}' needs a value after '='`);
+    // runCli matches these by their exact spelling, so `--help=true` ran a compare.
+    const answered = ['--help', '-h', '--version'].includes(flag);
+    if (answered && value !== undefined) throw new UsageError(`Option '${flag}' takes no value`);
+    const next = argv[i + 1];
+    // citty takes a bare true/false after a boolean as its value: `--strict false v1 .`
+    // turned the gate off and dropped a source.
+    if (spec?.type === 'boolean' && !answered && value === undefined && (next === 'true' || next === 'false')) {
+      throw new UsageError(`Option '${flag}' does not take '${next}' as the next word; write ${flag}=${next}`);
+    }
     if (spec?.type !== 'string' || value !== undefined) continue;
     // citty reads a following word that starts with '-' as another flag and
     // leaves this one empty, so `--entry -x.d.ts` would run with no entry.
-    const next = argv[i + 1];
-    if (next === undefined || (next.startsWith('-') && next !== '-')) {
+    if (next === undefined || next.startsWith('-')) {
       throw new UsageError(`Option '${flag}' needs a value; write one that starts with '-' as ${flag}=<value>`);
     }
     i++;
