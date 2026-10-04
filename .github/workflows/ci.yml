@@ -41,6 +41,14 @@ jobs:
       - name: Build
         run: npm run build
 
+      # The e2e tests call the TypeScript source, so nothing else runs the
+      # compiled output: the extraction worker (whose ESM path fixup.sh rewrites;
+      # without that rewrite extraction silently falls back to in-process),
+      # bin/semver-checks.js, and the SIGTERM temp-dir cleanup. Every leg, since
+      # the worker thread and signal behaviour are the parts that differ by Node.
+      - name: Smoke test (built package)
+        run: npm run smoke
+
       # Node-independent, and pinned to the version publish.yml uses so the
       # packaging check runs where the package is actually built for release.
       - name: Package quality check

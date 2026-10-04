@@ -23,6 +23,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "build": "rm -fr dist/* && tsc -p tsconfig.json && tsc -p tsconfig-cjs.json && ./fixup.sh",
+    "smoke": "node scripts/smoke.mjs",
     "attw": "attw --pack .",
     "publint": "publint --strict",
     "check": "npm run attw && npm run publint",
