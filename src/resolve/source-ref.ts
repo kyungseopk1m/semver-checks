@@ -3,8 +3,9 @@ import { pathExists, resolvePath } from './path-resolver.js';
 
 export type SourceInputKind = 'path' | 'git' | 'npm';
 
-// npm package name (optionally scoped). Mirrors the published-name validation rules.
-const NPM_NAME_RE = /^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/;
+// npm package name (optionally scoped). Mirrors the published-name validation rules,
+// plus no leading '-' so a name can never reach `npm pack` as an option.
+const NPM_NAME_RE = /^(?:@[a-z0-9~][a-z0-9-._~]*\/)?[a-z0-9~][a-z0-9-._~]*$/;
 
 // Common dist-tags that follow a package name after '@'.
 const DIST_TAGS = new Set([

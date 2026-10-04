@@ -2,7 +2,7 @@ import { describe, expect, it, afterAll } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { resolveSourceInput, parseNpmSpec } from '../src/resolve/source-ref.js';
+import { resolveSourceInput, parseNpmSpec, InvalidSourceInput } from '../src/resolve/source-ref.js';
 import { resolveGitRef } from '../src/resolve/git-resolver.js';
 import { resolveNpmSpec } from '../src/resolve/npm-resolver.js';
 
@@ -87,6 +87,14 @@ describe('resolveSourceInput', () => {
 
   it('leaves a scoped name without a version as a git ref', () => {
     expect(resolveSourceInput('@scope/pkg')).toEqual({ type: 'git', ref: '@scope/pkg' });
+  });
+
+  it('rejects an option-shaped npm name instead of passing it on', () => {
+    expect(() => resolveSourceInput('-x@1', 'npm')).toThrow(InvalidSourceInput);
+    expect(() => resolveSourceInput('npm:-x@1')).toThrow(InvalidSourceInput);
+    expect(() => resolveSourceInput('@-s/pkg@1', 'npm')).toThrow(InvalidSourceInput);
+    expect(parseNpmSpec('-x@1')).toBeNull();
+    expect(parseNpmSpec('@scope/-x@1')).toBeNull();
   });
 
   it('throws when an invalid spec is forced to npm', () => {

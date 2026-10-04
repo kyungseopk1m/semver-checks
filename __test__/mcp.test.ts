@@ -208,6 +208,8 @@ describe('MCP server', () => {
       };
       expect(await codeFor({ old: 'pkg@', oldAs: 'npm' })).toBe('invalid_argument');
       expect(await codeFor({ old: 'a b', oldAs: 'ref' })).toBe('invalid_argument');
+      expect(await codeFor({ old: '-x@1', oldAs: 'npm' })).toBe('invalid_argument');
+      expect(await codeFor({ old: 'npm:-x@1' })).toBe('invalid_argument');
       expect(await codeFor({ old: 'no-such-ref-anywhere', oldAs: 'ref' })).toBe('analysis_failed');
     });
 

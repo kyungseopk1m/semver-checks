@@ -88,8 +88,7 @@ runs:
         # to also produce annotations would pay for the whole analysis twice to
         # say the same thing.
         if [ "$SEMVER_CHECKS_COMMENT" = "true" ]; then format=markdown; fi
-        args=(compare "$SEMVER_CHECKS_OLD")
-        if [ -n "$SEMVER_CHECKS_NEW" ]; then args+=("$SEMVER_CHECKS_NEW"); fi
+        args=(compare)
         if [ -n "$SEMVER_CHECKS_ENTRY" ]; then args+=(--entry "$SEMVER_CHECKS_ENTRY"); fi
         if [ -n "$SEMVER_CHECKS_OLD_AS" ]; then args+=(--old-as "$SEMVER_CHECKS_OLD_AS"); fi
         if [ -n "$SEMVER_CHECKS_NEW_AS" ]; then args+=(--new-as "$SEMVER_CHECKS_NEW_AS"); fi
@@ -98,6 +97,10 @@ runs:
         if [ -n "$SEMVER_CHECKS_DECLARED" ]; then args+=(--declared "$SEMVER_CHECKS_DECLARED"); fi
         if [ "$SEMVER_CHECKS_STRICT" = "true" ]; then args+=(--strict); fi
         if [ "$SEMVER_CHECKS_STRICT_REVIEW" = "true" ]; then args+=(--strict-review); fi
+        # Flags first, then `--`, then the user-supplied sources: an input such as
+        # `-ovictim.txt` must be read as a source, never as a flag.
+        args+=(-- "$SEMVER_CHECKS_OLD")
+        if [ -n "$SEMVER_CHECKS_NEW" ]; then args+=("$SEMVER_CHECKS_NEW"); fi
 
         if [ "$SEMVER_CHECKS_COMMENT" != "true" ]; then
           exec npx --yes "semver-checks@$version" "${args[@]}"
