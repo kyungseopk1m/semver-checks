@@ -1,4 +1,4 @@
-import { extract } from './extract/extractor.js';
+import { extractAs } from './extract/extractor.js';
 import { diff } from './compare/differ.js';
 import { resolvePath } from './resolve/path-resolver.js';
 import { resolveGitRef, cleanupTmpDir } from './resolve/git-resolver.js';
@@ -83,10 +83,11 @@ export async function compare(options: CompareOptions): Promise<SemverReport> {
       await ensureProjectDeps(newPath);
     }
 
-    const [oldSnap, newSnap] = await Promise.all([
-      extract({ projectPath: oldPath, entry }),
-      extract({ projectPath: newPath, entry }),
-    ]);
+    // One side at a time: each extraction gets a worker with the whole heap
+    // limit, so two at once could need twice the memory the process was given,
+    // and a side that fails stops the run instead of leaving the other running.
+    const oldSnap = await extractAs({ projectPath: oldPath, entry }, describeSource(oldSource));
+    const newSnap = await extractAs({ projectPath: newPath, entry }, describeSource(newSource));
 
     assertUsable(oldSnap, oldSource);
     assertUsable(newSnap, newSource);

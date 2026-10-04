@@ -2,6 +2,7 @@ import { execFileSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { cleanupTmpDir, trackTmpDir } from './git-resolver.js';
 
 // npm specs are passed to execFile (no shell is spawned), so command injection is
 // not possible. We still validate to reject obviously malformed input early and to
@@ -10,7 +11,7 @@ import path from 'path';
 // `+` for semver build metadata (e.g. 1.0.0+build.5) and a space for ranges
 // (e.g. ">=1 <2") — so a spec that source-ref already accepted never trips here.
 // A leading '-' would reach npm as an option rather than a spec.
-export const SAFE_SPEC_RE = /^(?!-)(@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*@[a-zA-Z0-9-._~^><=|*+. ]+$/;
+export const SAFE_SPEC_RE = /^(?!-)(@[a-z0-9~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*@[a-zA-Z0-9-._~^><=|*+. ]+$/;
 
 export interface NpmResolution {
   /** Directory containing the extracted package (the tarball's `package/` root). */
@@ -24,7 +25,7 @@ export function resolveNpmSpec(spec: string): NpmResolution {
     throw new Error(`Invalid npm spec: '${spec}'`);
   }
 
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'semver-checks-npm-'));
+  const tmpDir = trackTmpDir(fs.mkdtempSync(path.join(os.tmpdir(), 'semver-checks-npm-')));
 
   try {
     // `npm pack <spec>` downloads the published tarball for a remote registry spec.
@@ -48,7 +49,7 @@ export function resolveNpmSpec(spec: string): NpmResolution {
 
     return { projectPath: pkgDir, tmpDir };
   } catch (err: any) {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    cleanupTmpDir(tmpDir);
     throw new Error(`Failed to resolve npm package '${spec}': ${explainNpmError(spec, err)}`);
   }
 }

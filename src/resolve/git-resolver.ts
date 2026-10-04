@@ -18,7 +18,7 @@ export function resolveGitRef(ref: string, cwd?: string): string {
   }
 
   const workingDir = cwd ?? process.cwd();
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'semver-checks-'));
+  const tmpDir = trackTmpDir(fs.mkdtempSync(path.join(os.tmpdir(), 'semver-checks-')));
 
   try {
     // Capture stderr (pipe) instead of letting git leak `fatal:` lines to the
@@ -27,10 +27,11 @@ export function resolveGitRef(ref: string, cwd?: string): string {
       cwd: workingDir,
       maxBuffer: 100 * 1024 * 1024,
       stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 120_000,
     });
     execFileSync('tar', ['-x', '-C', tmpDir], { input: archive });
   } catch (err: any) {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    cleanupTmpDir(tmpDir);
     throw new Error(`Failed to resolve git ref '${ref}': ${explainGitError(ref, err)}`);
   }
 
@@ -50,12 +51,27 @@ export function explainGitError(ref: string, err: any): string {
   return tail || err?.message || 'unknown git error';
 }
 
+// Every temp dir a resolver has created and nobody has removed yet, so a
+// process ended by a signal (where no `finally` runs) can still remove them.
+const liveTmpDirs = new Set<string>();
+
+export function trackTmpDir(tmpDir: string): string {
+  liveTmpDirs.add(tmpDir);
+  return tmpDir;
+}
+
 export function cleanupTmpDir(tmpDir: string): void {
   const expectedPrefix = path.join(os.tmpdir(), 'semver-checks-');
   if (!tmpDir.startsWith(expectedPrefix)) {
     throw new Error(`Refusing to delete directory outside of tmp: '${tmpDir}'`);
   }
+  liveTmpDirs.delete(tmpDir);
   try {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   } catch {}
+}
+
+// Synchronous so it can run from a signal handler right before process.exit().
+export function cleanupLiveTmpDirs(): void {
+  for (const tmpDir of liveTmpDirs) cleanupTmpDir(tmpDir);
 }
