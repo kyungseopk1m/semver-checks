@@ -3,6 +3,7 @@ import type { ApiSnapshot, ApiSymbol, ApiFunctionSymbol, ApiInterfaceSymbol, Api
 import type { ApiChange, Confidence } from '../types.js';
 import { clearVarianceScope, compareTypeText, setVarianceScope, type TypeRelation } from './variance.js';
 import { computeLiteralSpans, isInsideLiteral } from './literal-spans.js';
+import { UNPRINTABLE_SUFFIX } from '../extract/unprintable.js';
 
 // Confidence for a MAJOR emitted from a type-text comparison. The position
 // records which variance direction is already known safe (and thus excluded
@@ -55,7 +56,7 @@ interface BaseLookups {
 }
 
 function heritageBaseName(heritage: string): string {
-  const bare = heritage.split('<')[0].trim();
+  const bare = heritage.replace(UNPRINTABLE_SUFFIX, '').split('<')[0].trim();
   const segments = bare.split('.');
   return segments[segments.length - 1];
 }
@@ -1656,7 +1657,12 @@ function classifyInterfaceChanges(
         message: `Heritage clause of interface '${name}' changed`,
         oldValue: heritageDisplay(oldIf.heritage),
         newValue: heritageDisplay(newIf.heritage),
-        confidence: baseDropped ? 'proven' : 'heuristic',
+        // A clause whose type was never printed cannot prove anything: two
+        // spellings of one type read as a re-parameterized base.
+        confidence:
+          baseDropped && ![...oldIf.heritage, ...newIf.heritage].some((h) => h.endsWith(UNPRINTABLE_SUFFIX))
+            ? 'proven'
+            : 'heuristic',
       });
     }
   }

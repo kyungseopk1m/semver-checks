@@ -1,0 +1,11 @@
+{
+  "name": "crash-versioned-types-first",
+  "version": "1.0.0",
+  "exports": {
+    ".": {
+      "types@>=5.5": "./dist/index.d.ts",
+      "types": "./dist/ts_version_5.5_and_above_is_required.d.ts",
+      "default": "./dist/index.js"
+    }
+  }
+}

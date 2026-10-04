@@ -2,6 +2,7 @@ import { Project, Type, Node, SyntaxKind, DiagnosticCategory, ts } from 'ts-morp
 import type { SourceFile, ModuleDeclaration, ClassDeclaration } from 'ts-morph';
 import path from 'path';
 import fs from 'fs';
+import { UNPRINTABLE_SUFFIX } from './unprintable.js';
 import type {
   ApiSnapshot,
   ApiSymbol,
@@ -237,6 +238,7 @@ function typesCandidatesFromExportsValue(
   // analyzed rather than silently flipping to CJS.
   const PRIORITY_CONDS = ['import', 'require', 'node', 'node-addons', 'browser', 'module', 'default'];
   const out: string[] = [];
+  const leading: string[] = [];
   // Substituted candidates stay in their own list so they can rank below every
   // declared types path all the way through resolution. Merging them would flip a
   // root that declares a `.d.cts` onto a `.d.ts` substituted from its `import`
@@ -259,22 +261,38 @@ function typesCandidatesFromExportsValue(
     }
     if (v && typeof v === 'object') {
       const obj = v as Record<string, unknown>;
-      if (typeof obj['types'] === 'string' && isDtsPath(obj['types'] as string)) out.push(obj['types'] as string);
+      // `types` and every satisfied `types@{selector}` compete in written order,
+      // because that is how the compiler picks: the first matching condition wins.
+      // jotai 3 lists `types@>=5.5` before a `types` that points at an empty
+      // "upgrade TypeScript" stub, and taking `types` first read the stub.
+      let plainTypesAhead = 'types' in obj;
+      for (const [k, cv] of Object.entries(obj)) {
+        if (k === 'types') {
+          plainTypesAhead = false;
+          if (typeof cv === 'string' && isDtsPath(cv)) out.push(cv);
+        } else if (k.startsWith('types@') && typesConditionApplies(k)) {
+          // Written before a plain `types` with nothing collected ahead of it,
+          // this is the condition the compiler takes and the plain one is its
+          // fallback. Hold it out of the `.d.ts`-first sort below, which would
+          // otherwise rank a stub `types: x.d.ts` above `types@>=5.5: y.d.mts`.
+          const leads = plainTypesAhead && out.length === 0;
+          visit(cv);
+          if (leads) leading.push(...out.splice(0));
+        }
+      }
       for (const cond of PRIORITY_CONDS) if (obj[cond] !== undefined) visit(obj[cond]);
       for (const [k, cv] of Object.entries(obj)) {
-        if (k === 'types' || PRIORITY_CONDS.includes(k)) continue;
-        if (k.startsWith('types@') && !typesConditionApplies(k)) continue;
+        if (k === 'types' || k.startsWith('types@') || PRIORITY_CONDS.includes(k)) continue;
         visit(cv);
       }
     }
   };
   visit(value);
   const seen = new Set<string>();
+  const deduped = (paths: string[]): string[] => paths.filter((p) => (seen.has(p) ? false : (seen.add(p), true)));
   const dedupedDtsFirst = (paths: string[]): string[] =>
-    [...paths.filter((p) => p.endsWith('.d.ts')), ...paths.filter((p) => !p.endsWith('.d.ts'))].filter((p) =>
-      seen.has(p) ? false : (seen.add(p), true),
-    );
-  return { declared: dedupedDtsFirst(out), substituted: dedupedDtsFirst(substituted) };
+    deduped([...paths.filter((p) => p.endsWith('.d.ts')), ...paths.filter((p) => !p.endsWith('.d.ts'))]);
+  return { declared: [...deduped(leading), ...dedupedDtsFirst(out)], substituted: dedupedDtsFirst(substituted) };
 }
 
 // Resolve one or more entry source files keyed by export subpath ('.' for root).
@@ -452,7 +470,15 @@ function resolveEntries(
 // Collect exported declarations from a source file OR a namespace/module body.
 // Both expose getExportedDeclarations(), so namespace bodies are handled by the
 // same logic recursively (see the namespace-side branch below).
-function collectContainerExports(container: SourceFile | ModuleDeclaration): Record<string, ApiSymbol> {
+// `enclosing` holds the declarations on the current recursion path. A namespace can
+// list itself among its exports (`namespace foo { export { foo as default, foo } }`
+// merged with `function foo`), and walking into it again would never end. Only the
+// path is tracked, not every namespace seen, so the same namespace reached under
+// two different names still gets its members listed under both.
+function collectContainerExports(
+  container: SourceFile | ModuleDeclaration,
+  enclosing: Set<Node> = new Set(),
+): Record<string, ApiSymbol> {
   const result: Record<string, ApiSymbol> = {};
 
   const exportedDeclarations = container.getExportedDeclarations();
@@ -487,9 +513,15 @@ function collectContainerExports(container: SourceFile | ModuleDeclaration): Rec
     // Namespace side: recurse into each namespace body.
     if (moduleDecls.length > 0) {
       const nsSymbols: Record<string, ApiSymbol> = {};
+      // Every block of a namespace merged across several `declare namespace`
+      // blocks is the same container, so all of them go on the path at once.
+      const onPath = container.getSymbol()?.getDeclarations() ?? [container];
+      for (const d of onPath) enclosing.add(d);
       for (const md of moduleDecls) {
-        Object.assign(nsSymbols, collectContainerExports(md));
+        if (enclosing.has(md)) continue;
+        Object.assign(nsSymbols, collectContainerExports(md, enclosing));
       }
+      for (const d of onPath) enclosing.delete(d);
       if (name in result) {
         // Merged with a value (function/class/...): flatten namespace members as
         // `name.child` so they aren't shadowed by the value symbol.
@@ -766,14 +798,89 @@ function countAnyKeywords(text: string): number {
   }
 }
 
+// How many node-factory calls one type print may make. getText() can exhaust the
+// heap in a single call, and no length check inside the checker stops it: the
+// checker caches each printed subtree on the enclosing declaration and deep-copies
+// it on every reuse before any length check runs, so a type that refers to itself
+// twice per level (pino 10.4's ParseLogFnArgs, type-fest's ConditionalPickDeep) is
+// copied out exponentially. Every node the printer builds or copies goes through
+// `ts.factory`, so counting those calls bounds the work and the memory alike.
+// Measured on one release of each of the 24 gate-corpus packages plus type-fest
+// 5.9/5.10: the largest print that came out whole took 3,083 calls (valibot), and
+// the smallest print that went past the checker's own NoTruncation ceiling (1e6
+// characters, past which elided parts come out as `any`) took 471,145. The budget
+// sits between the two, far enough above the first that ordinary types print
+// exactly as before, and low enough that type-fest stops paying for 1.5 MB prints
+// it could never compare.
+const PRINT_NODE_BUDGET = 200_000;
+
+class PrintBudgetExceeded extends Error {}
+
+// Calls left for the print in progress; null when no print is being counted.
+let printBudget: number | null = null;
+
+// The checker reads `factory.createX` off the same shared object at every call,
+// so wrapping its methods once is enough to see every node the printer makes.
+// Outside a counted print the wrapper only adds a null check. The JSDoc node
+// creators are lazy getters, which the printer never reaches for, so only plain
+// methods are wrapped.
+for (const [name, desc] of Object.entries(Object.getOwnPropertyDescriptors(ts.factory))) {
+  const fn = desc.value;
+  if (typeof fn !== 'function' || !desc.writable) continue;
+  (ts.factory as unknown as Record<string, unknown>)[name] = function (this: unknown, ...args: unknown[]) {
+    if (printBudget !== null && --printBudget < 0) throw new PrintBudgetExceeded();
+    return (fn as (...a: unknown[]) => unknown).apply(this, args);
+  };
+}
+
+// getText(), or null when the print ran past the budget and was abandoned.
+function boundedTypeText(type: Type, contextNode?: Node): string | null {
+  printBudget = PRINT_NODE_BUDGET;
+  try {
+    return type.getText(contextNode);
+  } catch (err) {
+    if (err instanceof PrintBudgetExceeded) return null;
+    throw err;
+  } finally {
+    printBudget = null;
+  }
+}
+
+const UNPRINTABLE = UNPRINTABLE_SUFFIX.slice(' & '.length);
+
+// What a type that tripped the budget is recorded as. The `any` makes the variance
+// probe decline to answer, so a changed text surfaces as review-only, never as a
+// proven break.
+//
+// With an annotation the text is deterministic: the annotation, then the marker.
+// Equal annotations compare equal, as they did before the budget existed (the
+// tool's model is that a name spelled the same on both sides is the same type),
+// and differing ones stay review. The annotation leads so a reader sees what was
+// skipped.
+//
+// Heritage clauses get the same text. The classifier strips the marker before
+// reading a base name, and never grades a heritage change proven when either
+// side carries it (`UNPRINTABLE_SUFFIX` in unprintable.ts holds the text).
+//
+// With no annotation there is nothing to compare at all, so the marker carries a
+// random nonce: the two sides can never be equal, and the symbol is always
+// reported as not compared. A per-process counter would make `snapshot` output
+// repeatable, but sides extracted in separate processes would number their
+// markers alike and compare equal. Only such a type loses reproducibility.
+function unprintableType(annotationNode?: Node): SerializedType {
+  if (!annotationNode) {
+    const nonce = Math.random().toString(36).slice(2, 10);
+    return { text: UNPRINTABLE.replace(' */', ` (${nonce}) */`) };
+  }
+  return { text: `${normalizeTypeText(printTypeNode(annotationNode))}${UNPRINTABLE_SUFFIX}` };
+}
+
 function serializeType(type: Type, contextNode: Node, annotationNode?: Node): SerializedType {
-  // getText() lets tsc expand the type; pathologically recursive conditional /
-  // mapped types (type-fest) can exhaust the heap here. A heap OOM can't be
-  // caught in-process, so there is no cheap in-process guard — the robust fix is
-  // to run extraction in a child process with a bounded --max-old-space-size and
-  // degrade an OOM exit to an ERROR verdict. Not yet done: it affects only a few
-  // extremely type-heavy packages. Limitation documented in README (Accuracy).
-  const computed = normalizeTypeText(type.getText(contextNode));
+  const printed = boundedTypeText(type, contextNode);
+  // Not handed to the annotation check below, which would return the bare
+  // annotation: a differing annotation must stay review-only (see unprintableType).
+  if (printed === null) return unprintableType(annotationNode);
+  const computed = normalizeTypeText(printed);
   if (annotationNode) {
     const intrinsic = (type.compilerType as { intrinsicName?: string }).intrinsicName;
     // Print the annotation rather than slicing its source. This is the one place a
@@ -986,7 +1093,7 @@ function extractObjectMembers(node: Node): ApiObjectMembers {
   const callSignatures = memberNode.getCallSignatures().map((s: Node) => convertSignatureFromNode(s));
   const constructSignatures = memberNode.getConstructSignatures().map((s: Node) => convertSignatureFromNode(s));
   const indexSignatures: ApiIndexSignature[] = memberNode.getIndexSignatures().map((ix: any) => ({
-    keyType: ix.getKeyTypeNode()?.getText() ?? normalizeTypeText(ix.getKeyType().getText()),
+    keyType: ix.getKeyTypeNode()?.getText() ?? normalizeTypeText(boundedTypeText(ix.getKeyType()) ?? unprintableType().text),
     valueType: serializeType(ix.getReturnType(), node, ix.getReturnTypeNode()),
     isReadonly: ix.isReadonly(),
   }));
