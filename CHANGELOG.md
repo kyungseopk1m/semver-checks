@@ -13,11 +13,18 @@ The first change can turn a script that passed into one that fails, so check wra
 - **A string flag with no usable value is a usage error.** `--entry -x.d.ts`, or a string flag at the end of the line, used to run with the flag silently empty. It now exits 2 and suggests `--entry=-x.d.ts`.
 - **Sources after `--` are never read as options.** `--help`, `-h`, `--version` and `--mcp` after `--` are treated as sources.
 - **`--version` prints the version wherever it appears.** It no longer depends on being the only argument.
+- **A boolean flag takes only `true` or `false` as a value, a value after `=` cannot be empty, and a short flag that takes a value must end its bundle.** `--strict=yes` used to read `yes` as true, `--entry=` was reported as an entry naming no file, and `-fs json` was reported as an invalid format. Each now exits 2 with a message that names the mistake. `--strict=true` and `--strict=false` still work.
+
+### Security
+
+- **Symlinks that point outside an extracted package are removed before it is read.** A tarball or a git archive could carry a link to a file elsewhere on the machine, and extraction followed it into the snapshot. Links whose target is outside the temp directory, or missing, are removed right after extraction; links that stay inside it are kept.
 
 ### Fixed
 
 - **Extraction runs in a worker thread.** A package whose types exhaust the heap used to abort the whole process, skip the cleanup of its temp directories and exit 134. The worker gets a heap limit taken from the process's (approximately the same), and one that runs out of memory now ends the run with exit 2 and a message naming the package and the `NODE_OPTIONS=--max-old-space-size=<MB>` knob, with temp directories removed. The two sides are extracted one after the other instead of together.
 - **A type too large to print is bounded and reported as not compared.** Printing the type is cut off at a fixed node budget instead of expanding without limit. When its declared text differs between the two sides it is review-only; when it is identical it compares equal. A heritage clause that carries the marker is never graded `proven`. This fixes the heap exhaustion on `pino` 10.4.0, `drizzle-orm` 0.45.3 and `type-fest`.
+- **A declaration the type checker cannot analyze is kept instead of dropped.** When the checker threw on an exported declaration, the name was left out of the snapshot and the run reported it as a proven removal. `type-fest` 5.6.0 to 5.7.0, a minor release, failed `--strict` with two such removals (`IntRange` and `IntClosedRange`, both still exported and unchanged). The name is now recorded with its declared text and the same not-compared marker as a type too large to print, so it compares equal when unchanged and is review-only when it differs.
+- **Extraction has a time limit.** A side that does not answer within 600 seconds ends the run with exit 2 and the temp directories removed, instead of hanging until the CI job is killed. `SEMVER_CHECKS_EXTRACT_TIMEOUT` sets the limit in seconds.
 - **`SIGHUP`, `SIGINT` and `SIGTERM` remove the temp directories.** The CLI exits 129, 130 or 143, the shell's 128 plus the signal number, after removing what the resolvers created.
 - **stdout is no longer cut off at 64 KB when a gate fails and the output is piped.** The CLI sets `process.exitCode` instead of calling `process.exit()` while the report is still being written.
 - **A namespace that re-exports itself no longer overflows the stack.** `namespace foo { export { foo as default, foo } }` merged with `function foo`, including when the namespace is merged across several blocks, is walked once.
@@ -31,7 +38,11 @@ The first change can turn a script that passed into one that fails, so check wra
 
 - README: the first example is now `pino` 10.3.1 to 10.4.0, a "How it differs" section compares semver-checks with `ts-semver-checks`, `@clerk/break-check` and `semvet`, and the workflow examples use Node 22.
 - `docs/accuracy.md`: a short note on when to choose `--strict` over `--strict-review`, and the limitation on oversized types is rewritten for the bounded behaviour above.
-- `docs/cli.md`: the exit-2 row covers misuse, the default `old` is noted as CLI-only (the Action and MCP require it), and the worker-thread and signal behaviour are described.
+- `docs/cli.md`: the exit-2 row covers misuse, the default `old` is noted as CLI-only (the Action and MCP require it), the worker-thread, time limit and signal behaviour are described, and `SEMVER_CHECKS_EXTRACT_TIMEOUT` is listed.
+
+### Build
+
+- **CI runs a smoke test of the built package on every Node version.** `npm run smoke` runs the compiled CLI and both module formats through the extraction worker, and checks the exit code and temp-directory cleanup on `SIGTERM`. A build whose ESM worker path is wrong used to pass every test, because extraction quietly fell back to the main thread.
 
 ## [0.14.0] - 2026-10-03
 
