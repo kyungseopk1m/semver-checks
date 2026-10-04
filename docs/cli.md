@@ -21,7 +21,7 @@ With no subcommand, `semver-checks` runs `compare`, so `npx semver-checks` alone
 
 **Arguments:**
 
-- `[old]`: an npm spec (`pkg@version`), a git ref (tag, branch, commit SHA), or a local directory path for the old version; defaults to `npm:<name>@latest`, read from the `package.json` in the current directory (exit 2 when it has no `name` or is `private`)
+- `[old]`: an npm spec (`pkg@version`), a git ref (tag, branch, commit SHA), or a local directory path for the old version; defaults to `npm:<name>@latest`, read from the `package.json` in the current directory (exit 2 when it has no `name` or is `private`). This default is CLI-only: the GitHub Action (`old` is `required: true` in `action.yml`) and the MCP `semver_compare` tool (`required: ['old']`) need `old` explicitly
 - `[new]`: npm spec, git ref, or path for the new version; defaults to `.` (current directory)
 
 **Exit codes:**
@@ -30,7 +30,9 @@ With no subcommand, `semver-checks` runs `compare`, so `npx semver-checks` alone
 | ---- | --------------------------------------------------------------------------------------------- |
 | `0`  | Analyzed; the gate you asked for passed                                                       |
 | `1`  | Analyzed; the gate failed (`--declared` on a declaration that understates a proven break, `--strict` on a proven break, `--strict-review` on any) |
-| `2`  | Could not answer — an input didn't resolve, or a side's API surface could not be extracted    |
+| `2`  | Could not answer: an input didn't resolve, a side's API surface could not be extracted, or the command was misused (unknown flag, usage error) |
+
+Extraction runs in a worker thread with a heap limit taken from the process's, so a package too large for it exits 2 with an out-of-memory message instead of crashing; raise the limit with `NODE_OPTIONS=--max-old-space-size=<MB>`. Interrupted by `SIGHUP`, `SIGINT` or `SIGTERM`, the CLI removes its temp directories and exits `129`, `130` or `143`.
 
 Exit 2 covers the case where extraction produced nothing usable: no API symbols at all, or only opaque (`any`) ones. That is reported as a failure rather than a clean `patch`, because a comparison of two empty surfaces is indistinguishable from a release that genuinely changed nothing. Pass `--entry` to point at the declaration file when a package's entry point can't be auto-resolved.
 
