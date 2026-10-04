@@ -293,13 +293,23 @@ function scanArgs(argv: string[], args: ArgsDef): { first: number; argv: string[
       // `-sf json` or `-f=json`: a run of single-letter flags, the last of which
       // takes the next word unless its value is attached with '='.
       const [letters, attached] = arg.slice(1).split(/=(.*)/s);
-      for (const letter of letters) {
-        if (!spellings.has(`-${letter}`)) throw new UsageError(`Unknown option '-${letter}'`);
+      for (const [j, letter] of [...letters].entries()) {
+        const letterSpec = spellings.get(`-${letter}`);
+        if (!letterSpec) throw new UsageError(`Unknown option '-${letter}'`);
+        // Only the last letter gets the next word, so `-fs json` left -f without its value.
+        if (letterSpec.type === 'string' && j < letters.length - 1) {
+          throw new UsageError(`Option '-${letter}' takes a value, so it must come last in '${arg}'`);
+        }
       }
       flag = `-${letters.at(-1)}`;
       value = attached;
       spec = spellings.get(flag);
     }
+    // `--strict=yes` used to read as true; only true and false are a boolean's value.
+    if (spec?.type === 'boolean' && value !== undefined && value !== 'true' && value !== 'false') {
+      throw new UsageError(`Option '${flag}' takes no value other than true or false`);
+    }
+    if (value === '') throw new UsageError(`Option '${flag}' needs a value after '='`);
     if (spec?.type !== 'string' || value !== undefined) continue;
     // citty reads a following word that starts with '-' as another flag and
     // leaves this one empty, so `--entry -x.d.ts` would run with no entry.

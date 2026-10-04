@@ -129,6 +129,30 @@ describe('CLI exit codes', () => {
     expect(JSON.parse(run.stdout).summary.majorProven).toBe(1);
   });
 
+  it('exits 2 naming the cause when a boolean flag is given a value', async () => {
+    for (const flag of ['--strict=yes', '--strictReview=yes', '-s=yes']) {
+      const run = await runCli('compare', OLD, NEW, flag);
+      expect(run.code).toBe(2);
+      expect(run.stderr).toContain(`Option '${flag.split('=')[0]}' takes no value`);
+    }
+    expect((await runCli('compare', OLD, NEW, '--strict=true')).code).toBe(1);
+    expect((await runCli('compare', OLD, NEW, '--strict=false')).code).toBeUndefined();
+  });
+
+  it('exits 2 naming the cause when a string flag has nothing after =', async () => {
+    for (const flag of ['--entry=', '--format=', '-f=']) {
+      const run = await runCli('compare', OLD, NEW, flag);
+      expect(run.code).toBe(2);
+      expect(run.stderr).toContain(`Option '${flag.slice(0, -1)}' needs a value after '='`);
+    }
+  });
+
+  it('exits 2 naming the cause when a string flag is not last in a short-flag run', async () => {
+    const run = await runCli('compare', OLD, NEW, '-fs', 'json');
+    expect(run.code).toBe(2);
+    expect(run.stderr).toContain("Option '-f' takes a value, so it must come last in '-fs'");
+  });
+
   it('exits 2 on an unknown snapshot flag', async () => {
     expect((await runCli('snapshot', NEW, '--bogus')).code).toBe(2);
   });
