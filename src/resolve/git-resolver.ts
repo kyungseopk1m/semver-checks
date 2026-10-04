@@ -30,6 +30,7 @@ export function resolveGitRef(ref: string, cwd?: string): string {
       timeout: 120_000,
     });
     execFileSync('tar', ['-x', '-C', tmpDir], { input: archive });
+    removeEscapingSymlinks(tmpDir);
   } catch (err: any) {
     cleanupTmpDir(tmpDir);
     throw new Error(`Failed to resolve git ref '${ref}': ${explainGitError(ref, err)}`);
@@ -49,6 +50,30 @@ export function explainGitError(ref: string, err: any): string {
     return `ref '${ref}' was not found. Check it exists (git tag / git branch / git log).`;
   const tail = out.trim().split('\n').filter(Boolean).slice(-2).join(' ');
   return tail || err?.message || 'unknown git error';
+}
+
+// A tarball or archive can carry a symlink to any path on this machine, which the
+// extractor would then read as if it were part of the package. Links that stay
+// inside the extracted tree (a repo linking one of its own files) are kept, so
+// the declaration set is unchanged; links that leave it, or point nowhere, are
+// removed rather than failing the run, since nothing the package ships lives there.
+export function removeEscapingSymlinks(root: string): void {
+  const realRoot = fs.realpathSync(root);
+  const walk = (dir: string): void => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isSymbolicLink()) {
+        let target = '';
+        try {
+          target = fs.realpathSync(full);
+        } catch {}
+        if (!target || (target !== realRoot && !target.startsWith(realRoot + path.sep))) fs.unlinkSync(full);
+      } else if (entry.isDirectory()) {
+        walk(full);
+      }
+    }
+  };
+  walk(root);
 }
 
 // Every temp dir a resolver has created and nobody has removed yet, so a

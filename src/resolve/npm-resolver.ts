@@ -2,7 +2,7 @@ import { execFileSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { cleanupTmpDir, trackTmpDir } from './git-resolver.js';
+import { cleanupTmpDir, removeEscapingSymlinks, trackTmpDir } from './git-resolver.js';
 
 // npm specs are passed to execFile (no shell is spawned), so command injection is
 // not possible. We still validate to reject obviously malformed input early and to
@@ -40,6 +40,7 @@ export function resolveNpmSpec(spec: string): NpmResolution {
     const tgzPath = path.join(tmpDir, filename);
 
     execFileSync('tar', ['-xzf', tgzPath, '-C', tmpDir]);
+    removeEscapingSymlinks(tmpDir);
 
     const pkgDir = locatePackageRoot(tmpDir, spec);
 

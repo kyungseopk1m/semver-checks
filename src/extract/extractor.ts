@@ -32,8 +32,25 @@ function mainThreadHeapMb(): number {
   return Math.ceil(v8.getHeapStatistics().heap_size_limit / (1024 * 1024));
 }
 
-/** @internal Exported for tests, which pass a small heap to provoke the out-of-memory path. */
-export function runWorker<T>(file: string, workerData: unknown, label: string, heapMb = mainThreadHeapMb()): Promise<T> {
+// A wall-clock limit, so a package whose types send the checker into a loop that
+// never grows the heap still ends with an error instead of hanging CI. The
+// slowest side measured for 0.15.0 (effect@3.22.2) took 85 s on a heavily loaded
+// machine; 10 minutes is about 7 times that. SEMVER_CHECKS_EXTRACT_TIMEOUT
+// (seconds) moves it. setTimeout fires at once for anything past 2^31-1 ms, so a
+// huge value meant to switch the limit off is capped there instead.
+function extractTimeoutMs(): number {
+  const seconds = Number(process.env.SEMVER_CHECKS_EXTRACT_TIMEOUT);
+  return Math.min(seconds > 0 ? seconds : 600, 2_147_483) * 1000;
+}
+
+/** @internal Exported for tests, which pass a small heap or timeout to provoke the failure paths. */
+export function runWorker<T>(
+  file: string,
+  workerData: unknown,
+  label: string,
+  heapMb = mainThreadHeapMb(),
+  timeoutMs = extractTimeoutMs(),
+): Promise<T> {
   return new Promise((resolve, reject) => {
     // execArgv: [] because a worker inherits the parent's by default, and some of
     // them refuse a file entry point (`node --input-type=module -e ...` would
@@ -41,6 +58,17 @@ export function runWorker<T>(file: string, workerData: unknown, label: string, h
     const worker = new Worker(file, { workerData, execArgv: [], resourceLimits: { maxOldGenerationSizeMb: heapMb } });
     let answered = false;
     let result: T;
+    // An answer that already arrived still stands; terminating only cuts the drain short.
+    const timer = setTimeout(() => {
+      if (!answered)
+        reject(
+          new Error(
+            `extracting '${label}' did not finish within ${timeoutMs / 1000} s, not an answer.\n` +
+              `  Raise the limit with SEMVER_CHECKS_EXTRACT_TIMEOUT=<seconds>.`,
+          ),
+        );
+      void worker.terminate();
+    }, timeoutMs);
     worker.on('message', (message: T) => {
       answered = true;
       result = message;
@@ -57,8 +85,9 @@ export function runWorker<T>(file: string, workerData: unknown, label: string, h
     });
     // Settling on 'exit' rather than 'message' lets the worker's console output
     // (SEMVER_CHECKS_VERBOSE warnings) drain first. After an 'error' the promise
-    // is already rejected and this does nothing.
+    // is already rejected and this does nothing; the same holds after a timeout.
     worker.on('exit', (code) => {
+      clearTimeout(timer);
       if (answered) resolve(result);
       else reject(new Error(`extraction of '${label}' stopped (worker exit code ${code}) before answering`));
     });
