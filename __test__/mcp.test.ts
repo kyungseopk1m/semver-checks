@@ -253,13 +253,13 @@ describe('MCP server', () => {
           arguments: { old: path.join(dir, 'old'), new: path.join(dir, 'new'), oldAs: 'path', newAs: 'path', entry },
         });
 
-      const one = JSON.parse((await call('main.ts')).content[0].text);
+      const one = JSON.parse(((await call('main.ts')).content as Array<{ text: string }>)[0].text);
       expect(one.changes).toHaveLength(0);
 
-      const commas = JSON.parse((await call('main.ts,extra.ts')).content[0].text);
+      const commas = JSON.parse(((await call('main.ts,extra.ts')).content as Array<{ text: string }>)[0].text);
       expect(commas.changes.map((c: any) => c.kind)).toEqual(['param-removed']);
 
-      const array = JSON.parse((await call(['main.ts', 'extra.ts'])).content[0].text);
+      const array = JSON.parse(((await call(['main.ts', 'extra.ts'])).content as Array<{ text: string }>)[0].text);
       expect(array.changes).toEqual(commas.changes);
     });
 
@@ -285,10 +285,10 @@ describe('MCP server', () => {
           arguments: { old: oldPath, new: newPath, oldAs: 'path', newAs: 'path', declared },
         });
 
-      const short = JSON.parse((await call('patch')).content[0].text);
+      const short = JSON.parse(((await call('patch')).content as Array<{ text: string }>)[0].text);
       expect(short.declaration).toMatchObject({ declared: 'patch', required: 'major', verdict: 'mismatch' });
 
-      const covered = JSON.parse((await call('major')).content[0].text);
+      const covered = JSON.parse(((await call('major')).content as Array<{ text: string }>)[0].text);
       expect(covered.declaration.verdict).toBe('ok');
     });
 
@@ -310,7 +310,7 @@ describe('MCP server', () => {
           },
         });
       const gateOf = async (fixture: string, extra?: Record<string, unknown>) =>
-        JSON.parse((await call(fixture, extra)).content[0].text).gate;
+        JSON.parse(((await call(fixture, extra)).content as Array<{ text: string }>)[0].text).gate;
 
       expect(await gateOf('export-removed')).toEqual({ strict: 'fail', strictReview: 'fail' });
       expect(await gateOf('export-added')).toEqual({ strict: 'pass', strictReview: 'pass' });
@@ -520,10 +520,10 @@ describe('MCP server', () => {
       const call = (args: Record<string, unknown>) =>
         client.callTool({ name: 'semver_snapshot', arguments: { path: fixturePath, pathAs: 'path', ...args } });
 
-      const brief = JSON.parse((await call({})).content[0].text);
+      const brief = JSON.parse(((await call({})).content as Array<{ text: string }>)[0].text);
       expect(brief.entrypoints['.'].foo).toBe('function');
 
-      const full = JSON.parse((await call({ detail: true })).content[0].text);
+      const full = JSON.parse(((await call({ detail: true })).content as Array<{ text: string }>)[0].text);
       expect(full.entrypoints['.'].foo).toMatchObject({ kind: 'function', name: 'foo' });
     });
 

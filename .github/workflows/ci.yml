@@ -8,7 +8,7 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
 
     strategy:
       # One failing version must not hide the others: which ones broke is the
@@ -18,7 +18,13 @@ jobs:
         # engines.node is "^20.0.0 || >=22.0.0", so this covers its lower bound
         # and the current LTS lines. 21 is absent on purpose: engines excludes it
         # (a transitive dependency does too) and it is end of life.
-        node-version: ['20', '22', '24']
+        os: [ubuntu-latest]
+        node-version: ['20', '22', '24', '26']
+        # One Windows leg on the version Glama and most users run: paths, the
+        # npm/git child processes and temp-dir cleanup are where it can differ.
+        include:
+          - os: windows-latest
+            node-version: '22'
 
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
@@ -38,6 +44,17 @@ jobs:
       - name: Run tests
         run: npm test
 
+      # tsconfig.json covers src only, so this is what type-checks the tests.
+      - name: Type check (src and tests)
+        if: runner.os == 'Linux' && matrix.node-version == '24'
+        run: npm run typecheck
+
+      # The build script uses rm and fixup.sh, which cmd.exe cannot run.
+      - name: Run npm scripts with bash
+        if: runner.os == 'Windows'
+        shell: bash
+        run: npm config set script-shell "$(cygpath -w "$(which bash)")"
+
       - name: Build
         run: npm run build
 
@@ -52,7 +69,7 @@ jobs:
       # Node-independent, and pinned to the version publish.yml uses so the
       # packaging check runs where the package is actually built for release.
       - name: Package quality check
-        if: matrix.node-version == '24'
+        if: runner.os == 'Linux' && matrix.node-version == '24'
         run: npm run check
 
       # Dogfood: run semver-checks on itself against the last published release.
@@ -64,6 +81,6 @@ jobs:
       # One version only: it downloads the published tarball from the registry,
       # and running that once per matrix leg buys nothing but flakiness.
       - name: Dogfood (self semver check)
-        if: matrix.node-version == '22'
+        if: runner.os == 'Linux' && matrix.node-version == '22'
         timeout-minutes: 5
         run: node bin/semver-checks.js compare semver-checks@latest .
