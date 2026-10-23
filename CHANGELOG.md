@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Docs
+
+- **The MCP tool descriptions say what they touch and what they return.** `semver_compare` states that npm specs and git refs need the network and are unpacked into temp directories, and that a local path is written to only with `installDeps`; its explanation of the two gates is no longer repeated three times. `semver_snapshot` now gives the shape of its result, the `omitted` field, and the error an empty surface returns. `installDeps` on both tools names the `npm install --ignore-scripts` it runs in a local path.
+
 ## [0.15.1] - 2026-10-23
 
 ### Security

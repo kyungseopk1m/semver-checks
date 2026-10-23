@@ -57,7 +57,7 @@ Relative paths and git refs are resolved from the MCP server process's current w
 | `newAs`       | `"path"` \| `"git"` (or `"ref"`) \| `"npm"`                  |          | Force interpretation of `new`                                                           |
 | `declared`    | `"major"` \| `"minor"` \| `"patch"` \| `"none"` \| `"auto"` |          | Grade the bump the release declares, the same gate `--declared` applies on the CLI      |
 | `maxChanges`  | integer                                                    |          | How many changes to include. Defaults to 50                                             |
-| `installDeps` | boolean                                                    |          | Install dependencies before analysis                                                    |
+| `installDeps` | boolean                                                    |          | Install dependencies before analysis. In a local path with no `node_modules` this runs `npm install --ignore-scripts` there and adds `@types/node`; a git ref is always installed in its temp copy |
 
 A `name@version` that is not an existing path resolves to npm on its own, so comparing a working tree against the published release needs no checkout:
 
@@ -84,7 +84,7 @@ The message text reads `Error: [code] message`. The `Error: ` prefix is what it 
 | `pathAs`      | `"path"` \| `"git"` (or `"ref"`) \| `"npm"` |          | Force interpretation of `path`                          |
 | `detail`      | boolean                         |          | Return each symbol's full type shape instead of its kind             |
 | `maxBytes`    | integer                         |          | Byte budget for the returned symbols. Defaults to 40000              |
-| `installDeps` | boolean                         |          | Install dependencies before analysis                                 |
+| `installDeps` | boolean                         |          | Install dependencies before analysis. In a local path with no `node_modules` this runs `npm install --ignore-scripts` there and adds `@types/node`; a git ref is always installed in its temp copy |
 
 The three source forms are the same ones `semver_compare` takes, so `zod@4.4.0` snapshots from the registry without a checkout.
 
