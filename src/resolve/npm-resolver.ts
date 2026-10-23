@@ -3,6 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { cleanupTmpDir, removeEscapingSymlinks, trackTmpDir } from './git-resolver.js';
+import { npmCommand } from './npm-command.js';
 
 // npm specs are passed to execFile (no shell is spawned), so command injection is
 // not possible. We still validate to reject obviously malformed input early and to
@@ -31,8 +32,7 @@ export function resolveNpmSpec(spec: string): NpmResolution {
     // `npm pack <spec>` downloads the published tarball for a remote registry spec.
     // No lifecycle scripts run for a remote spec; --ignore-scripts is belt-and-braces.
     const out = execFileSync(
-      'npm',
-      ['pack', spec, '--pack-destination', tmpDir, '--json', '--ignore-scripts'],
+      ...npmCommand(['pack', spec, '--pack-destination', tmpDir, '--json', '--ignore-scripts']),
       { cwd: tmpDir, maxBuffer: 100 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'], timeout: 60_000 },
     ).toString();
 

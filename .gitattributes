@@ -1,0 +1,2 @@
+# fixup.sh is run by bash and parsed by worker-path.test.ts; a CRLF checkout breaks both.
+*.sh text eol=lf
