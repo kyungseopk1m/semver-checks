@@ -41,6 +41,13 @@ for (const [name, lib, dir] of [['mjs', esm, 'mjs'], ['cjs', cjs, 'cjs']]) {
   check(report.recommended === 'major', `${name}: compare() returns major (got ${report.recommended})`);
 }
 
+// Windows has no SIGTERM a process can catch (kill() ends it outright) and takes
+// its temp dir from TEMP rather than TMPDIR, so section 3 is POSIX only.
+if (process.platform === 'win32') {
+  console.log('skip SIGTERM cleanup: POSIX only');
+  process.exit(0);
+}
+
 // 3. SIGTERM leaves no temp dirs. The source is a throwaway git repo with no
 // package.json, so no `npm install` runs (it would be network and minutes, and
 // the signal would land after it). Its index.ts is large enough that extraction
