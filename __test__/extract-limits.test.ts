@@ -69,7 +69,8 @@ describe('extracted archives', () => {
     }
   });
 
-  it('accepts a git archive that tar stops reading before its end', () => {
+  // POSIX only: the stand-in `git` is a /bin/sh script found through `which`.
+  it.skipIf(process.platform === 'win32')('accepts a git archive that tar stops reading before its end', () => {
     // tar quits at the end-of-archive marker; trailing bytes it never reads used
     // to fail the write with EPIPE and the whole ref with it. A stand-in `git`
     // pads the real archive so that happens every time, not only under load.
