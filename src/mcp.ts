@@ -239,7 +239,7 @@ const TOOLS = [
   {
     name: 'semver_compare',
     description:
-      'Compare two versions of a TypeScript library and detect breaking API changes. Either side can be a filesystem path, a git ref, or an npm spec, so a working tree can be compared against the published release without checking anything out. Returns the recommended SemVer bump (major/minor/patch) and a list of changes. Each change carries a confidence: "proven" (a structurally confident break — gate on these) or "heuristic" (a conservative major the tool could not prove safe — surface for review). summary.majorProven / majorReview split the major count accordingly. Pass "declared" to have the tool grade the bump the release writes down instead of just recommending one. The "gate" field answers what each CLI gate would do with this report, which is what its exit code carries: "strict" fails only on a proven break and is the one safe to leave on every build, while "strictReview" also fails on a major the analyzer could not prove. They are not two strengths of the same check. A passing "strict" is not a clean bill of health, because a real break it could not prove stays review-only; "green means safe" is a claim only "strictReview" can make. Report both rather than reading "strict": "pass" as "nothing broke". Passing "declared" changes the question both gates answer: the release is then graded against the bump it writes down, so a major it already declares passes both.',
+      'Compare two versions of a TypeScript library and detect breaking API changes. Either side can be a filesystem path, a git ref, or an npm spec, so a working tree can be compared against the published release without checking anything out. npm specs and git refs need network access and are unpacked into temp directories that are removed afterwards; nothing in a local path is written unless "installDeps" is set. Returns the recommended SemVer bump (major/minor/patch) and a list of changes. Each change carries a confidence: "proven" (a structurally confident break) or "heuristic" (a conservative major the tool could not prove safe), and summary.majorProven / majorReview split the major count accordingly. The "gate" field gives what each CLI gate would exit with: "strict" fails only on a proven break, "strictReview" on any major. A "strict" pass does not mean nothing broke, since a break the tool could not prove stays review-only, so report both. Pass "declared" to grade the release against the bump it writes down instead of recommending one; a major it already declares then passes both gates.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -279,7 +279,7 @@ const TOOLS = [
         },
         installDeps: {
           type: 'boolean',
-          description: 'Install dependencies before analysis (needed for local paths without node_modules)',
+          description: 'Install dependencies before analysis. In a local path with no node_modules this runs "npm install --ignore-scripts" in that directory, and adds @types/node there if it is missing. Only a local path needs it: a git ref is always installed in its temp copy.',
           default: false,
         },
       },
@@ -296,7 +296,7 @@ const TOOLS = [
   {
     name: 'semver_snapshot',
     description:
-      'Extract the public API surface of a TypeScript project as a structured JSON snapshot, keyed by export subpath. Useful for inspecting what a library exports. The source can be a filesystem path, a git ref, or an npm spec, the same three forms semver_compare takes. Returns each symbol\'s name and kind by default; pass "detail" for full type shapes, which is far larger.',
+      'Extract the public API surface of a TypeScript project as JSON, without comparing it to anything. Use it to see what a package exports; use semver_compare to decide a bump. The source can be a filesystem path, a git ref, or an npm spec, the same three forms semver_compare takes, with the same network and temp-directory behaviour. Returns {"entrypoints": {<subpath>: {<symbol>: <kind>}}}, with each symbol\'s full type shape in place of its kind when "detail" is set. Symbols stop at the "maxBytes" budget, and an "omitted" field then gives the number left out and the total. A source whose surface comes back empty is reported as an analysis_failed error, not as an empty result; pass "entry" to point at the declaration file.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -327,7 +327,7 @@ const TOOLS = [
         },
         installDeps: {
           type: 'boolean',
-          description: 'Install dependencies before analysis',
+          description: 'Install dependencies before analysis. In a local path with no node_modules this runs "npm install --ignore-scripts" in that directory, and adds @types/node there if it is missing. Only a local path needs it: a git ref is always installed in its temp copy.',
           default: false,
         },
       },
