@@ -4,9 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **npm specs and git refs work on Windows.** `npm` is `npm.cmd` there, which a process started without a shell cannot run, so `compare pkg@x pkg@y`, a git ref's dependency install and `installDeps` all failed with "npm was not found on your PATH". npm's own `npm-cli.js` is now run with the current Node instead, still without a shell, so a version range's `|`, `<` and `>` are never read as shell operators.
+
 ### Docs
 
 - **The MCP tool descriptions say what they touch and what they return.** `semver_compare` states that npm specs and git refs need the network and are unpacked into temp directories, and that a local path is written to only with `installDeps`; its explanation of the two gates is no longer repeated three times. `semver_snapshot` now gives the shape of its result, the `omitted` field, and the error an empty surface returns. `installDeps` on both tools names the `npm install --ignore-scripts` it runs in a local path.
+
+### Build
+
+- **CI runs on Windows and on Node 26, and type-checks the tests.** A Windows leg on Node 22 runs the tests, the build and the smoke test (its SIGTERM check is POSIX only), and `npm run typecheck` covers `__test__/` as well as `src/`, which `tsconfig.json` alone did not.
 
 ## [0.15.1] - 2026-10-23
 
