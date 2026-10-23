@@ -98,7 +98,8 @@ describe('extracted archives', () => {
     }
   });
 
-  it('drops a symlink out of an npm tarball', () => {
+  // POSIX only, like the git stand-in above: the stand-in `npm` is a /bin/sh script.
+  it.skipIf(process.platform === 'win32')('drops a symlink out of an npm tarball', () => {
     // A stand-in `npm` on PATH that "downloads" a tarball built here, so the
     // real resolver runs end to end without the registry.
     const work = mkScratch();
