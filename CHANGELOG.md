@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Security
+
+- **`@modelcontextprotocol/sdk` is required at 1.32.1 or later.** 1.31.0 and earlier carry a high-severity advisory, and the SDK pulls in `proxy-addr` and `ip-address` versions with critical and moderate advisories. The floor was `^1.29.0`, which still allowed every affected version. The lockfile is refreshed so `npm audit` reports 0 vulnerabilities; no source changed.
+
 ## [0.15.0] - 2026-10-04
 
 ### Breaking
