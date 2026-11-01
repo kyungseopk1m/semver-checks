@@ -607,6 +607,8 @@ function typeAliasInterfaceEquivalent(ta: ApiTypeAliasSymbol, iface: ApiInterfac
   return aliasShape !== null && aliasShape === canonicalObjectShape(ifaceText);
 }
 
+const VALUE_KINDS: ReadonlySet<ApiSymbol['kind']> = new Set(['class', 'function', 'variable', 'enum']);
+
 function classifySymbolChanges(name: string, oldSym: ApiSymbol, newSym: ApiSymbol, bases?: BaseLookups): ApiChange[] {
   if (oldSym.kind !== newSym.kind) {
     // A type-alias <-> interface conversion with a structurally equivalent shape
@@ -641,8 +643,14 @@ function classifySymbolChanges(name: string, oldSym: ApiSymbol, newSym: ApiSymbo
       // has no implicit index signature, so it stops satisfying
       // `Record<string, unknown>`), but usually does not — ky flipped
       // `KyRequest`/`KyResponse` between the two forms in 1.12.0 and back in
-      // 1.13.0, and no consumer noticed either way.
-      confidence: 'heuristic',
+      // 1.13.0, and no consumer noticed either way. A value replaced by a type
+      // is different: `new C()`, `f()` and `E.A` stop compiling, so it is proven.
+      // `valueExport` rules out an old value consumers could only see as a type
+      // (`export type { C }`), and `typeOnly` a value still declared under the name.
+      confidence:
+        VALUE_KINDS.has(oldSym.kind) && 'valueExport' in oldSym && oldSym.valueExport && 'typeOnly' in newSym && newSym.typeOnly
+          ? 'proven'
+          : 'heuristic',
     }];
   }
 

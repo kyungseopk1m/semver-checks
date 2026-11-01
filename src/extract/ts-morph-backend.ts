@@ -523,6 +523,26 @@ function collectContainerExports(
       }
     }
 
+    const extracted = result[name];
+    if (
+      (extracted?.kind === 'interface' || extracted?.kind === 'type-alias') &&
+      declarations.every(
+        (d) =>
+          Node.isInterfaceDeclaration(d) ||
+          Node.isTypeAliasDeclaration(d) ||
+          (Node.isModuleDeclaration(d) && !d.getSymbol()?.hasFlags(ts.SymbolFlags.ValueModule)),
+      )
+    ) {
+      extracted.typeOnly = true;
+    }
+
+    if (
+      (extracted?.kind === 'class' || extracted?.kind === 'function' || extracted?.kind === 'variable' || extracted?.kind === 'enum') &&
+      exportedAsValue(container, name)
+    ) {
+      extracted.valueExport = true;
+    }
+
     // Namespace side: recurse into each namespace body.
     if (moduleDecls.length > 0) {
       const nsSymbols: Record<string, ApiSymbol> = {};
@@ -548,6 +568,43 @@ function collectContainerExports(
   }
 
   return result;
+}
+
+// Walks the export path of `name` link by link and answers false at the first
+// type-only one (`export type { C }`, `import type { C }` re-exported). A name the
+// container's own export table does not hold came in through `export *`, so the
+// walk continues in the modules it re-exports. `export type *` leaves no link to
+// see, so a program holding one is not traced at all.
+function exportedAsValue(container: SourceFile | ModuleDeclaration, name: string, depth = 0): boolean {
+  if (depth > 16 || hasTypeOnlyStarExport(container.getProject())) return false;
+  let symbol = container.getSymbol()?.getExport(name);
+  if (!symbol && Node.isSourceFile(container)) {
+    return container
+      .getExportDeclarations()
+      .filter((d) => !d.hasNamedExports() && !d.getNamespaceExport())
+      .some((d) => {
+        const target = d.getModuleSpecifierSourceFile();
+        return target !== undefined && exportedAsValue(target, name, depth + 1);
+      });
+  }
+  for (let hops = 0; symbol && hops < 64; hops++) {
+    if (symbol.getDeclarations().some((d) => ts.isTypeOnlyImportOrExportDeclaration(d.compilerNode))) return false;
+    if (!symbol.isAlias()) return true;
+    symbol = symbol.getImmediatelyAliasedSymbol();
+  }
+  return false;
+}
+
+const typeOnlyStarExports = new WeakMap<Project, boolean>();
+function hasTypeOnlyStarExport(project: Project): boolean {
+  let found = typeOnlyStarExports.get(project);
+  if (found === undefined) {
+    found = project
+      .getSourceFiles()
+      .some((sf) => sf.getExportDeclarations().some((d) => d.isTypeOnly() && !d.hasNamedExports()));
+    typeOnlyStarExports.set(project, found);
+  }
+  return found;
 }
 
 function convertDeclaration(name: string, node: Node): ApiSymbol | null {

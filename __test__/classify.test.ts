@@ -2022,6 +2022,54 @@ describe('graded confidence', () => {
     expect(report.summary.majorProven).toBe(0);
   });
 
+  it.each([
+    ['export-kind-changed-class-to-interface', 'Client'],
+    ['export-kind-changed-enum-to-union', 'Level'],
+    // A namespace holding only types adds no value, so `new Client()` still breaks.
+    ['export-kind-changed-class-to-type-with-type-namespace', 'Client'],
+    // `export { C }` is a value export reached through an alias.
+    ['export-kind-changed-reexported-class-to-type-only', 'C'],
+    ['export-kind-changed-namespace-member-class-to-interface', 'N.C'],
+    ['export-kind-changed-star-reexported-class-to-interface', 'C'],
+  ])('grades a value replaced by a type as proven (%s)', (fixture, symbol) => {
+    // Unlike the alias <-> interface flip above, the runtime value is gone:
+    // `new Client()` and `Level.Low` stop compiling.
+    const report = compareFixture(fixture);
+    const change = report.changes.find((c) => c.kind === 'export-removed' && c.symbolPath === symbol);
+    expect(change?.severity).toBe('major');
+    expect(change?.confidence).toBe('proven');
+  });
+
+  it.each([
+    // Only the first declaration of a merged name is read, so moving `type Config`
+    // above `const Config` reads as a kind change while the value is still there.
+    ['export-kind-changed-value-still-declared', 'Config'],
+    // An instantiated namespace is a value under the same name.
+    ['export-kind-changed-class-to-type-with-namespace', 'Client'],
+  ])('keeps a kind change review-only while a value still shares the name (%s)', (fixture, symbol) => {
+    const report = compareFixture(fixture);
+    const change = report.changes.find((c) => c.kind === 'export-removed' && c.symbolPath === symbol);
+    expect(change?.confidence).toBe('heuristic');
+    expect(report.summary.majorProven).toBe(0);
+  });
+
+  it.each([
+    // The old class was exported as a type only, so no consumer could construct it.
+    ['export-kind-changed-type-only-class-to-interface', 'C'],
+    ['export-kind-changed-import-type-reexport', 'C'],
+    ['export-kind-changed-star-reexport-of-type-only-class', 'C'],
+    // `export type *` leaves no link on the export path to read.
+    ['export-kind-changed-type-star-reexport', 'C'],
+    // A named re-export resolves straight through the `export type *` behind it.
+    ['export-kind-changed-named-reexport-through-type-star', 'C'],
+  ])('keeps a kind change review-only when the old value was exported as a type (%s)', (fixture, symbol) => {
+    const report = compareFixture(fixture);
+    const change = report.changes.find((c) => c.kind === 'export-removed' && c.symbolPath === symbol);
+    expect(change?.severity).toBe('major');
+    expect(change?.confidence).toBe('heuristic');
+    expect(report.summary.majorProven).toBe(0);
+  });
+
   it('decomposes an object-literal alias so an added required property is named, not opaque', () => {
     // The p-limit `LimitFunction.concurrency` case: `type X = { ... }` gains a
     // required property. Without decomposition this is an opaque

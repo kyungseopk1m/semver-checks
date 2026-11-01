@@ -29,6 +29,8 @@ export interface ApiFunctionSymbol {
   kind: 'function';
   name: string;
   signatures: ApiFunctionSignature[];
+  // See `valueExport` on ApiClassSymbol.
+  valueExport?: true;
 }
 
 export interface ApiInterfaceProperty {
@@ -78,6 +80,11 @@ export interface ApiInterfaceSymbol {
   // Optional for backward compatibility with snapshots produced before 0.6.1;
   // absent is "unknown", not "no bases", and the diff skips the comparison.
   heritage?: string[];
+  // True when nothing exported under this name is a value: no class, function,
+  // variable, enum or instantiated namespace merged with it. Absent is "a value
+  // shares the name, or unknown" (snapshots before 0.16.0). See `typeOnly` on
+  // ApiTypeAliasSymbol.
+  typeOnly?: true;
 }
 
 // The member set of an object-literal type (`{ a: string; f(): void }`), shared
@@ -103,6 +110,11 @@ export interface ApiTypeAliasSymbol {
   // function type) and for snapshots produced before 0.7.0. When both the old and
   // new alias carry it, the classifier decomposes the alias into its members.
   objectMembers?: ApiObjectMembers;
+  // True when nothing exported under this name is a value. Only the first
+  // declaration of a merged name is read, so a `type Foo` written above a
+  // `const Foo` extracts as a type alias while the value is still there; this is
+  // what tells that apart from a value that was really replaced by a type.
+  typeOnly?: true;
 }
 
 export interface ApiEnumMember {
@@ -114,11 +126,18 @@ export interface ApiEnumSymbol {
   kind: 'enum';
   name: string;
   members: ApiEnumMember[];
+  // See `valueExport` on ApiClassSymbol.
+  valueExport?: true;
 }
 
 export interface ApiClassSymbol {
   kind: 'class';
   name: string;
+  // True when every link of the export path is a value export, so a consumer
+  // can write `new C()`. A class behind `export type { C }` is a type to its
+  // consumers. Absent is "type-only, or not traced": any program holding an
+  // `export type *`, and snapshots before 0.16.0.
+  valueExport?: true;
   constructorSignatures: ApiFunctionSignature[];
   // Absent for snapshots produced before this field existed; the classifier
   // treats a missing value as 'public' (an implicit constructor, or one with
@@ -175,6 +194,8 @@ export interface ApiVariableSymbol {
   kind: 'variable';
   name: string;
   type: SerializedType;
+  // See `valueExport` on ApiClassSymbol.
+  valueExport?: true;
 }
 
 export interface ApiNamespaceSymbol {
