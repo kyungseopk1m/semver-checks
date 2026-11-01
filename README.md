@@ -312,7 +312,7 @@ The scorecard uses `tsc` as its oracle rather than the author's published bump, 
 
 A name-and-arity baseline with no type resolution scores 87.5% / 32.6% on the same corpus. Leave `--strict` on for every push, and run `--strict-review` where a person reads the output before it ships.
 
-**[docs/accuracy.md](docs/accuracy.md)** has the rest: how the corpus was built, the 7 pairs `--strict` stays quiet on and why each one, the single remaining false positive, what the variance probe refuses to answer, and the ten known limitations.
+**[docs/accuracy.md](docs/accuracy.md)** has the rest: how the corpus was built, the 7 pairs `--strict` stays quiet on and why each one, the single remaining false positive, what the variance probe refuses to answer, and the eleven known limitations.
 
 ## Programmatic API
 

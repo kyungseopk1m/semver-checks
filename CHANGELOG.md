@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Changed
+
+- **A value replaced by a type is a `proven` break.** `class C` becoming `interface C`, or `enum E` becoming a string union, used to be graded review-only like a `type` ↔ `interface` flip, so `--strict` passed it; `new C()` and `E.A` stop compiling. It stays review-only while a value is still declared under the name, since only the first declaration of a merged name is read, and when the old value was exported as a type only (`export type { C }`, or a path the export cannot be traced through). Snapshots gain two optional flags to tell these apart: `typeOnly` on interfaces and type aliases, `valueExport` on classes, functions, variables and enums.
+
+### Fixed
+
+- **A stalled `npm install` no longer hangs the run.** The dependency install before comparing a git ref, and `installDeps`, now give up after 10 minutes.
+- **npm specs unpack where GNU tar comes first on a Windows PATH.** The tarball is passed to `tar` relative to its directory, since GNU tar reads the `C:` of an absolute path as a remote host. Not reproduced on Windows; the npm spec path was re-run on macOS.
+
+### Docs
+
+- **Known limitations name three more silent `patch` cases**: an unexported interface or type alias changed behind an exported signature that names it, a removed `protected` class member, and a change to one side of a name that is both a type and a value.
+
 ## [0.15.2] - 2026-10-23
 
 ### Fixed
