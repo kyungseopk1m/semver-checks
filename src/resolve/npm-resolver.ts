@@ -37,10 +37,11 @@ export function resolveNpmSpec(spec: string): NpmResolution {
     ).toString();
 
     const filename = parsePackFilename(out, tmpDir);
-    const tgzPath = path.join(tmpDir, filename);
 
     // A gzip bomb would otherwise hang the run, and a signal is only handled once tar ends.
-    execFileSync('tar', ['-xzf', tgzPath, '-C', tmpDir], { timeout: 120_000 });
+    // The archive is named relative to cwd: GNU tar, which Git Bash puts first on a
+    // Windows PATH, reads the `C:` of an absolute path as a remote host.
+    execFileSync('tar', ['-xzf', filename], { cwd: tmpDir, timeout: 120_000 });
     // Writes through a symlink during extraction are refused or deferred by the
     // system tar (bsdtar, GNU tar); this only guards the reads that come after.
     removeEscapingSymlinks(tmpDir);
