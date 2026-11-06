@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- **The MCP tools declare an `outputSchema` and return `structuredContent`.** A client that reads structured results gets the report or snapshot as an object, checked against the schema; the JSON text is still returned for one that does not. Both tools also carry annotations: `destructiveHint: false` and `openWorldHint: true`, without `readOnlyHint`, since `installDeps` installs into a local path.
+
+### Fixed
+
+- **No more TS5011 warning on a tsconfig with `outDir` but no `rootDir`.** Nothing is emitted, so the extractor now runs with `noEmit` and an error about output layout no longer reads as a problem with the declarations.
+- **A git ref whose archive passes 100 MB names the limit.** The error used to quote the archive's own bytes, binary, as if they were git's message.
+- **Backslashes in the Markdown report's Change column stay as written.** A literal type such as `"a\"b"` lost its backslash, and one ending in `\|` split the table cell.
+
 ## [0.16.0] - 2026-11-02
 
 ### Changed
