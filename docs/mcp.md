@@ -46,6 +46,8 @@ Relative paths and git refs are resolved from the MCP server process's current w
 | `semver_compare`  | Compare two versions and get a SemVer recommendation + change list |
 | `semver_snapshot` | Extract the public API surface of a project as a JSON snapshot     |
 
+Both tools declare an `outputSchema` and return the result twice: as `structuredContent` for a client that reads it, and as JSON text for one that does not. The byte budget below bounds each copy, not the two together. Their annotations say they destroy nothing and reach the network (`destructiveHint: false`, `openWorldHint: true`), and stop short of `readOnlyHint`, since `installDeps` installs into a local path.
+
 #### `semver_compare`
 
 | Argument      | Type                                                       | Required | Description                                                                            |

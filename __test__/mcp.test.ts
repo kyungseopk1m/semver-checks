@@ -127,6 +127,55 @@ describe('MCP server', () => {
     });
   });
 
+  // The SDK client validates `structuredContent` against `outputSchema` once
+  // `listTools` has cached the schema, and throws on a mismatch or on a
+  // missing `structuredContent`, so each call below is also a schema check.
+  describe('structured output', () => {
+    it('declares annotations and an output schema on both tools', async () => {
+      const { client } = await createConnectedClient();
+      const { tools } = await client.listTools();
+      for (const tool of tools) {
+        expect(tool.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: false, openWorldHint: true });
+        expect(tool.outputSchema?.type).toBe('object');
+      }
+      expect(tools.find((t) => t.name === 'semver_compare')!.description).toContain('semver_snapshot');
+    });
+
+    it('returns the compare report as structuredContent, declaration and omitted included', async () => {
+      const { client } = await createConnectedClient();
+      await client.listTools();
+      const dir = path.join(FIXTURES, 'mcp-over-default-cap');
+      const result = await client.callTool({
+        name: 'semver_compare',
+        arguments: { old: path.join(dir, 'old'), new: path.join(dir, 'new'), oldAs: 'path', newAs: 'path', declared: 'patch', maxChanges: 1 },
+      });
+      const text = (result.content as Array<{ text: string }>)[0].text;
+      expect(result.structuredContent).toEqual(JSON.parse(text));
+      expect(result.structuredContent).toMatchObject({ declaration: { verdict: 'mismatch' }, omitted: { count: 58 } });
+    });
+
+    it('returns the snapshot as structuredContent, in both forms', async () => {
+      const { client } = await createConnectedClient();
+      await client.listTools();
+      for (const detail of [false, true]) {
+        const result = await client.callTool({
+          name: 'semver_snapshot',
+          arguments: { path: path.join(FIXTURES, 'mcp-over-byte-budget'), pathAs: 'path', detail },
+        });
+        const text = (result.content as Array<{ text: string }>)[0].text;
+        expect(result.structuredContent).toEqual(JSON.parse(text));
+      }
+    });
+
+    it('still returns a plain error, which the output schema does not cover', async () => {
+      const { client } = await createConnectedClient();
+      await client.listTools();
+      const result = await client.callTool({ name: 'semver_compare', arguments: { old: '/nonexistent/path', oldAs: 'path' } });
+      expect(result.isError).toBe(true);
+      expect(result.structuredContent).toBeUndefined();
+    });
+  });
+
   describe('semver_compare', () => {
     it('detects MAJOR breaking change (export-removed)', async () => {
       const { client } = await createConnectedClient();

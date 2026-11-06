@@ -146,7 +146,7 @@ function gateFor(report: SemverReport) {
   return { strict: verdict({ strict: true }), strictReview: verdict({ strictReview: true }) };
 }
 
-function forAgent(report: SemverReport, maxChanges: number): unknown {
+function forAgent(report: SemverReport, maxChanges: number): Record<string, unknown> {
   const ordered = [...report.changes].sort((a, b) => changeRank(a) - changeRank(b));
   const gate = gateFor(report);
   if (ordered.length <= maxChanges) return { ...report, gate, changes: ordered };
@@ -190,7 +190,7 @@ function snapshotForAgent(
   snapshot: ApiSnapshot,
   detail: boolean,
   maxBytes: number,
-): unknown {
+): Record<string, unknown> {
   const entrypoints: Record<string, Record<string, unknown>> = {};
   let used = 0;
   let kept = 0;
@@ -235,11 +235,23 @@ function snapshotForAgent(
   };
 }
 
+const BUMP = { type: 'string', enum: ['major', 'minor', 'patch'] };
+const PASS_FAIL = { type: 'string', enum: ['pass', 'fail'] };
+const OMITTED = {
+  type: 'object',
+  properties: { count: { type: 'integer' }, total: { type: 'integer' }, note: { type: 'string' } },
+  required: ['count', 'total', 'note'],
+};
+
+// Both tools read a source and write nothing to it, except that `installDeps`
+// installs into a local path, so neither can honestly claim read-only.
+const ANNOTATIONS = { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true };
+
 const TOOLS = [
   {
     name: 'semver_compare',
     description:
-      'Compare two versions of a TypeScript library and detect breaking API changes. Either side can be a filesystem path, a git ref, or an npm spec, so a working tree can be compared against the published release without checking anything out. npm specs and git refs need network access and are unpacked into temp directories that are removed afterwards; nothing in a local path is written unless "installDeps" is set. Returns the recommended SemVer bump (major/minor/patch) and a list of changes. Each change carries a confidence: "proven" (a structurally confident break) or "heuristic" (a conservative major the tool could not prove safe), and summary.majorProven / majorReview split the major count accordingly. The "gate" field gives what each CLI gate would exit with: "strict" fails only on a proven break, "strictReview" on any major. A "strict" pass does not mean nothing broke, since a break the tool could not prove stays review-only, so report both. Pass "declared" to grade the release against the bump it writes down instead of recommending one; a major it already declares then passes both gates.',
+      'Compare two versions of a TypeScript library and detect breaking API changes. Use it to decide or check a SemVer bump; use semver_snapshot to list what one version exports without comparing it. Either side can be a filesystem path, a git ref, or an npm spec, so a working tree can be compared against the published release without checking anything out.\n\nnpm specs and git refs need network access and are unpacked into temp directories that are removed afterwards; nothing in a local path is written unless "installDeps" is set.\n\nReturns the recommended SemVer bump (major/minor/patch) and a list of changes. Each change carries a confidence: "proven" (a structurally confident break) or "heuristic" (a conservative major the tool could not prove safe), and summary.majorProven / majorReview split the major count accordingly. The "gate" field gives what each CLI gate would exit with: "strict" fails only on a proven break, "strictReview" on any major. A "strict" pass does not mean nothing broke, since a break the tool could not prove stays review-only, so report both. Pass "declared" to grade the release against the bump it writes down instead of recommending one; a major it already declares then passes both gates.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -292,6 +304,58 @@ const TOOLS = [
       // caller is a model that will not notice its argument went missing.
       additionalProperties: false,
     },
+    outputSchema: {
+      type: 'object',
+      properties: {
+        recommended: BUMP,
+        changes: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              kind: { type: 'string' },
+              severity: BUMP,
+              symbolPath: { type: 'string' },
+              message: { type: 'string' },
+              oldValue: { type: 'string' },
+              newValue: { type: 'string' },
+              confidence: { type: 'string', enum: ['proven', 'heuristic'] },
+            },
+            required: ['kind', 'severity', 'symbolPath', 'message'],
+          },
+        },
+        summary: {
+          type: 'object',
+          properties: {
+            major: { type: 'integer' },
+            minor: { type: 'integer' },
+            patch: { type: 'integer' },
+            majorProven: { type: 'integer' },
+            majorReview: { type: 'integer' },
+          },
+          required: ['major', 'minor', 'patch', 'majorProven', 'majorReview'],
+        },
+        gate: {
+          type: 'object',
+          properties: { strict: PASS_FAIL, strictReview: PASS_FAIL },
+          required: ['strict', 'strictReview'],
+        },
+        declaration: {
+          type: 'object',
+          properties: {
+            declared: { type: 'string', enum: ['major', 'minor', 'patch', 'none'] },
+            source: { type: 'string' },
+            required: BUMP,
+            suggested: BUMP,
+            verdict: { type: 'string', enum: ['ok', 'review', 'mismatch'] },
+          },
+          required: ['declared', 'source', 'required', 'suggested', 'verdict'],
+        },
+        omitted: OMITTED,
+      },
+      required: ['recommended', 'changes', 'summary', 'gate'],
+    },
+    annotations: { title: 'Compare two versions for a SemVer bump', ...ANNOTATIONS },
   },
   {
     name: 'semver_snapshot',
@@ -333,6 +397,16 @@ const TOOLS = [
       },
       additionalProperties: false,
     },
+    outputSchema: {
+      type: 'object',
+      properties: {
+        // Subpath to symbol name to its kind, or to its full shape under `detail`.
+        entrypoints: { type: 'object', additionalProperties: { type: 'object' } },
+        omitted: OMITTED,
+      },
+      required: ['entrypoints'],
+    },
+    annotations: { title: 'Extract a public API surface', ...ANNOTATIONS },
   },
 ];
 
@@ -398,8 +472,10 @@ export function createMcpServer(): Server {
             declared,
           });
 
+          const result = forAgent(report, maxChanges);
           return {
-            content: [{ type: 'text', text: JSON.stringify(forAgent(report, maxChanges), null, 2) }],
+            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+            structuredContent: result,
           };
         }
 
@@ -446,10 +522,10 @@ export function createMcpServer(): Server {
                   `  Pass "entry" to point at the declaration file explicitly.`,
               );
             }
+            const result = snapshotForAgent(snapshot, detail, maxBytes);
             return {
-              content: [
-                { type: 'text', text: JSON.stringify(snapshotForAgent(snapshot, detail, maxBytes)) },
-              ],
+              content: [{ type: 'text', text: JSON.stringify(result) }],
+              structuredContent: result,
             };
           } finally {
             if (tmpDir) cleanupTmpDir(tmpDir);
