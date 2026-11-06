@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import path from 'node:path';
 import fs from 'node:fs';
+import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { extractFromPath } from '../src/extract/ts-morph-backend.js';
 import { diff } from '../src/compare/differ.js';
@@ -2414,5 +2415,28 @@ describe('TypeScript diagnostic reporting', () => {
 
     const written = stderrDuringExtract('export-added', 'old', 'index.ts');
     expect(written).toBe('');
+  });
+
+  it('stays silent on a tsconfig with outDir but no rootDir', () => {
+    // TypeScript >= 6.0 reports this as TS5011, an error about where emitted files
+    // would land. Nothing is emitted here, so it says nothing about the declarations.
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'semver-checks-test-'));
+    try {
+      fs.mkdirSync(path.join(dir, 'src'));
+      fs.writeFileSync(path.join(dir, 'src', 'index.ts'), 'export function f(a: string): void {}\n');
+      fs.writeFileSync(
+        path.join(dir, 'tsconfig.json'),
+        JSON.stringify({ compilerOptions: { strict: true, outDir: 'dist', declaration: true }, include: ['src'] }),
+      );
+      const spy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+      try {
+        extractFromPath(dir, 'src/index.ts');
+        expect(spy.mock.calls.map((c) => String(c[0])).join('')).toBe('');
+      } finally {
+        spy.mockRestore();
+      }
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

@@ -52,6 +52,8 @@ export function extractFromPath(projectPath: string, entry?: string | string[]):
   const project = new Project({
     tsConfigFilePath: path.join(projectPath, 'tsconfig.json'),
     skipAddingFilesFromTsConfig: false,
+    // Nothing is emitted, so output-layout errors (TS5011: outDir without rootDir) are not about the declarations.
+    compilerOptions: { noEmit: true },
   });
 
   // P1: Warn on TypeScript errors so users aren't silently misled by ts-morph's
