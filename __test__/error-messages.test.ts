@@ -55,4 +55,16 @@ describe('explainGitError', () => {
     const err = { code: 'ETIMEDOUT', message: 'spawnSync git ETIMEDOUT' };
     expect(explainGitError('v1.0.0', err)).toBe("git archive of 'v1.0.0' did not finish within 120 s.");
   });
+
+  it('names the size limit, not the archive bytes, when git archive overflows the buffer', () => {
+    const err = { code: 'ENOBUFS', stdout: Buffer.from('ustar\0\x89PNG binary'), stderr: Buffer.from('') };
+    const msg = explainGitError('HEAD', err);
+    expect(msg).toMatch(/larger than 100 MB/);
+    expect(msg).not.toContain('ustar');
+  });
+
+  it('never quotes stdout, which is the archive itself', () => {
+    const err = { stdout: Buffer.from('ustar\0binary'), stderr: Buffer.from('fatal: something odd'), message: 'Command failed' };
+    expect(explainGitError('HEAD', err)).toBe('fatal: something odd');
+  });
 });

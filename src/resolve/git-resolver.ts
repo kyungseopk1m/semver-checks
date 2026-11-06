@@ -53,7 +53,10 @@ export function resolveGitRef(ref: string, cwd?: string): string {
 export function explainGitError(ref: string, err: any): string {
   if (err?.code === 'ENOENT') return 'git was not found on your PATH.';
   if (err?.code === 'ETIMEDOUT') return `git archive of '${ref}' did not finish within 120 s.`;
-  const out = `${err?.stderr?.toString?.() ?? ''}${err?.stdout?.toString?.() ?? ''}`;
+  if (err?.code === 'ENOBUFS')
+    return `the archive of '${ref}' is larger than 100 MB. Run from the package's own directory, so only that directory is archived, or pass a directory path instead of a ref.`;
+  // stdout is the archive itself, binary, so only stderr can explain a failure.
+  const out = err?.stderr?.toString?.() ?? '';
   if (/not a git repository/i.test(out))
     return 'not inside a git repository. Run from your repo root, or pass a directory path instead of a ref.';
   if (/unknown revision|not a valid object name|bad revision|did not match any/i.test(out))
