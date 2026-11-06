@@ -53,6 +53,16 @@ describe('markdownReport', () => {
     expect(md).toContain('string \\| number');
   });
 
+  // A backslash in prose escapes the character after it, so it is doubled
+  // there; inside the symbol's code span it is literal and stays single.
+  it('keeps backslashes literal in both cells', () => {
+    const md = markdownReport({
+      ...report,
+      changes: [{ kind: 'type-alias-changed', severity: 'major', symbolPath: 'A\\B', message: 'now: "a\\"b" | "c\\|"' }],
+    });
+    expect(md).toContain('| `A\\B` | now: "a\\\\"b" \\| "c\\\\\\|" |');
+  });
+
   it('reports cleanly when there are no changes', () => {
     expect(markdownReport(empty)).toContain('✅ No API changes detected.');
   });

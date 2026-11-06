@@ -73,8 +73,14 @@ function appendTable(lines: string[], changes: ApiChange[]): void {
   lines.push('| Symbol | Change |');
   lines.push('| --- | --- |');
   for (const c of changes) {
-    lines.push(`| ${codeSpan(escapeCell(c.symbolPath))} | ${escapeCell(c.message)} |`);
+    lines.push(`| ${codeSpan(escapeCell(c.symbolPath))} | ${escapeCell(escapeBackslashes(c.message))} |`);
   }
+}
+
+// Prose only: a code span shows a backslash as written, so doubling it there
+// would print two. In prose, `"a\"b"` from a literal type would lose its `\`.
+function escapeBackslashes(text: string): string {
+  return text.replace(/\\/g, '\\\\');
 }
 
 function escapeCell(text: string): string {
