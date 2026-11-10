@@ -390,59 +390,90 @@ describe('changesets in a monorepo', () => {
 });
 
 describe('changesets fixed and linked groups', () => {
-  function withConfig(name: string, config: object, changesets: Record<string, string>, pkgName = 'core') {
+  // changesets decides a group member's release from `ignore`, private packages,
+  // pre mode and `none` entries as well as the group, so reading the group here
+  // would raise a declaration past what changesets releases and pass a real
+  // break. The declaration stays the package's own, and the run says so.
+  function withConfig(name: string, config: object, changesets: Record<string, string>) {
     const files: Record<string, string> = {
-      'package.json': pkg(pkgName, '1.0.0'),
+      'package.json': pkg('core', '1.0.0'),
       '.changeset/config.json': JSON.stringify(config),
     };
     for (const [file, body] of Object.entries(changesets)) files[`.changeset/${file}`] = body;
     return project(name, files);
   }
 
-  it('raises a fixed group to the highest bump any member declares', () => {
-    const dir = withConfig('grp-fixed', { fixed: [['core', 'b']] }, { 'a.md': '---\n"core": minor\n"b": major\n---\n\nx\n' });
-    const found = detectDeclaredBump(dir, dir);
-    expect(found?.bump).toBe('major');
-    expect(found?.source).toContain('fixed group');
-  });
-
-  it('releases a fixed member that has no changeset of its own, matching a glob', () => {
-    const dir = withConfig('grp-fixed-glob', { fixed: [['@scope/*']] }, { 'a.md': '---\n"@scope/other": minor\n---\n\nx\n' }, '@scope/core');
-    expect(detectDeclaredBump(dir, dir)?.bump).toBe('minor');
-  });
-
-  it('raises a linked member only when it has a changeset of its own', () => {
-    const linked = { linked: [['core', 'b']] };
-    const dir = withConfig('grp-linked', linked, { 'a.md': '---\n"core": patch\n"b": minor\n---\n\nx\n' });
-    expect(detectDeclaredBump(dir, dir)?.bump).toBe('minor');
-
-    const idle = withConfig('grp-linked-idle', linked, { 'a.md': '---\n"b": minor\n---\n\nx\n' });
-    expect(detectDeclaredBump(idle, idle)?.source).toBe('package.json version 1.0.0 -> 1.0.0');
-  });
-
-  it('leaves a package outside every group alone', () => {
-    const dir = withConfig('grp-outside', { fixed: [['x', 'y']] }, { 'a.md': '---\n"core": patch\n"x": major\n---\n\nx\n' });
-    expect(detectDeclaredBump(dir, dir)).toEqual({ bump: 'patch', source: path.join('.changeset', 'a.md') });
-  });
-});
-
-describe('a changeset this reader cannot read', () => {
-  it('names the file on stderr instead of reading it as no declaration', () => {
-    const dir = project('cs-flow', {
-      'package.json': pkg('core', '1.0.0'),
-      '.changeset/flow.md': '---\n{ "core": major }\n---\n\nx\n',
-    });
+  function stderrOf(fn: () => void): string {
     const writes: string[] = [];
     const spy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
       writes.push(String(chunk));
       return true;
     });
     try {
-      detectDeclaredBump(dir, dir);
+      fn();
     } finally {
       spy.mockRestore();
     }
-    expect(writes.join('')).toContain(path.join('.changeset', 'flow.md'));
+    return writes.join('');
+  }
+
+  it('reads only the package\'s own changesets, never a group member\'s higher bump', () => {
+    const ignored = withConfig('grp-ignored', { fixed: [['core', 'b']], ignore: ['b'] }, { 'a.md': '---\n"core": patch\n"b": major\n---\n\nx\n' });
+    const noneLinked = withConfig('grp-none', { linked: [['core', 'b']] }, { 'a.md': '---\n"core": none\n"b": major\n---\n\nx\n' });
+    let found: ReturnType<typeof detectDeclaredBump> = null;
+    stderrOf(() => (found = detectDeclaredBump(ignored, ignored)));
+    expect(found).toEqual({ bump: 'patch', source: path.join('.changeset', 'a.md') });
+    stderrOf(() => (found = detectDeclaredBump(noneLinked, noneLinked)));
+    expect(found).toEqual({ bump: 'none', source: path.join('.changeset', 'a.md') });
+  });
+
+  it('warns that a group is not applied when the config declares one', () => {
+    const fixed = withConfig('grp-warn-fixed', { fixed: [['{core,b}']] }, { 'a.md': '---\n"core": patch\n---\n\nx\n' });
+    const linked = withConfig('grp-warn-linked', { linked: [['x', 'y']] }, { 'a.md': '---\n"core": patch\n---\n\nx\n' });
+    expect(stderrOf(() => detectDeclaredBump(fixed, fixed))).toContain('fixed');
+    expect(stderrOf(() => detectDeclaredBump(linked, linked))).toContain('linked');
+  });
+
+  it('stays quiet when the config declares no group', () => {
+    const dir = withConfig('grp-none-declared', { fixed: [], linked: [] }, { 'a.md': '---\n"core": patch\n---\n\nx\n' });
+    expect(stderrOf(() => detectDeclaredBump(dir, dir))).toBe('');
+  });
+});
+
+describe('a changeset this reader cannot read all of', () => {
+  function stderrOf(fn: () => void): string {
+    const writes: string[] = [];
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      writes.push(String(chunk));
+      return true;
+    });
+    try {
+      fn();
+    } finally {
+      spy.mockRestore();
+    }
+    return writes.join('');
+  }
+
+  it('names the file on stderr when an entry cannot be read', () => {
+    const dir = project('cs-flow', {
+      'package.json': pkg('core', '1.0.0'),
+      '.changeset/flow.md': '---\n{ "core": major }\n---\n\nx\n',
+    });
+    expect(stderrOf(() => detectDeclaredBump(dir, dir))).toContain(path.join('.changeset', 'flow.md'));
+  });
+
+  it('still reads the entries it can, next to one it cannot', () => {
+    // Valid YAML: `b`'s value sits on the next line. Dropping the whole file
+    // would lose `core: major` too and read the release as declaring nothing.
+    const dir = project('cs-multiline', {
+      'package.json': pkg('core', '1.0.0'),
+      '.changeset/a.md': '---\n"core": major\n"b":\n  patch\n---\n\nx\n',
+    });
+    let found: ReturnType<typeof detectDeclaredBump> = null;
+    const err = stderrOf(() => (found = detectDeclaredBump(dir, dir)));
+    expect(found).toEqual({ bump: 'major', source: path.join('.changeset', 'a.md') });
+    expect(err).toContain(path.join('.changeset', 'a.md'));
   });
 
   it('stays quiet about a readable changeset that names other packages', () => {
@@ -450,13 +481,7 @@ describe('a changeset this reader cannot read', () => {
       'package.json': pkg('core', '1.0.0'),
       '.changeset/a.md': '---\n"other": major\n# a comment\n\n---\n\nx\n',
     });
-    const spy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-    try {
-      detectDeclaredBump(dir, dir);
-      expect(spy).not.toHaveBeenCalled();
-    } finally {
-      spy.mockRestore();
-    }
+    expect(stderrOf(() => detectDeclaredBump(dir, dir))).toBe('');
   });
 });
 

@@ -181,26 +181,32 @@ function readChangesetBump(projectPath: string, pkgName: string, ascend: boolean
   let bump: DeclaredBump | null = null;
   let source: string | null = null;
   let count = 0;
-  const fixed = groupOf(root, 'fixed', pkgName);
-  const linked = groupOf(root, 'linked', pkgName);
-  let fixedBump: DeclaredBump | null = null;
-  let linkedBump: DeclaredBump | null = null;
+
+  // changesets settles a group member's release from `ignore`, private
+  // packages, pre mode and `none` entries as well as the group itself, and
+  // reading the group alone raised declarations past what it releases, which
+  // passed real breaks. The declaration stays the package's own: it can only
+  // read lower than the release, which fails the gate rather than passing it.
+  const groups = declaredGroups(root);
+  if (groups.length > 0) {
+    warn(
+      `.changeset/config.json declares ${groups.join(' and ')} groups, which are not applied; ` +
+        'the declared bump is this package\'s own and may read lower than changesets will release',
+    );
+  }
 
   for (const dir of [root, path.join(root, 'pre')]) {
     for (const file of listChangesets(dir)) {
-      const entries = readEntries(readFile(file));
-      if (entries === null) {
+      const { entries, unreadable } = readEntries(readFile(file));
+      if (unreadable) {
         warn(
-          `could not read the frontmatter of ${describeChangeset(projectPath, file)}; ` +
-            'it was skipped, so the declared bump may read lower than changesets will release',
+          `could not read every entry in the frontmatter of ${describeChangeset(projectPath, file)}; ` +
+            'those were skipped, so the declared bump may read lower than changesets will release',
         );
-        continue;
       }
       let declared: DeclaredBump | null = null;
       for (const [name, type] of entries) {
         if (name === pkgName) declared = higher(declared, type);
-        if (fixed?.some((p) => p.test(name))) fixedBump = higher(fixedBump, type);
-        if (linked?.some((p) => p.test(name))) linkedBump = higher(linkedBump, type);
       }
       if (!declared) continue;
       count += 1;
@@ -213,21 +219,8 @@ function readChangesetBump(projectPath: string, pkgName: string, ascend: boolean
     }
   }
 
-  let note = count > 1 ? ` (highest of ${count} changesets)` : '';
-  // A fixed group releases every member at the group's highest bump, with or
-  // without a changeset of its own. A linked group only lines up the members
-  // that are being released anyway.
-  if (fixedBump !== null && (bump === null || ORDER[fixedBump] > ORDER[bump])) {
-    bump = fixedBump;
-    source ??= path.relative(path.resolve(projectPath), path.join(root, 'config.json'));
-    note += ` (raised to ${fixedBump} by its fixed group)`;
-  } else if (bump !== null && linkedBump !== null && ORDER[linkedBump] > ORDER[bump]) {
-    bump = linkedBump;
-    note += ` (raised to ${linkedBump} by its linked group)`;
-  }
-
   if (bump === null || source === null) return null;
-  return { bump, source: `${source}${note}` };
+  return { bump, source: count > 1 ? `${source} (highest of ${count} changesets)` : source };
 }
 
 // changesets lives at the workspace root and a package in a monorepo sits under
@@ -297,52 +290,48 @@ function listChangesets(dir: string): string[] {
 
 // The frontmatter of a changeset is a flat map of package name to release type,
 // which is all `changeset add` writes, so a line scan reads it without a YAML
-// dependency. YAML allows more (a flow map `{ "pkg": major }`, anchors), and a
-// line this scan cannot read makes the whole file null, so the caller can say
-// so instead of reading the file as declaring nothing.
-function readEntries(text: string | null): Array<[string, DeclaredBump]> | null {
-  if (text === null) return [];
-  const block = FRONTMATTER.exec(text);
-  if (!block) return [];
-
+// dependency. YAML allows more (a value on the next line, a flow map
+// `{ "pkg": major }`, anchors). Such a line is reported as unreadable, and the
+// entries around it are still read: dropping the file would lose those too.
+function readEntries(text: string | null): { entries: Array<[string, DeclaredBump]>; unreadable: boolean } {
   const entries: Array<[string, DeclaredBump]> = [];
+  let unreadable = false;
+  const block = text === null ? null : FRONTMATTER.exec(text);
+  if (!block) return { entries, unreadable };
+
   for (const line of block[1].split(/\r?\n/)) {
     if (/^\s*(#.*)?$/.test(line)) continue;
     const entry = ENTRY.exec(line);
     const declared = entry ? releaseType(entry[4]) : null;
-    if (!entry || declared === null) return null;
+    if (!entry || declared === null) {
+      unreadable = true;
+      continue;
+    }
     // No trim: `\s*:` has already eaten the padding around a bare key, and a
     // quoted key keeps the spaces inside its quotes the way YAML reads them.
     entries.push([entry[1] ?? entry[2] ?? entry[3] ?? '', declared]);
   }
-  return entries;
+  return { entries, unreadable };
 }
 
 function higher(a: DeclaredBump | null, b: DeclaredBump): DeclaredBump {
   return a === null || ORDER[b] > ORDER[a] ? b : a;
 }
 
-// The `fixed` or `linked` group in `.changeset/config.json` this package belongs
-// to, as matchers. changesets matches the names with globs; `*` is the form
-// configs use, so that is the one read here.
-function groupOf(root: string, key: 'fixed' | 'linked', pkgName: string): RegExp[] | null {
+// Which of `fixed` and `linked` the changesets config declares a group under.
+function declaredGroups(root: string): string[] {
   const text = readFile(path.join(root, 'config.json'));
-  if (text === null) return null;
-  let groups: unknown;
+  if (text === null) return [];
+  let config: Record<string, unknown>;
   try {
-    groups = (JSON.parse(text) as Record<string, unknown>)[key];
+    config = JSON.parse(text) as Record<string, unknown>;
   } catch {
-    return null;
+    return [];
   }
-  if (!Array.isArray(groups)) return null;
-  for (const group of groups) {
-    if (!Array.isArray(group)) continue;
-    const matchers = group
-      .filter((p): p is string => typeof p === 'string')
-      .map((p) => new RegExp(`^${p.split('*').map((s) => s.replace(/[.+?^${}()|[\]\\/]/g, '\\$&')).join('.*')}$`));
-    if (matchers.some((m) => m.test(pkgName))) return matchers;
-  }
-  return null;
+  return (['fixed', 'linked'] as const).filter((key) => {
+    const groups = config[key];
+    return Array.isArray(groups) && groups.some((g) => Array.isArray(g) && g.length > 0);
+  });
 }
 
 function warn(message: string): void {
