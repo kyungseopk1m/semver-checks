@@ -255,7 +255,7 @@ A full example lives in [`examples/github-actions.yml`](examples/github-actions.
 
 #### On a release pull request
 
-Does the bump this release declares cover what its API surface did? `@clerk/break-check` and `semvet` also score the declared bump from the two `package.json` versions; reading it from `.changeset` files is what is specific here. `declared: auto` reads the bump from `.changeset/*.md` and falls back to the two `package.json` versions, and `comment: true` puts the verdict on the pull request instead of leaving it in the log.
+Does the bump this release declares cover what its API surface did? `@clerk/break-check` and `semvet` also score the declared bump from the two `package.json` versions; reading it from `.changeset` files is what is specific here. `declared: auto` reads the bump from `.changeset/*.md` and falls back to the two `package.json` versions, and `comment: true` puts the verdict on the pull request instead of leaving it in the log. A package in a `fixed` or `linked` group in `.changeset/config.json` is read at the bump its group gives it, the way `changeset version` will release it; the patch bump a dependent picks up from `updateInternalDependencies` is not added. A changeset whose frontmatter is not the plain `"name": type` lines `changeset add` writes (a flow map, anchors) is skipped with a warning that names it.
 
 ```yaml
 permissions:

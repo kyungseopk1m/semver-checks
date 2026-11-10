@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -386,6 +386,77 @@ describe('changesets in a monorepo', () => {
     // versions answer instead. An npm tarball ships no changesets and a git ref
     // is extracted whole, so neither has anything above it to find.
     expect(detectDeclaredBump(corePath, corePath)?.source).toBe('package.json version 1.4.0 -> 1.4.0');
+  });
+});
+
+describe('changesets fixed and linked groups', () => {
+  function withConfig(name: string, config: object, changesets: Record<string, string>, pkgName = 'core') {
+    const files: Record<string, string> = {
+      'package.json': pkg(pkgName, '1.0.0'),
+      '.changeset/config.json': JSON.stringify(config),
+    };
+    for (const [file, body] of Object.entries(changesets)) files[`.changeset/${file}`] = body;
+    return project(name, files);
+  }
+
+  it('raises a fixed group to the highest bump any member declares', () => {
+    const dir = withConfig('grp-fixed', { fixed: [['core', 'b']] }, { 'a.md': '---\n"core": minor\n"b": major\n---\n\nx\n' });
+    const found = detectDeclaredBump(dir, dir);
+    expect(found?.bump).toBe('major');
+    expect(found?.source).toContain('fixed group');
+  });
+
+  it('releases a fixed member that has no changeset of its own, matching a glob', () => {
+    const dir = withConfig('grp-fixed-glob', { fixed: [['@scope/*']] }, { 'a.md': '---\n"@scope/other": minor\n---\n\nx\n' }, '@scope/core');
+    expect(detectDeclaredBump(dir, dir)?.bump).toBe('minor');
+  });
+
+  it('raises a linked member only when it has a changeset of its own', () => {
+    const linked = { linked: [['core', 'b']] };
+    const dir = withConfig('grp-linked', linked, { 'a.md': '---\n"core": patch\n"b": minor\n---\n\nx\n' });
+    expect(detectDeclaredBump(dir, dir)?.bump).toBe('minor');
+
+    const idle = withConfig('grp-linked-idle', linked, { 'a.md': '---\n"b": minor\n---\n\nx\n' });
+    expect(detectDeclaredBump(idle, idle)?.source).toBe('package.json version 1.0.0 -> 1.0.0');
+  });
+
+  it('leaves a package outside every group alone', () => {
+    const dir = withConfig('grp-outside', { fixed: [['x', 'y']] }, { 'a.md': '---\n"core": patch\n"x": major\n---\n\nx\n' });
+    expect(detectDeclaredBump(dir, dir)).toEqual({ bump: 'patch', source: path.join('.changeset', 'a.md') });
+  });
+});
+
+describe('a changeset this reader cannot read', () => {
+  it('names the file on stderr instead of reading it as no declaration', () => {
+    const dir = project('cs-flow', {
+      'package.json': pkg('core', '1.0.0'),
+      '.changeset/flow.md': '---\n{ "core": major }\n---\n\nx\n',
+    });
+    const writes: string[] = [];
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      writes.push(String(chunk));
+      return true;
+    });
+    try {
+      detectDeclaredBump(dir, dir);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(writes.join('')).toContain(path.join('.changeset', 'flow.md'));
+  });
+
+  it('stays quiet about a readable changeset that names other packages', () => {
+    const dir = project('cs-other', {
+      'package.json': pkg('core', '1.0.0'),
+      '.changeset/a.md': '---\n"other": major\n# a comment\n\n---\n\nx\n',
+    });
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      detectDeclaredBump(dir, dir);
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
 

@@ -181,10 +181,27 @@ function readChangesetBump(projectPath: string, pkgName: string, ascend: boolean
   let bump: DeclaredBump | null = null;
   let source: string | null = null;
   let count = 0;
+  const fixed = groupOf(root, 'fixed', pkgName);
+  const linked = groupOf(root, 'linked', pkgName);
+  let fixedBump: DeclaredBump | null = null;
+  let linkedBump: DeclaredBump | null = null;
 
   for (const dir of [root, path.join(root, 'pre')]) {
     for (const file of listChangesets(dir)) {
-      const declared = bumpForPackage(readFile(file), pkgName);
+      const entries = readEntries(readFile(file));
+      if (entries === null) {
+        warn(
+          `could not read the frontmatter of ${describeChangeset(projectPath, file)}; ` +
+            'it was skipped, so the declared bump may read lower than changesets will release',
+        );
+        continue;
+      }
+      let declared: DeclaredBump | null = null;
+      for (const [name, type] of entries) {
+        if (name === pkgName) declared = higher(declared, type);
+        if (fixed?.some((p) => p.test(name))) fixedBump = higher(fixedBump, type);
+        if (linked?.some((p) => p.test(name))) linkedBump = higher(linkedBump, type);
+      }
       if (!declared) continue;
       count += 1;
       // Several changesets for one package merge to the highest of them, which
@@ -196,8 +213,21 @@ function readChangesetBump(projectPath: string, pkgName: string, ascend: boolean
     }
   }
 
+  let note = count > 1 ? ` (highest of ${count} changesets)` : '';
+  // A fixed group releases every member at the group's highest bump, with or
+  // without a changeset of its own. A linked group only lines up the members
+  // that are being released anyway.
+  if (fixedBump !== null && (bump === null || ORDER[fixedBump] > ORDER[bump])) {
+    bump = fixedBump;
+    source ??= path.relative(path.resolve(projectPath), path.join(root, 'config.json'));
+    note += ` (raised to ${fixedBump} by its fixed group)`;
+  } else if (bump !== null && linkedBump !== null && ORDER[linkedBump] > ORDER[bump]) {
+    bump = linkedBump;
+    note += ` (raised to ${linkedBump} by its linked group)`;
+  }
+
   if (bump === null || source === null) return null;
-  return { bump, source: count > 1 ? `${source} (highest of ${count} changesets)` : source };
+  return { bump, source: `${source}${note}` };
 }
 
 // changesets lives at the workspace root and a package in a monorepo sits under
@@ -266,26 +296,57 @@ function listChangesets(dir: string): string[] {
 }
 
 // The frontmatter of a changeset is a flat map of package name to release type,
-// so a line scan reads it without a YAML dependency.
-// ponytail: line scan, swap in a YAML parser if flow-style maps or anchors ever
-// turn up in real changesets.
-function bumpForPackage(text: string | null, pkgName: string): DeclaredBump | null {
-  if (text === null) return null;
+// which is all `changeset add` writes, so a line scan reads it without a YAML
+// dependency. YAML allows more (a flow map `{ "pkg": major }`, anchors), and a
+// line this scan cannot read makes the whole file null, so the caller can say
+// so instead of reading the file as declaring nothing.
+function readEntries(text: string | null): Array<[string, DeclaredBump]> | null {
+  if (text === null) return [];
   const block = FRONTMATTER.exec(text);
-  if (!block) return null;
+  if (!block) return [];
 
-  let bump: DeclaredBump | null = null;
+  const entries: Array<[string, DeclaredBump]> = [];
   for (const line of block[1].split(/\r?\n/)) {
+    if (/^\s*(#.*)?$/.test(line)) continue;
     const entry = ENTRY.exec(line);
-    if (!entry) continue;
+    const declared = entry ? releaseType(entry[4]) : null;
+    if (!entry || declared === null) return null;
     // No trim: `\s*:` has already eaten the padding around a bare key, and a
     // quoted key keeps the spaces inside its quotes the way YAML reads them.
-    const name = entry[1] ?? entry[2] ?? entry[3] ?? '';
-    if (name !== pkgName) continue;
-    const declared = releaseType(entry[4]);
-    if (declared !== null && (bump === null || ORDER[declared] > ORDER[bump])) bump = declared;
+    entries.push([entry[1] ?? entry[2] ?? entry[3] ?? '', declared]);
   }
-  return bump;
+  return entries;
+}
+
+function higher(a: DeclaredBump | null, b: DeclaredBump): DeclaredBump {
+  return a === null || ORDER[b] > ORDER[a] ? b : a;
+}
+
+// The `fixed` or `linked` group in `.changeset/config.json` this package belongs
+// to, as matchers. changesets matches the names with globs; `*` is the form
+// configs use, so that is the one read here.
+function groupOf(root: string, key: 'fixed' | 'linked', pkgName: string): RegExp[] | null {
+  const text = readFile(path.join(root, 'config.json'));
+  if (text === null) return null;
+  let groups: unknown;
+  try {
+    groups = (JSON.parse(text) as Record<string, unknown>)[key];
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(groups)) return null;
+  for (const group of groups) {
+    if (!Array.isArray(group)) continue;
+    const matchers = group
+      .filter((p): p is string => typeof p === 'string')
+      .map((p) => new RegExp(`^${p.split('*').map((s) => s.replace(/[.+?^${}()|[\]\\/]/g, '\\$&')).join('.*')}$`));
+    if (matchers.some((m) => m.test(pkgName))) return matchers;
+  }
+  return null;
+}
+
+function warn(message: string): void {
+  process.stderr.write(`[semver-checks] warning: ${message}\n`);
 }
 
 // A release type as YAML would hand it back: an inline comment removed, and one
