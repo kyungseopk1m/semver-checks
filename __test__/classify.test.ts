@@ -113,6 +113,29 @@ describe('function parameter changes', () => {
     expect(report.recommended).toBe('major');
   });
 
+  it('reads a defaulted source parameter as the optional parameter its declaration says it is', () => {
+    // npm `.d.ts` against working-tree source: `message?: string` prints as
+    // `string | undefined`, `message = ''` as `string`. Both accept `undefined`.
+    const report = compareFixture('optional-param-default-vs-declaration');
+    const at = (p: string) => report.changes.filter((c) => c.symbolPath === p);
+    expect(at('box.message')).toHaveLength(0);
+    expect(at('box.title')).toHaveLength(0);
+    expect(at('Panel.render.width')).toHaveLength(0);
+    // The control cases still read as what they are.
+    expect(at('pick.value').map((c) => [c.kind, c.severity])).toEqual([['param-type-changed', 'major']]);
+    expect(at('grow.value').map((c) => [c.kind, c.severity])).toEqual([['param-type-widened', 'minor']]);
+    expect(report.recommended).toBe('major');
+  });
+
+  it('reads the optional parameters of a function exported as a const', () => {
+    const report = compareFixture('const-fn-optional-params');
+    const at = (p: string) => report.changes.filter((c) => c.symbolPath.startsWith(p)).map((c) => [c.kind, c.severity]);
+    expect(at('grow')).toEqual([['optional-param-added', 'minor']]);
+    expect(at('box')).toEqual([]);
+    expect(at('narrow.value')).toEqual([['param-type-changed', 'major']]);
+    expect(report.recommended).toBe('major');
+  });
+
   it('treats structurally equivalent param type as NO CHANGE (readonly T[] vs ReadonlyArray<T>)', () => {
     const report = compareFixture('param-type-equivalent');
     expect(report.changes.some((c) => c.kind === 'param-type-widened')).toBe(false);

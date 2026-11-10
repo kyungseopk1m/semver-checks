@@ -919,9 +919,15 @@ function compareFunctionSignature(
       // before variance probing runs. The shared type-parameter scope is also
       // handed to variance so bare generics (`T | undefined` vs `T`) resolve
       // against same-named declarations instead of bailing as undecidable.
+      // An optional parameter accepts `undefined` whether or not its text says
+      // so: a declaration file prints `message?: string` as `string | undefined`
+      // and source prints `message = ''` as `string`. Probing the bare texts
+      // reads that as a narrowing, so both sides get the `undefined` they take.
+      const bothOptional = oldP.isOptional && newP.isOptional;
+      const probeText = (t: string) => (bothOptional ? `(${t}) | undefined` : t);
       const relation = compareTypeText(
-        oldP.type.text,
-        renameTypeText(newP.type.text, tpRename),
+        probeText(oldP.type.text),
+        probeText(renameTypeText(newP.type.text, tpRename)),
         { typeParameters: oldContextTPs },
       );
       const equivalent = relation !== null && relation.oldToNew && relation.newToOld;

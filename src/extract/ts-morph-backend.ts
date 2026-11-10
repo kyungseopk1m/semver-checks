@@ -1027,7 +1027,10 @@ function convertFunctionType(name: string, type: Type, contextNode: Node): ApiFu
       return {
         name: p.getName(),
         type: serializeType(paramType, contextNode, (valueDecl as { getTypeNode?: () => Node | undefined } | undefined)?.getTypeNode?.()),
-        isOptional: p.isOptional(),
+        // The symbol's Optional flag is set for a `?` property, never for a
+        // parameter, so `(a?: string) => void` read as required. The declaration
+        // knows: a `?`, a default, or a rest all make the argument optional.
+        isOptional: (valueDecl as { isOptional?: () => boolean } | undefined)?.isOptional?.() ?? p.isOptional(),
         isRest,
       };
     }),
