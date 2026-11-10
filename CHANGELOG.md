@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+
+- **An optional parameter of a function exported as a `const` is read as optional.** `export declare const f: (a?: string) => void`, the form a bundler emits for a function, had every parameter read as required, so adding an optional one reported a proven `required-param-added` MAJOR and failed `--strict`, comparing two published versions as much as a working tree.
+- **A defaulted parameter in source no longer reads as narrowed against its published declaration.** `message = ''` prints as `string` and the `.d.ts` that `tsc` emits for it, `message?: string`, as `string | undefined`, so comparing `your-package@latest` with the working tree, the setup the README recommends, reported every such parameter as a proven MAJOR and failed `--strict`. Both sides of an optional parameter are now compared with the `undefined` they accept. On `@clack/prompts` source compared with 1.8.1, together with the fix above, proven findings went from 14 to the 5 that comparing the two published versions reports.
+- **`declared: auto` reads a package in a changesets `fixed` or `linked` group at the bump the group gives it.** A `fixed` member is released at the group's highest bump with or without a changeset of its own, and a `linked` member that has one is raised to the highest among them. Reading only the package's own changesets understated the release and failed the gate on a declaration that was right.
+- **A changeset this reader cannot parse is named on stderr.** A flow-style map (`{ "pkg": major }`) used to read as no declaration, which fell back to the `package.json` versions and failed the gate without saying why.
+
+### Docs
+
+- **Known limitations names the TypeScript version the analysis runs on.** An `exports` entry that picks declarations by compiler version (`types@>=7.0`) is resolved as TypeScript 6.0.2, the compiler ts-morph bundles, would resolve it.
+
 ## [0.17.0] - 2026-11-06
 
 ### Added
