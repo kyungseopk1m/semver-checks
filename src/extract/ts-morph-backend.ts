@@ -993,12 +993,32 @@ function convertTypeParams(node: Node): ApiTypeParameter[] {
 // These nodes expose the same parameter / return / type-parameter accessors as
 // function declarations but are not covered by convertFunctionSignatures' node
 // guards (and must not force the constructor's `void` return).
+// Whether a call may leave this argument out, which is what TypeScript decides:
+// a `?` or a rest always can, and a default can only when no required parameter
+// follows it. `(x = 1, y: string)` still needs something in `x`'s place, and its
+// declaration file says `x: number | undefined`, not `x?: number`.
+// Duck-typed because these nodes reach here from three different paths.
+type ParamLike = {
+  hasQuestionToken?: () => boolean;
+  isRestParameter?: () => boolean;
+  hasInitializer?: () => boolean;
+  getParentOrThrow?: () => Node;
+};
+function paramIsOptional(param: ParamLike | undefined): boolean | undefined {
+  if (!param?.hasQuestionToken || !param.isRestParameter || !param.hasInitializer) return undefined;
+  if (param.hasQuestionToken() || param.isRestParameter()) return true;
+  if (!param.hasInitializer()) return false;
+  const siblings = ((param.getParentOrThrow?.() as { getParameters?: () => ParamLike[] } | undefined)?.getParameters?.() ?? []);
+  const later = siblings.slice(siblings.indexOf(param) + 1);
+  return later.every((p) => !!(p.hasQuestionToken?.() || p.isRestParameter?.() || p.hasInitializer?.()));
+}
+
 function convertSignatureFromNode(node: Node): ApiFunctionSignature {
   const n = node as any;
   const params: ApiParameter[] = (n.getParameters?.() ?? []).map((p: any) => ({
     name: p.getName(),
     type: serializeType(p.getType(), node, p.getTypeNode?.()),
-    isOptional: p.isOptional?.() ?? false,
+    isOptional: paramIsOptional(p) ?? p.isOptional?.() ?? false,
     isRest: p.isRestParameter?.() ?? false,
   }));
   const returnNode = n.getReturnTypeNode?.();
@@ -1029,8 +1049,8 @@ function convertFunctionType(name: string, type: Type, contextNode: Node): ApiFu
         type: serializeType(paramType, contextNode, (valueDecl as { getTypeNode?: () => Node | undefined } | undefined)?.getTypeNode?.()),
         // The symbol's Optional flag is set for a `?` property, never for a
         // parameter, so `(a?: string) => void` read as required. The declaration
-        // knows: a `?`, a default, or a rest all make the argument optional.
-        isOptional: (valueDecl as { isOptional?: () => boolean } | undefined)?.isOptional?.() ?? p.isOptional(),
+        // says what a call may leave out.
+        isOptional: paramIsOptional(valueDecl as ParamLike | undefined) ?? p.isOptional(),
         isRest,
       };
     }),
@@ -1075,7 +1095,7 @@ function convertFunctionSignatures(node: Node): ApiFunctionSignature[] {
   const params: ApiParameter[] = node.getParameters().map((p) => ({
     name: p.getName(),
     type: serializeType(p.getType(), node, p.getTypeNode()),
-    isOptional: p.isOptional(),
+    isOptional: paramIsOptional(p) ?? p.isOptional(),
     isRest: p.isRestParameter(),
   }));
 

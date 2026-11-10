@@ -136,6 +136,11 @@ describe('function parameter changes', () => {
     expect(report.recommended).toBe('major');
   });
 
+  it('reads a default ahead of a required parameter as required, the way TypeScript does', () => {
+    const report = compareFixture('default-before-required');
+    expect(report.changes.filter((c) => c.severity === 'major')).toEqual([]);
+  });
+
   it('treats structurally equivalent param type as NO CHANGE (readonly T[] vs ReadonlyArray<T>)', () => {
     const report = compareFixture('param-type-equivalent');
     expect(report.changes.some((c) => c.kind === 'param-type-widened')).toBe(false);
